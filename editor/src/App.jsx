@@ -1,5 +1,5 @@
 import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownToLine, ArrowUpFromLine, Check, ChevronDown, Code2, FileImage, HelpCircle, LoaderCircle, Maximize2, Minimize2, Monitor, PanelRightClose, PanelRightOpen, Plus, RotateCcw, Settings2, ShieldCheck, Smartphone, X } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, Check, ChevronDown, Code2, FileImage, HelpCircle, LoaderCircle, Maximize2, Minimize2, Monitor, Plus, RotateCcw, Settings2, ShieldCheck, Smartphone, X } from 'lucide-react';
 import { generateProject, getDefaults, parseProject } from '@trafficops/template-runtime';
 import { byteSize, createZip, downloadFile, isTemplate, isText, LIMITS, projectFolders, renameFile, safePath, validateFolders, validateProject } from './project.js';
 import { buildPreview } from './preview.js';
@@ -28,8 +28,8 @@ function TourDialog({ onClose }) {
   return <dialog ref={nativeDialog} className="modal" aria-labelledby="tour-title" onCancel={onClose}><div className="modal-box tour-modal"><div className="dialog-heading"><div><span className="section-kicker">QUICK START</span><h2 id="tour-title">From template to finished pages</h2></div><button type="button" className="btn btn-ghost btn-sm btn-square" aria-label="Close quick start" onClick={onClose}><X size={18} /></button></div><ol className="tour-steps"><li><span>1</span><div><strong>Add your project</strong><p>Open a ZIP, create files and folders, or drop assets into Project files.</p></div></li><li><span>2</span><div><strong>Build the template</strong><p>Edit TPL, CSS, and other source files. Changes in Customize update the preview live.</p></div></li><li><span>3</span><div><strong>Choose images</strong><p>Image parameters can use existing project assets or files dropped from your computer.</p></div></li><li><span>4</span><div><strong>Take it with you</strong><p>Download generated pages, and save the template ZIP before closing the browser.</p></div></li></ol><div className="tour-note"><ShieldCheck size={16} /><span>Everything runs locally in this browser. Your files are not uploaded.</span></div><div className="modal-action"><a className="btn btn-ghost" href="https://trafficops-io.github.io/tops-templates/" target="_blank" rel="noreferrer">Read full docs ↗</a><button type="button" className="btn btn-primary" onClick={onClose}>Start creating</button></div></div><button type="button" className="modal-backdrop" aria-label="Close quick start" onClick={onClose} /></dialog>;
 }
 
-function PreviewPanel({ ready, mobile, onMobileChange, shownPage, pageNames, onPageChange, preview, error, asTab = false }) {
-  return <section id="preview-panel" className={`preview-panel ${asTab ? 'preview-panel-tab' : ''}`} role={asTab ? 'tabpanel' : undefined} aria-labelledby={asTab ? 'preview-tab' : undefined}>
+function PreviewPanel({ ready, mobile, onMobileChange, shownPage, pageNames, onPageChange, preview, error }) {
+  return <section id="preview-panel" className="preview-panel" aria-label="Live preview">
     <div className="preview-toolbar"><div className="preview-label"><span className={ready ? 'status-dot' : 'status-dot pending'} /><span>LIVE PREVIEW</span></div><div className="device-tabs" aria-label="Preview size"><button title="Desktop preview" aria-label="Desktop preview" aria-pressed={!mobile} className={!mobile ? 'selected' : ''} onClick={() => onMobileChange(false)}><Monitor size={16} /></button><button title="Mobile preview" aria-label="Mobile preview" aria-pressed={mobile} className={mobile ? 'selected' : ''} onClick={() => onMobileChange(true)}><Smartphone size={15} /></button></div><label className="page-select"><select aria-label="Preview page" value={shownPage || ''} disabled={!pageNames.length} onChange={event => onPageChange(event.target.value)}>{pageNames.length ? pageNames.map(name => <option key={name}>{name}</option>) : <option value="">No pages</option>}</select><ChevronDown size={12} /></label></div>
     <div className={`preview-stage ${mobile ? 'mobile-preview' : ''}`}>{preview ? <div className="browser-frame"><div className="browser-chrome"><span /><span /><span /><div>{shownPage}</div><ShieldCheck size={12} /></div><iframe title="Generated page preview" srcDoc={preview} sandbox="" referrerPolicy="no-referrer" /></div> : <div className="empty-preview"><Code2 size={30} /><h3>A page is taking shape.</h3><p>{error || 'Add a .tpl file with an @layout block to get started.'}</p></div>}</div>
     <div className="preview-bottom"><span><ShieldCheck size={13} /> Static preview · local assets only</span><span>{pageNames.length} {pageNames.length === 1 ? 'page' : 'pages'}</span></div>
@@ -45,7 +45,7 @@ export default function App() {
   const [tab, setTab] = useState('settings');
   const [previewPage, setPreviewPage] = useState('index.html');
   const [workspaceExpanded, setWorkspaceExpanded] = useState(false);
-  const [filesCollapsed, setFilesCollapsed] = useState(false);
+  const [filesCollapsed, setFilesCollapsed] = useState(true);
   const [expandedPreviewVisible, setExpandedPreviewVisible] = useState(true);
   const [mobile, setMobile] = useState(false);
   const [preview, setPreview] = useState('');
@@ -55,7 +55,7 @@ export default function App() {
   const [dialog, setDialog] = useState(null);
   const [dirty, setDirty] = useState(false);
   const [help, setHelp] = useState(false);
-  const archiveInput = useRef(null), dataInput = useRef(null), importWorker = useRef(null);
+  const archiveInput = useRef(null), dataInput = useRef(null), importWorker = useRef(null), compactTab = useRef('settings');
   const deferredFiles = useDeferredValue(files);
   const parsed = useMemo(() => { try { return { project: parseProject(deferredFiles) }; } catch (cause) { return { error: message(cause) }; } }, [deferredFiles]);
   const definition = parsed.project?.definition;
@@ -87,6 +87,12 @@ export default function App() {
   }, [dirty]);
   useEffect(() => { if (!notice) return; const timeout = setTimeout(() => setNotice(''), 5000); return () => clearTimeout(timeout); }, [notice]);
   useEffect(() => () => importWorker.current?.terminate(), []);
+  useEffect(() => {
+    if (!workspaceExpanded) return undefined;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
+  }, [workspaceExpanded]);
 
   function replaceProject(next, nextFolders = []) {
     setFiles(next); setActive(Object.keys(next).find(name => isTemplate(name)) || Object.keys(next)[0]);
@@ -222,24 +228,30 @@ export default function App() {
   }
 
   function toggleWorkspace() {
-    if (!workspaceExpanded && tab === 'preview') setTab('settings');
+    if (!workspaceExpanded) {
+      compactTab.current = tab;
+      setTab('code');
+      setExpandedPreviewVisible(true);
+    } else {
+      setTab(compactTab.current);
+    }
     setWorkspaceExpanded(expanded => !expanded);
   }
 
   return <div className={`studio ${workspaceExpanded ? 'workspace-expanded' : ''}`}>
     <header className="topbar"><div className="topbar-inner"><a className="brand" href="https://github.com/trafficops-io/tops-templates" target="_blank" rel="noreferrer" aria-label="TrafficOps Templates on GitHub"><img src="/favicon.svg" alt="" /><span className="brand-wordmark">Traffic<span>Ops</span></span></a><span className="brand-divider" /><span className="product-name">Template Studio</span><span className="badge badge-outline version">BETA</span><div className="topbar-right"><span className="privacy"><ShieldCheck size={15} /> Local by design</span><button className="btn btn-ghost btn-sm quick-start-button" aria-label="Open quick start guide" onClick={() => setHelp(true)}><HelpCircle size={16} /> Quick start</button><a className="docs-link" href="https://trafficops-io.github.io/tops-templates/" target="_blank" rel="noreferrer">Docs ↗</a></div></div></header>
     <main className="workspace">
-      <div className="workspace-heading"><div className="workspace-intro"><div className="eyebrow"><span /> TEMPLATE STUDIO / LOCAL-FIRST</div><h1>A little code.<br /><span>A lot of possibility.</span></h1><p>Shape your template, preview every change, and take the result anywhere.</p></div><div className="project-actions"><button className="btn btn-ghost btn-sm expand-workspace-button" aria-pressed={workspaceExpanded} onClick={toggleWorkspace}>{workspaceExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}{workspaceExpanded ? 'Exit expanded view' : 'Expand editor'}</button>{workspaceExpanded && <button className="btn btn-ghost btn-sm" aria-controls="preview-panel" aria-expanded={expandedPreviewVisible} onClick={() => setExpandedPreviewVisible(visible => !visible)}>{expandedPreviewVisible ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}{expandedPreviewVisible ? 'Hide preview' : 'Show preview'}</button>}<button className="btn btn-ghost btn-sm" onClick={() => setDialog('reset')}><Plus size={16} /> New project</button><button className="btn btn-outline btn-sm" disabled={busy} onClick={() => archiveInput.current?.click()}>{busy ? <LoaderCircle size={16} className="spin" /> : <ArrowUpFromLine size={16} />} Open ZIP</button></div></div>
+      <div className="workspace-heading"><div className="workspace-intro"><div className="eyebrow"><span /> TEMPLATE STUDIO / LOCAL-FIRST</div><h1>A little code.<br /><span>A lot of possibility.</span></h1><p>Shape your template, preview every change, and take the result anywhere.</p></div><div className="project-actions"><button className="btn btn-ghost btn-sm expand-workspace-button" onClick={toggleWorkspace}><Maximize2 size={16} /> Expand editor</button><button className="btn btn-ghost btn-sm" onClick={() => setDialog('reset')}><Plus size={16} /> New project</button><button className="btn btn-outline btn-sm" disabled={busy} onClick={() => archiveInput.current?.click()}>{busy ? <LoaderCircle size={16} className="spin" /> : <ArrowUpFromLine size={16} />} Open ZIP</button></div></div>
       {error && <div role="alert" className="error-banner"><span>{error}</span><button className="btn btn-ghost btn-xs btn-square" aria-label="Dismiss error" onClick={() => setError('')}><X size={16} /></button></div>}
       <div className={`editor-shell ${workspaceExpanded ? 'is-expanded' : 'is-compact'} ${filesCollapsed ? 'files-collapsed' : ''} ${workspaceExpanded && !expandedPreviewVisible ? 'preview-collapsed' : ''}`}>
         <ProjectSidebar files={files} folders={folders} active={active} isCollapsed={filesCollapsed} onToggleCollapsed={() => setFilesCollapsed(collapsed => !collapsed)} onSelect={name => { setActive(name); if (!isTemplate(name)) setTab('code'); }} onCreate={kind => setDialog(kind === 'folder' ? 'add-folder' : 'add-file')} onRename={() => setDialog('rename')} onDelete={() => setDialog('remove')} onMove={moveEntry} onUpload={addUploadedFiles} onExport={() => exportZip(true)} />
-        <section className={`author-panel ${tab === 'preview' ? 'showing-preview' : ''}`}><div className="author-tabs" role="tablist" aria-label="Authoring mode"><button id="settings-tab" role="tab" aria-controls="author-content" aria-selected={tab === 'settings'} className={tab === 'settings' ? 'selected' : ''} onClick={() => setTab('settings')}><Settings2 size={15} /> Customize</button><button id="code-tab" role="tab" aria-controls="author-content" aria-selected={tab === 'code'} className={tab === 'code' ? 'selected' : ''} onClick={() => setTab('code')}><Code2 size={15} /> Source code</button>{!workspaceExpanded && <button id="preview-tab" role="tab" aria-controls="preview-panel" aria-selected={tab === 'preview'} className={tab === 'preview' ? 'selected' : ''} onClick={() => setTab('preview')}><Monitor size={15} /> Preview <span className={ready ? 'status-dot' : 'status-dot pending'} /></button>}</div>
-          {tab === 'preview' && !workspaceExpanded ? <PreviewPanel ready={ready} mobile={mobile} onMobileChange={setMobile} shownPage={shownPage} pageNames={pageNames} onPageChange={setPreviewPage} preview={preview} error={generated.error} asTab /> : <div id="author-content" role="tabpanel" aria-labelledby={`${tab}-tab`} className={`author-content ${tab === 'code' ? 'source-content' : ''}`}>
+        <section className="author-panel"><div className="author-tabs"><div className="author-tab-list" role="tablist" aria-label="Authoring mode"><button id="settings-tab" role="tab" aria-controls="author-content" aria-selected={tab === 'settings'} className={tab === 'settings' ? 'selected' : ''} onClick={() => setTab('settings')}><Settings2 size={15} /> Customize</button><button id="code-tab" role="tab" aria-controls="author-content" aria-selected={tab === 'code'} className={tab === 'code' ? 'selected' : ''} onClick={() => setTab('code')}><Code2 size={15} /> Source code</button></div>{workspaceExpanded && <button type="button" className="exit-expanded-button" aria-label="Exit expanded view" onClick={toggleWorkspace}><Minimize2 size={15} /> Exit</button>}</div>
+          <div id="author-content" role="tabpanel" aria-labelledby={`${tab}-tab`} className={`author-content ${tab === 'code' ? 'source-content' : ''}`}>
             {tab === 'settings' ? <><div className="settings-intro"><div className="section-kicker">MAKE IT YOURS</div><h2>{definition?.name || 'Template settings'}</h2><p>{definition?.description || 'Your template’s parameters become the controls below.'}</p></div>{generated.error && <div role="alert" className="validation-error"><strong>{parsed.error ? 'Check your template' : 'Check your settings'}</strong><p>{generated.error}</p></div>}{definition && <ParameterForm definition={definition} values={values} projectImages={names.filter(name => /\.(?:avif|gif|jpe?g|png|svg|webp)$/i.test(name))} onImageUpload={uploadImage} onChange={next => { setOverrides(next); setDirty(true); }} />}<div className="settings-actions"><button className="btn btn-ghost btn-xs" onClick={() => { setOverrides({}); setDirty(true); }}><RotateCcw size={12} /> Reset defaults</button><button className="btn btn-ghost btn-xs" onClick={() => dataInput.current?.click()}>Load JSON</button><button className="btn btn-ghost btn-xs" disabled={!definition} onClick={() => downloadFile('trafficops-data.json', JSON.stringify(values, null, 2), 'application/json')}>Save JSON</button></div></>
-              : <>{typeof activeValue === 'string' ? <Suspense fallback={<div className="empty-state"><LoaderCircle size={20} className="spin" /><p>Opening editor…</p></div>}><CodeEditor key={active} path={active} value={activeValue} files={files} onChange={editSource} onError={setError} reveal={reveal?.path === active ? reveal : null} onOpenFile={(path, selection) => { setActive(path); setTab('code'); setReveal({ path, selection }); }} /></Suspense> : <div className="empty-state"><FileImage size={36} /><h3>Asset included</h3><p>This file is preserved in your ZIP.<br />Reference it by its relative path.</p><code>{active}</code><span>{Math.ceil(byteSize(activeValue) / 1024)} KiB</span></div>}</>}
-          </div>}
+              : <>{typeof activeValue === 'string' ? <Suspense fallback={<div className="empty-state"><LoaderCircle size={20} className="spin" /><p>Opening editor…</p></div>}><CodeEditor key={active} path={active} value={activeValue} files={files} onChange={editSource} onError={setError} reveal={reveal?.path === active ? reveal : null} onOpenFile={(path, selection) => { setActive(path); setTab('code'); setReveal({ path, selection }); }} previewVisible={expandedPreviewVisible} onTogglePreview={workspaceExpanded ? () => setExpandedPreviewVisible(visible => !visible) : undefined} /></Suspense> : <div className="empty-state"><FileImage size={36} /><h3>Asset included</h3><p>This file is preserved in your ZIP.<br />Reference it by its relative path.</p><code>{active}</code><span>{Math.ceil(byteSize(activeValue) / 1024)} KiB</span></div>}</>}
+          </div>
         </section>
-        {workspaceExpanded && expandedPreviewVisible && <PreviewPanel ready={ready} mobile={mobile} onMobileChange={setMobile} shownPage={shownPage} pageNames={pageNames} onPageChange={setPreviewPage} preview={preview} error={generated.error} />}
+        {(!workspaceExpanded || expandedPreviewVisible) && <PreviewPanel ready={ready} mobile={mobile} onMobileChange={setMobile} shownPage={shownPage} pageNames={pageNames} onPageChange={setPreviewPage} preview={preview} error={generated.error} />}
       </div>
       <div className="workspace-footer"><div className="workspace-status"><span className={`status-dot ${dirty ? 'pending' : ''}`} /><span>{dirty ? 'Unsaved session · download to keep your work' : 'Ready to make something yours'}</span></div><button className="btn btn-primary generate-button" disabled={!ready || busy} onClick={() => exportZip(false)}><ArrowDownToLine size={16} /> Download pages <span className="button-detail">.zip</span></button></div>
     </main>

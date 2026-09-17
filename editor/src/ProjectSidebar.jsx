@@ -51,6 +51,19 @@ function TreeNode({ node, depth, active, collapsed, onToggle, onSelect, onMove, 
   </>;
 }
 
+function CollapsedTree({ node, depth = 0, active, onSelect, onExpand }) {
+  const folders = [...node.folders.values()].sort((a, b) => a.name.localeCompare(b.name));
+  return <>
+    {folders.map(folder => <div className="collapsed-tree-group" key={folder.path}>
+      <button type="button" className="collapsed-file-button" style={{ '--tree-depth': depth }} title={folder.path} aria-label={`Open project files at ${folder.path}`} onClick={onExpand}><Folder size={17} /></button>
+      <CollapsedTree node={folder} depth={depth + 1} active={active} onSelect={onSelect} onExpand={onExpand} />
+    </div>)}
+    {node.files.map(file => <button type="button" className={`collapsed-file-button ${file.path === active ? 'active' : ''}`} style={{ '--tree-depth': depth }} title={file.path} aria-label={`Open ${file.path}`} key={file.path} onClick={() => onSelect(file.path)}>
+      {IMAGE_FILE.test(file.path) ? <FileImage size={17} /> : <FileCode2 size={17} />}
+    </button>)}
+  </>;
+}
+
 export default function ProjectSidebar({ files, folders, active, isCollapsed, onToggleCollapsed, onSelect, onCreate, onRename, onDelete, onMove, onUpload, onExport }) {
   const [collapsed, setCollapsed] = useState(new Set());
   const [menuOpen, setMenuOpen] = useState(false);
@@ -62,7 +75,10 @@ export default function ProjectSidebar({ files, folders, active, isCollapsed, on
   const handleMove = (payload, target) => { if (!payload) return; try { onMove(JSON.parse(payload), target); } catch { /* malformed browser drag data */ } };
   return <aside className={`file-sidebar ${isCollapsed ? 'is-collapsed' : ''}`} aria-label="Project files panel">
     <div className="panel-heading"><span title={isCollapsed ? 'Project files' : undefined}><Files size={15} /><span className="panel-heading-label">PROJECT FILES</span></span><div className="sidebar-heading-actions">{!isCollapsed && <div className="create-menu"><button type="button" className="btn btn-ghost btn-xs btn-square" aria-label="Create file or folder" aria-expanded={menuOpen} onClick={() => setMenuOpen(open => !open)}><Plus size={15} /></button>{menuOpen && <div className="create-popover"><button type="button" onClick={() => { setMenuOpen(false); onCreate('file'); }}><FilePlus2 size={14} /> New file</button><button type="button" onClick={() => { setMenuOpen(false); onCreate('folder'); }}><FolderPlus size={14} /> New folder</button></div>}</div>}<button type="button" className="btn btn-ghost btn-xs btn-square sidebar-collapse" aria-label={isCollapsed ? 'Expand project files' : 'Collapse project files'} aria-expanded={!isCollapsed} onClick={onToggleCollapsed}>{isCollapsed ? <PanelLeftOpen size={15} /> : <PanelLeftClose size={15} />}</button></div></div>
-    {!isCollapsed && <>
+    {isCollapsed ? <nav className="collapsed-file-tree" aria-label="Project file shortcuts">
+      <button type="button" className="collapsed-file-button project-root-button" title="my-template" aria-label="Expand my-template project files" onClick={onToggleCollapsed}><FolderOpen size={17} /></button>
+      <CollapsedTree node={tree} active={active} onSelect={onSelect} onExpand={onToggleCollapsed} />
+    </nav> : <>
       <div className={`project-folder ${dropTarget === '' ? 'drop-target' : ''}`} onDragOver={event => { event.preventDefault(); setDropTarget(''); }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget)) setDropTarget(null); }} onDrop={event => { event.preventDefault(); setDropTarget(null); event.dataTransfer.files.length ? onUpload(event.dataTransfer.files, '') : handleMove(event.dataTransfer.getData('application/x-project-entry'), ''); }}><FolderOpen size={15} /><span>my-template</span><span className="count">{Object.keys(files).length}</span></div>
       <nav className="file-tree" aria-label="Project files"><TreeNode node={tree} depth={0} active={active} collapsed={collapsed} onToggle={toggle} onSelect={onSelect} onMove={handleMove} onUpload={onUpload} dropTarget={dropTarget} setDropTarget={setDropTarget} /></nav>
       <div className="file-actions"><button className="btn btn-ghost btn-xs" disabled={!active} onClick={onRename}><Pencil size={12} /> Rename</button><button className="btn btn-ghost btn-xs" disabled={!active} onClick={onDelete}><Trash2 size={12} /> Delete</button></div>

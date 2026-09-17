@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import * as monaco from 'monaco-editor/editor/editor.api.js';
 import './monaco-setup.js';
-import { WandSparkles } from 'lucide-react';
+import { PanelRightClose, PanelRightOpen, WandSparkles } from 'lucide-react';
 import 'monaco-editor/languages/definitions/html/register.js';
 import 'monaco-editor/languages/definitions/css/register.js';
 import 'monaco-editor/languages/definitions/javascript/register.js';
@@ -35,7 +35,7 @@ monaco.editor.defineTheme('trafficops', {
   colors: { 'editor.background': '#211E1C', 'editor.foreground': '#F7F0EB', 'editorLineNumber.foreground': '#6F645E', 'editorLineNumber.activeForeground': '#B7AAA2', 'editor.lineHighlightBackground': '#2A2523', 'editor.selectionBackground': '#5B3833', 'editorCursor.foreground': '#FF8068', 'editorIndentGuide.background1': '#332E2B', 'editorIndentGuide.activeBackground1': '#5A4D47' },
 });
 
-export default function CodeEditor({ path, value, files, onChange, onOpenFile, reveal, onError }) {
+export default function CodeEditor({ path, value, files, onChange, onOpenFile, reveal, onError, previewVisible, onTogglePreview }) {
   const container = useRef(null), editor = useRef(null), change = useRef(onChange);
   change.current = onChange;
   const sources = useRef(files), openFile = useRef(onOpenFile);
@@ -80,6 +80,6 @@ export default function CodeEditor({ path, value, files, onChange, onOpenFile, r
     catch (error) { onError?.(error instanceof Error ? error.message : String(error)); }
   }
   const canFormat = ['trafficops-tpl', 'html', 'css', 'javascript', 'json'].includes(languageFor(path));
-  return <><div className="source-heading"><span>{path}</span><div className="source-tools">{canFormat && <button className="btn btn-ghost btn-xs" title="Format document (Shift+Alt+F)" onClick={format}><WandSparkles size={13} /> Format</button>}<span>UTF-8</span></div></div><div ref={container} className="code-editor" /></>;
+  return <><div className="source-heading"><span>{path}</span><div className="source-tools">{canFormat && <button className="btn btn-ghost btn-xs" title="Format document (Shift+Alt+F)" onClick={format}><WandSparkles size={13} /> Format</button>}{onTogglePreview && <button className="btn btn-ghost btn-xs preview-toggle-button" aria-controls="preview-panel" aria-expanded={previewVisible} onClick={onTogglePreview}>{previewVisible ? <PanelRightClose size={13} /> : <PanelRightOpen size={13} />}{previewVisible ? 'Hide preview' : 'Show preview'}</button>}<span>UTF-8</span></div></div><div ref={container} className="code-editor" /></>;
 
 }
