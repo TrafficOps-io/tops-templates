@@ -6,4 +6,5 @@
 - Publish PHP APIs under `TrafficOps\TemplateDsl` and `trafficops/template-dsl`.
 - Add a shared JavaScript runtime, Commander/Ink CLI and browser-only Monaco editor.
 - Add installable template authoring/integration skills and language documentation.
+- Add TPL syntax highlighting and a preview toggle that expands the browser code editor.
 - Add reproducible CI artifacts, registry release workflows and Netlify deployment configuration.

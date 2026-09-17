@@ -34,6 +34,8 @@ node tops-cli/dist/cli.js --template ./examples/campaign --data ./examples/campa
 
 ## Edit in the browser
 
+[Open Template Studio](https://trafficops-templates.netlify.app), or run locally:
+
 ```sh
 npm ci
 npm run dev

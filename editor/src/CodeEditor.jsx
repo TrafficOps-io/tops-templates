@@ -8,11 +8,24 @@ import 'monaco-editor/languages/definitions/xml/register.js';
 import 'monaco-editor/languages/definitions/yaml/register.js';
 import EditorWorker from 'monaco-editor/editor/editor.worker.js?worker';
 import { languageFor } from './project.js';
+import { language as cssLanguage } from 'monaco-editor/languages/definitions/css/css.js';
+import { language as javascriptLanguage } from 'monaco-editor/languages/definitions/javascript/javascript.js';
+import { registerTplLanguage } from './tpl-language.js';
+
+registerTplLanguage(monaco, { css: cssLanguage, javascript: javascriptLanguage });
 
 self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
 monaco.editor.defineTheme('trafficops', {
   base: 'vs', inherit: true,
-  rules: [{ token: 'comment', foreground: '766E69' }, { token: 'string', foreground: '537559' }, { token: 'tag', foreground: 'A64734' }],
+  rules: [
+    { token: 'comment', foreground: '766E69' }, { token: 'string', foreground: '537559' }, { token: 'tag', foreground: 'A64734' },
+    { token: 'keyword.directive.tpl', foreground: 'A64734', fontStyle: 'bold' },
+    { token: 'type.identifier.tpl', foreground: '7B4D91' }, { token: 'entity.name.function.tpl', foreground: '79552E' },
+    { token: 'variable.tpl', foreground: '315E83' }, { token: 'variable.predefined.tpl', foreground: '315E83' },
+    { token: 'delimiter.template', foreground: 'A64734' },
+    { token: 'attribute.name.tpl', foreground: '79552E' }, { token: 'metatag.tpl', foreground: '766E69' },
+    { token: 'number.tpl', foreground: '537559' }, { token: 'keyword.tpl', foreground: '7B4D91' },
+  ],
   colors: { 'editor.background': '#FFFDFB', 'editor.foreground': '#241F1D', 'editorLineNumber.foreground': '#9A8E85', 'editor.lineHighlightBackground': '#FBF7F2', 'editor.selectionBackground': '#F6D7C9', 'editorCursor.foreground': '#E75D45' },
 });
 

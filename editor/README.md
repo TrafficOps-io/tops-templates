@@ -2,6 +2,8 @@
 
 A static browser application for authoring TrafficOps templates and downloading generated pages. Built with React, Vite, Monaco Editor, Tailwind CSS and daisyUI. It uses the shared `@trafficops/template-runtime` workspace, so CLI and editor generation have the same behavior.
 
+[Open Template Studio](https://trafficops-templates.netlify.app).
+
 ## Run
 
 From the monorepo root, with Node.js 22 or later:
@@ -18,7 +20,7 @@ Vite writes the deployable static site to `editor/dist`. The root Netlify config
 ## Workflow
 
 1. Start with the included example, choose **New project**, or **Open ZIP** containing `.tpl` / `.tpl.html` pages and assets. A common enclosing directory is removed automatically.
-2. Select a file and edit it in **Source code**. Create files with paths such as `blocks/header.tpl` or `pages/about.tpl`. Renaming does not rewrite references; update includes and asset paths in your source.
+2. Select a file and edit it in **Source code**. TPL declarations, expressions and embedded HTML have syntax highlighting. Use **Hide preview** to expand the code editor; **Show preview** restores the preview without losing edits. Create files with paths such as `blocks/header.tpl` or `pages/about.tpl`. Renaming does not rewrite references; update includes and asset paths in your source.
 3. **Customize** builds labeled inputs from template declarations, including nested groups, repeaters, numbers, colors, choices and relative image paths. Load/save a settings JSON file to use the same values with the CLI.
 4. Choose a generated page and desktop/mobile preview. All `.tpl` pages with an `@layout` block are generated; files containing only declarations serve as includes.
 5. **Download pages** exports generated HTML plus unchanged assets. **Save template ZIP** exports the editable source project. Save settings separately with **Save JSON**.
