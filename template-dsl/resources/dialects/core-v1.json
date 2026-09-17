@@ -1,0 +1,186 @@
+{
+    "format": "ads-toolbox.template-dialect-profile",
+    "formatVersion": 1,
+    "id": "safe-html-v1",
+    "label": "Safe HTML v1",
+    "languageVersion": 1,
+    "implementation": {
+        "kind": "package",
+        "included": true,
+        "class": "TrafficOps\\TemplateDsl\\SafeTemplateDialect"
+    },
+    "trust": "untrusted-authors",
+    "selection": "host-only",
+    "paths": {
+        "relativeOnly": true,
+        "executableSourceExtensions": false,
+        "entrypoints": [
+            "index.html"
+        ],
+        "pageExtensions": [
+            ".html"
+        ]
+    },
+    "directives": {
+        "common": [
+            "template",
+            "previewData",
+            "endpreviewData",
+            "section",
+            "endsection",
+            "param",
+            "type",
+            "endtype",
+            "block",
+            "endblock",
+            "layout",
+            "endlayout",
+            "each",
+            "endeach",
+            "if",
+            "endif",
+            "render",
+            "include"
+        ],
+        "dialect": []
+    },
+    "runtime": {
+        "strategy": "TrafficOps\\TemplateDsl\\SafeRuntimeStrategy",
+        "processing": "package-render",
+        "tokens": [
+            "{query.name}",
+            "{locale}",
+            "{actions.name}"
+        ],
+        "contextKeys": [
+            "query",
+            "locale",
+            "actions"
+        ],
+        "tokenSources": [
+            "author-source"
+        ],
+        "wildcards": false,
+        "singlePass": true,
+        "limits": {
+            "tokensPerSource": 1000,
+            "entriesPerMap": 100,
+            "scalarValueBytes": 2048
+        }
+    },
+    "execution": {
+        "phpSource": false,
+        "phpOutput": false,
+        "bladeSource": false,
+        "requestValidation": false
+    },
+    "requestValidation": null,
+    "coreBudgets": {
+        "sourcePageCount": 100,
+        "sourceExpansionBytes": 2097152,
+        "sourceExpansionLines": 20000,
+        "includeDepth": 10,
+        "expandedMarkupBytes": 2097152,
+        "definitionJsonBytes": 8388608,
+        "additionalOutputPages": 100,
+        "pageOrPartialBytes": 2097152,
+        "combinedPageAndPartialBytes": 4194304,
+        "sections": 50,
+        "fields": 200,
+        "fieldDepth": 6,
+        "selectOptions": 100,
+        "repeaterItems": 50,
+        "imageSizes": 10,
+        "imageDimensionPixels": 4096,
+        "partials": 50,
+        "partialChain": 16,
+        "blockAnnotations": 200,
+        "blockNesting": 20,
+        "blockCallDepth": 20,
+        "blockExpansionOperations": 50000,
+        "renderExpressions": 10000,
+        "renderSectionDepth": 24,
+        "definitionGraphOperations": 50000,
+        "settingValues": 10000,
+        "renderOperations": 200000,
+        "renderDepth": 64,
+        "renderedOutputBytes": 8388608,
+        "lowerHostCeilingsAllowed": [
+            "sourceExpansionBytes",
+            "expandedMarkupBytes",
+            "renderedOutputBytes"
+        ]
+    },
+    "coreBudgetScopes": {
+        "parser": {
+            "rootSourceFilesPerCall": 100,
+            "rawSourceBytesAcrossRootsAndIncludesPerCall": 2097152,
+            "preparedSourceBytesAcrossRootsAndIncludesPerCall": 2097152,
+            "sourceLinesAcrossRootsAndIncludesPerCall": 20000,
+            "tokensAfterDialectExtractionPerParse": 20000,
+            "includeDepthPerChain": 10,
+            "finishedParsedPageBytes": 2097152,
+            "finishedParsedPagesBytesPerParse": 2097152
+        },
+        "markupCompiler": {
+            "expandedMarkupBytesPerPage": 2097152,
+            "markupDirectiveNestingPerTree": 20,
+            "blockCallDepthPerPage": 20,
+            "blockExpansionOperationsPerPage": 50000
+        },
+        "definition": {
+            "serializedJsonBytesPerParse": 8388608,
+            "additionalOutputPagesPerDefinition": 100,
+            "sourceBytesPerPageOrPartial": 2097152,
+            "combinedPageAndPartialBytesPerDefinition": 4194304,
+            "sectionsPerDefinition": 50,
+            "fieldsAcrossDefinition": 200,
+            "fieldDepthPerTree": 6,
+            "selectOptionsPerField": 100,
+            "repeaterItemsPerValue": 50,
+            "imageSizesPerField": 10,
+            "imageDimensionPixelsPerSize": 4096,
+            "partialsPerDefinition": 50,
+            "blockAnnotationsPerDefinition": 200
+        },
+        "rendererCompilation": {
+            "preparedSourceBytesPerMainOrPartial": 2097152,
+            "nodeWorkAcrossMainAndAllPartialsPerPage": 10000,
+            "sectionNestingPerPage": 24,
+            "partialChainPerTraversal": 16,
+            "partialLinkOperationsPerPartialRoot": 50000,
+            "mainPartialLinkOperationsPerPage": 50000,
+            "bindingOperationsPerPage": 50000
+        },
+        "values": {
+            "normalizationOperationsPerPass": 10000
+        },
+        "rendering": {
+            "operationsPerPage": 200000,
+            "nestingPerPage": 64,
+            "outputBytesPerPage": 8388608,
+            "outputBytesAcrossRenderPagesCall": 8388608
+        },
+        "lowerHostCeilingGroups": {
+            "sourceExpansionBytes": [
+                "parser.rawSourceBytesAcrossRootsAndIncludesPerCall",
+                "parser.preparedSourceBytesAcrossRootsAndIncludesPerCall",
+                "parser.finishedParsedPageBytes",
+                "parser.finishedParsedPagesBytesPerParse"
+            ],
+            "expandedMarkupBytes": [
+                "markupCompiler.expandedMarkupBytesPerPage"
+            ],
+            "renderedOutputBytes": [
+                "rendering.outputBytesPerPage",
+                "rendering.outputBytesAcrossRenderPagesCall"
+            ]
+        }
+    },
+    "notes": [
+        "This is the package default.",
+        "The compact coreBudgets keys remain available to existing profile readers; coreBudgetScopes names each independent enforcement scope.",
+        "The profile is descriptive and cannot authorize or instantiate a dialect.",
+        "Whole-document HTML, CSS, asset and publication policy remains host-owned."
+    ]
+}

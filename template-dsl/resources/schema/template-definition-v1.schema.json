@@ -1,0 +1,480 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Template DSL normalized definition v1",
+    "description": "Portable structure returned by TemplateEngine::validateDefinition(). The PHP validator remains authoritative for byte, aggregate, uniqueness, value and dialect-specific constraints.",
+    "type": "object",
+    "required": [
+        "version",
+        "name",
+        "description",
+        "sections",
+        "html",
+        "partials"
+    ],
+    "properties": {
+        "version": {
+            "const": 1
+        },
+        "name": {
+            "$ref": "#/$defs/nonEmptyText200"
+        },
+        "description": {
+            "type": "string",
+            "maxLength": 2000
+        },
+        "sections": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+                "$ref": "#/$defs/section"
+            }
+        },
+        "html": {
+            "$ref": "#/$defs/pageSource"
+        },
+        "partials": {
+            "$ref": "#/$defs/partialsMap"
+        },
+        "entrypoint": {
+            "$ref": "#/$defs/relativePath"
+        },
+        "pages": {
+            "$ref": "#/$defs/pagesMap"
+        },
+        "source": {
+            "$ref": "#/$defs/relativePath"
+        },
+        "blocks": {
+            "$ref": "#/$defs/blocksMap"
+        },
+        "previewUrl": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 2048,
+            "pattern": "^[Hh][Tt][Tt][Pp][Ss]?://"
+        },
+        "previewData": {
+            "$ref": "#/$defs/objectOrEmptyPhpMap"
+        }
+    },
+    "dependentRequired": {
+        "entrypoint": [
+            "pages"
+        ],
+        "pages": [
+            "entrypoint"
+        ]
+    },
+    "additionalProperties": false,
+    "$defs": {
+        "identifier": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$"
+        },
+        "authorType": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Za-z0-9_]*(?:\\[\\])?$"
+        },
+        "relativePath": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*(?:^|/)\\.)(?!.*[\\\\:%?#\\x00-\\x20\\x7F]).+$",
+            "description": "A bounded relative path. The selected dialect performs the authoritative path and extension check."
+        },
+        "nonEmptyText200": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "\\S"
+        },
+        "nonEmptyText2000": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000,
+            "pattern": "\\S"
+        },
+        "pageSource": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2097152,
+            "pattern": "\\S"
+        },
+        "emptyPhpMap": {
+            "type": "array",
+            "maxItems": 0,
+            "description": "PHP associative arrays serialize as [] when empty; this is the empty encoding of an object-like map."
+        },
+        "objectOrEmptyPhpMap": {
+            "oneOf": [
+                {
+                    "type": "object"
+                },
+                {
+                    "$ref": "#/$defs/emptyPhpMap"
+                }
+            ]
+        },
+        "partialsMap": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "maxProperties": 50,
+                    "propertyNames": {
+                        "$ref": "#/$defs/identifier"
+                    },
+                    "additionalProperties": {
+                        "type": "string",
+                        "maxLength": 2097152
+                    }
+                },
+                {
+                    "$ref": "#/$defs/emptyPhpMap"
+                }
+            ]
+        },
+        "pagesMap": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "maxProperties": 100,
+                    "propertyNames": {
+                        "$ref": "#/$defs/relativePath"
+                    },
+                    "additionalProperties": {
+                        "$ref": "#/$defs/pageSource"
+                    }
+                },
+                {
+                    "$ref": "#/$defs/emptyPhpMap"
+                }
+            ]
+        },
+        "blocksMap": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "maxProperties": 200,
+                    "propertyNames": {
+                        "$ref": "#/$defs/identifier"
+                    },
+                    "additionalProperties": {
+                        "$ref": "#/$defs/blockAnnotation"
+                    }
+                },
+                {
+                    "$ref": "#/$defs/emptyPhpMap"
+                }
+            ]
+        },
+        "section": {
+            "type": "object",
+            "required": [
+                "id",
+                "label",
+                "fields"
+            ],
+            "properties": {
+                "id": {
+                    "$ref": "#/$defs/identifier"
+                },
+                "label": {
+                    "$ref": "#/$defs/nonEmptyText200"
+                },
+                "fields": {
+                    "$ref": "#/$defs/fieldList"
+                }
+            },
+            "additionalProperties": false
+        },
+        "fieldList": {
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+                "$ref": "#/$defs/field"
+            }
+        },
+        "field": {
+            "type": "object",
+            "required": [
+                "name",
+                "type",
+                "label",
+                "help",
+                "required"
+            ],
+            "properties": {
+                "name": {
+                    "$ref": "#/$defs/identifier"
+                },
+                "type": {
+                    "enum": [
+                        "text",
+                        "textarea",
+                        "wysiwyg",
+                        "markdown",
+                        "select",
+                        "color",
+                        "number",
+                        "range",
+                        "checkbox",
+                        "image",
+                        "url",
+                        "email",
+                        "group",
+                        "repeater"
+                    ]
+                },
+                "author_type": {
+                    "$ref": "#/$defs/authorType"
+                },
+                "label": {
+                    "type": "string",
+                    "maxLength": 200
+                },
+                "help": {
+                    "type": "string",
+                    "maxLength": 2000
+                },
+                "aiInstructions": {
+                    "type": "string",
+                    "maxLength": 10000
+                },
+                "required": {
+                    "type": "boolean"
+                },
+                "default": true,
+                "fields": {
+                    "$ref": "#/$defs/fieldList"
+                },
+                "options": {
+                    "oneOf": [
+                        {
+                            "type": "object",
+                            "minProperties": 1,
+                            "maxProperties": 100,
+                            "propertyNames": {
+                                "type": "string",
+                                "maxLength": 200
+                            },
+                            "additionalProperties": {
+                                "$ref": "#/$defs/nonEmptyText200"
+                            }
+                        },
+                        {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 100,
+                            "items": {
+                                "$ref": "#/$defs/nonEmptyText200"
+                            },
+                            "description": "Sequential numeric option keys serialize as a JSON array; each index remains the option value after associative decoding."
+                        }
+                    ]
+                },
+                "min": {
+                    "type": "number"
+                },
+                "max": {
+                    "type": "number"
+                },
+                "step": {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                },
+                "min_items": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 50
+                },
+                "max_items": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 50
+                },
+                "aspect_ratio": {
+                    "type": "number",
+                    "minimum": 0.01,
+                    "maximum": 100
+                },
+                "sizes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 10,
+                    "items": {
+                        "$ref": "#/$defs/imageSize"
+                    }
+                }
+            },
+            "allOf": [
+                {
+                    "if": {
+                        "properties": {
+                            "type": {
+                                "enum": [
+                                    "group",
+                                    "repeater"
+                                ]
+                            }
+                        },
+                        "required": [
+                            "type"
+                        ]
+                    },
+                    "then": {
+                        "properties": {
+                            "fields": true
+                        },
+                        "required": [
+                            "fields"
+                        ]
+                    }
+                },
+                {
+                    "if": {
+                        "properties": {
+                            "type": {
+                                "const": "repeater"
+                            }
+                        },
+                        "required": [
+                            "type"
+                        ]
+                    },
+                    "then": {
+                        "properties": {
+                            "min_items": true,
+                            "max_items": true
+                        },
+                        "required": [
+                            "min_items",
+                            "max_items"
+                        ],
+                        "description": "The runtime validator additionally requires min_items to be less than or equal to max_items."
+                    }
+                },
+                {
+                    "if": {
+                        "properties": {
+                            "type": {
+                                "const": "select"
+                            }
+                        },
+                        "required": [
+                            "type"
+                        ]
+                    },
+                    "then": {
+                        "properties": {
+                            "options": true
+                        },
+                        "required": [
+                            "options"
+                        ]
+                    }
+                },
+                {
+                    "if": {
+                        "not": {
+                            "properties": {
+                                "type": {
+                                    "const": "group"
+                                }
+                            },
+                            "required": [
+                                "type"
+                            ]
+                        }
+                    },
+                    "then": {
+                        "properties": {
+                            "label": {
+                                "$ref": "#/$defs/nonEmptyText200"
+                            }
+                        }
+                    }
+                },
+                {
+                    "if": {
+                        "anyOf": [
+                            {
+                                "properties": {
+                                    "aspect_ratio": true
+                                },
+                                "required": [
+                                    "aspect_ratio"
+                                ]
+                            },
+                            {
+                                "properties": {
+                                    "sizes": true
+                                },
+                                "required": [
+                                    "sizes"
+                                ]
+                            }
+                        ]
+                    },
+                    "then": {
+                        "properties": {
+                            "type": {
+                                "const": "image"
+                            }
+                        }
+                    }
+                },
+                {
+                    "not": {
+                        "properties": {
+                            "aspect_ratio": true,
+                            "sizes": true
+                        },
+                        "required": [
+                            "aspect_ratio",
+                            "sizes"
+                        ]
+                    }
+                }
+            ],
+            "additionalProperties": true
+        },
+        "imageSize": {
+            "type": "object",
+            "required": [
+                "width",
+                "height",
+                "label"
+            ],
+            "properties": {
+                "width": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 4096
+                },
+                "height": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 4096
+                },
+                "label": {
+                    "type": "string",
+                    "maxLength": 100
+                }
+            },
+            "additionalProperties": false
+        },
+        "blockAnnotation": {
+            "type": "object",
+            "required": [
+                "aiInstructions"
+            ],
+            "properties": {
+                "aiInstructions": {
+                    "type": "string",
+                    "maxLength": 10000
+                }
+            },
+            "additionalProperties": false
+        }
+    }
+}

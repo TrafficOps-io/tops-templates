@@ -1,0 +1,206 @@
+{
+  "Complete template": {
+    "prefix": "tpl-template",
+    "description": "A complete DSL v1 template with a settings section and HTML layout",
+    "body": [
+      "@template \"${1:New landing}\" description=\"${2:A configurable landing page}\" version=1",
+      "",
+      "@section content \"Content\"",
+      "\t@param title String = \"${3:Hello}\" label=\"Title\" required=true",
+      "@endsection",
+      "",
+      "@layout",
+      "\t<!doctype html>",
+      "\t<html lang=\"en\">",
+      "\t\t<head>",
+      "\t\t\t<meta charset=\"utf-8\">",
+      "\t\t\t<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
+      "\t\t\t<title>{{title}}</title>",
+      "\t\t</head>",
+      "\t\t<body>",
+      "\t\t\t<h1>{{title}}</h1>",
+      "\t\t\t$0",
+      "\t\t</body>",
+      "\t</html>",
+      "@endlayout"
+    ]
+  },
+  "Settings section": {
+    "prefix": "tpl-section",
+    "description": "Group settings into a form section",
+    "body": [
+      "@section ${1:content} \"${2:Content}\"",
+      "\t@param ${3:title} String = \"${4:Hello}\" label=\"${5:Title}\"",
+      "\t$0",
+      "@endsection"
+    ]
+  },
+  "Custom type": {
+    "prefix": [
+      "tpl-type",
+      "tpl-record"
+    ],
+    "description": "Declare an author-defined record type",
+    "body": [
+      "@type ${1:Comment}",
+      "\t@param ${2:author} String = \"${3:Guest}\" label=\"${4:Author}\"",
+      "\t@param ${5:body} Text label=\"${6:Comment}\"",
+      "\t$0",
+      "@endtype"
+    ]
+  },
+  "Text setting": {
+    "prefix": "tpl-param",
+    "description": "A typed setting with a quoted default and form label",
+    "body": "@param ${1:title} ${2|String,Text|} = \"${3:Hello}\" label=\"${4:Title}\"$0"
+  },
+  "WYSIWYG setting": {
+    "prefix": "tpl-wysiwyg",
+    "description": "A visual rich-text editor with links and images; render with {{& path}}",
+    "body": "@param ${1:body} Wysiwyg = \"<p>${2:Write your article.}</p>\" label=\"${3:Article}\"$0"
+  },
+  "Markdown setting": {
+    "prefix": "tpl-markdown",
+    "description": "A Markdown editor with images and preview; render with {{& path}}",
+    "body": "@param ${1:details} Markdown = \"${2:**Write your article.**}\" label=\"${3:Details}\"$0"
+  },
+  "Formatted editor content": {
+    "prefix": "tpl-rich-value",
+    "description": "Render sanitized HTML from a Wysiwyg or Markdown field inside an HTML body container",
+    "body": "{{& ${1:body}}}$0"
+  },
+  "AI instructions": {
+    "prefix": "tpl-ai-instructions",
+    "description": "AI instructions for a field or a reusable block (append to @param or @block)",
+    "body": "aiInstructions=\"${1:Instructions for AI}\"$0"
+  },
+  "Color setting": {
+    "prefix": "tpl-color",
+    "description": "A color picker with a hexadecimal default",
+    "body": "@param ${1:primary} Color = \"${2:#0f766e}\" label=\"${3:Primary color}\"$0"
+  },
+  "Boolean setting": {
+    "prefix": "tpl-boolean",
+    "description": "A checkbox setting",
+    "body": "@param ${1:enabled} Boolean = ${2|true,false|} label=\"${3:Enabled}\"$0"
+  },
+  "Range setting": {
+    "prefix": "tpl-range",
+    "description": "A slider with numeric bounds",
+    "body": "@param ${1:fontSize} Range = ${2:18} label=\"${3:Font size}\" min=${4:14} max=${5:24} step=${6:1}$0"
+  },
+  "Select setting": {
+    "prefix": "tpl-select",
+    "description": "A select field with value:Label choices",
+    "body": "@param ${1:category} Select = \"${2:news}\" label=\"${3:Category}\" options=\"${2:news}:${4:News}|${5:story}:${6:Story}\"$0"
+  },
+  "Image setting": {
+    "prefix": "tpl-image",
+    "description": "An image URL, bundled asset path, or upload setting",
+    "body": "@param ${1:logo} Image label=\"${2:Logo}\" help=\"${3:Enter a URL or upload an image.}\"$0"
+  },
+  "Repeatable custom type": {
+    "prefix": "tpl-list",
+    "description": "Declare a record and its repeatable setting",
+    "body": [
+      "@type ${1:Comment}",
+      "\t@param ${2:author} String = \"${3:Guest}\" label=\"${4:Author}\"",
+      "@endtype",
+      "",
+      "@param ${5:comments} ${1:Comment}[] label=\"${6:Comments}\" min_items=${7:1} max_items=${8:20}",
+      "$0"
+    ]
+  },
+  "Reusable block": {
+    "prefix": "tpl-block",
+    "description": "A reusable HTML block with a typed argument",
+    "body": [
+      "@block ${1:heading}(${2:title}: ${3:String})",
+      "\t<h2>{{${2:title}}}</h2>",
+      "\t$0",
+      "@endblock"
+    ]
+  },
+  "Render block": {
+    "prefix": "tpl-render",
+    "description": "Render an existing block with a parameter path",
+    "body": "@render ${1:heading}(${2:title})$0"
+  },
+  "Loop": {
+    "prefix": "tpl-each",
+    "description": "Iterate an existing array of an author-defined record type",
+    "body": [
+      "@each ${1:comment} in ${2:comments}:",
+      "\t$0",
+      "@endeach"
+    ]
+  },
+  "Conditional": {
+    "prefix": "tpl-if",
+    "description": "Render content when an existing parameter is truthy",
+    "body": [
+      "@if ${1:enabled}",
+      "\t$0",
+      "@endif"
+    ]
+  },
+  "Layout": {
+    "prefix": "tpl-layout",
+    "description": "The template's single page layout",
+    "body": [
+      "@layout",
+      "\t$0",
+      "@endlayout"
+    ]
+  },
+  "Include fragment": {
+    "prefix": "tpl-include",
+    "description": "Include a source fragment relative to the ZIP package root",
+    "body": "@include \"${1:blocks/comment.tpl}\"$0"
+  },
+  "Interpolate field": {
+    "prefix": "tpl-value",
+    "description": "Insert an HTML-escaped parameter or nested field",
+    "body": "{{${1:title}}}$0"
+  },
+  "Image with aspect ratio": {
+    "prefix": "tpl-image-ratio",
+    "description": "An image crop with a fixed aspect ratio and adjustable output width",
+    "body": "@param ${1:cover} Image label=\"${2:Cover}\" aspect_ratio=\"${3:16:9}\"$0"
+  },
+  "Image with output sizes": {
+    "prefix": "tpl-image-sizes",
+    "description": "An image crop with a choice of exact output sizes",
+    "body": "@param ${1:avatar} Image label=\"${2:Avatar}\" sizes=\"${3:128x128}|${4:256x256}\"$0"
+  },
+  "Preview data": {
+    "prefix": "tpl-preview-data",
+    "description": "Optional JSON object used only for the generated template preview",
+    "body": [
+      "@previewData",
+      "{",
+      "\t\"${1:title}\": \"${2:Demo}\"",
+      "\\}",
+      "@endpreviewData"
+    ]
+  },
+  "Public preview URL": {
+    "prefix": "tpl-preview-url",
+    "description": "Public HTTP(S) page or image; takes precedence over previewData",
+    "body": "previewUrl=\"${1:https://example.com/demo}\"$0"
+  },
+  "Request validation": {
+    "prefix": "tpl-validation",
+    "description": "Validate page-local runtime query, headers or body values before rendering",
+    "body": [
+      "@validation ${1|query,headers,body|} fallback=\"${2:/error}\"",
+      "\t@param ${3:name} ${4|String,Number,Integer,Boolean|} required",
+      "@endvalidation"
+    ]
+  },
+  "Runtime request macro": {
+    "prefix": "tpl-macro",
+    "description": "Insert a request-time macro; * serializes the complete source as JSON",
+    "body": "{${1|query,headers,body|}.${2:name}}$0"
+  }
+}

@@ -1,0 +1,102 @@
+{
+    "$schema": "https://getcomposer.org/schema.json",
+    "name": "trafficops/template-dsl",
+    "description": "Bounded template DSL, typed settings, host-selected dialects and HTML rendering for Laravel applications.",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "TrafficOps contributors"
+        }
+    ],
+    "keywords": [
+        "content-rendering",
+        "dsl",
+        "laravel",
+        "static-html",
+        "template"
+    ],
+    "require": {
+        "php": "^8.4",
+        "ext-dom": "*",
+        "ext-mbstring": "*",
+        "illuminate/support": "^12.0",
+        "illuminate/validation": "^12.0",
+        "league/commonmark": "^2.8",
+        "symfony/html-sanitizer": "^7.4 || ^8.0"
+    },
+    "require-dev": {
+        "laravel/pint": "^1.24",
+        "opis/json-schema": "^2.6",
+        "phpunit/phpunit": "^11.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "TrafficOps\\TemplateDsl\\": "template-dsl/src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "TrafficOps\\TemplateDsl\\Tests\\": "template-dsl/tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "TrafficOps\\TemplateDsl\\TemplateDslServiceProvider"
+            ]
+        }
+    },
+    "scripts": {
+        "test": "phpunit -c phpunit.xml",
+        "lint": "pint --test template-dsl/src template-dsl/tests",
+        "security": "composer audit",
+        "check": [
+            "@composer validate --strict",
+            "@lint",
+            "@test",
+            "@security"
+        ]
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "homepage": "https://github.com/trafficops-io/tops-templates",
+    "support": {
+        "issues": "https://github.com/trafficops-io/tops-templates/issues",
+        "source": "https://github.com/trafficops-io/tops-templates"
+    },
+    "archive": {
+        "exclude": [
+            "/docs",
+            "/skills",
+            "/runtime",
+            "/editor",
+            "/tops-cli",
+            "/vscode-extension",
+            "/examples",
+            "/scripts",
+            "/.github",
+            "/node_modules",
+            "/vendor",
+            "/package*.json",
+            "/netlify.toml",
+            "/template-dsl/tests",
+            "/template-dsl/vendor",
+            "/composer.lock",
+            "/phpunit.xml",
+            "/.gitignore",
+            "/.gitattributes",
+            "/dist",
+            "/CHANGELOG.md",
+            "/RELEASING.md",
+            "/CONTRIBUTING.md",
+            "/.phpunit*",
+            "/.pint*",
+            "/.git",
+            "/.env",
+            "/.env.*",
+            "/.netlify"
+        ]
+    }
+}

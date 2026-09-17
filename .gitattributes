@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.php text diff=php
+*.md text diff=markdown
+/.github export-ignore
+/node_modules export-ignore
+/vendor export-ignore

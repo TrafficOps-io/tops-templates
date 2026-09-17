@@ -1,0 +1,64 @@
+{
+    "$schema": "https://getcomposer.org/schema.json",
+    "name": "trafficops/template-dsl",
+    "description": "Bounded template DSL, typed settings, host-selected dialects and HTML rendering for Laravel applications.",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "TrafficOps contributors"
+        }
+    ],
+    "keywords": [
+        "content-rendering",
+        "dsl",
+        "laravel",
+        "static-html",
+        "template"
+    ],
+    "require": {
+        "php": "^8.4",
+        "ext-dom": "*",
+        "ext-mbstring": "*",
+        "illuminate/support": "^12.0",
+        "illuminate/validation": "^12.0",
+        "league/commonmark": "^2.8",
+        "symfony/html-sanitizer": "^7.4 || ^8.0"
+    },
+    "require-dev": {
+        "laravel/pint": "^1.24",
+        "opis/json-schema": "^2.6",
+        "phpunit/phpunit": "^11.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "TrafficOps\\TemplateDsl\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "TrafficOps\\TemplateDsl\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "TrafficOps\\TemplateDsl\\TemplateDslServiceProvider"
+            ]
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "lint": "pint --test",
+        "security": "composer audit",
+        "check": [
+            "@composer validate --strict",
+            "@lint",
+            "@test",
+            "@security"
+        ]
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

@@ -1,0 +1,10 @@
+{
+  "brand": "TrafficOps",
+  "title": "Make the next launch count.",
+  "introduction": "Build a **beautiful campaign** from a reusable template.",
+  "cards": [
+    { "title": "Start with a template", "body": "Keep the useful structure. Make the message yours." },
+    { "title": "Make it your own", "body": "Change the content, colors and relative image paths." },
+    { "title": "Publish anywhere", "body": "Export ordinary HTML and assets for your static host." }
+  ]
+}

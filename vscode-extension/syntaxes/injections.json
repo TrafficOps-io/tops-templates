@@ -1,0 +1,22 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "scopeName": "fast-landings-tpl.injection",
+  "injectionSelector": "L:text.html.fast-landings-tpl - meta.directive - meta.interpolation.fast-landings-tpl - meta.runtime-macro.fast-landings-tpl - source.php - meta.embedded.php.fast-landings-tpl",
+  "patterns": [
+    {
+      "include": "text.html.fast-landings-tpl#php"
+    },
+    {
+      "include": "text.html.fast-landings-tpl#runtimeEscape"
+    },
+    {
+      "include": "text.html.fast-landings-tpl#runtimeMacro"
+    },
+    {
+      "include": "text.html.fast-landings-tpl#directives"
+    },
+    {
+      "include": "text.html.fast-landings-tpl#interpolation"
+    }
+  ]
+}

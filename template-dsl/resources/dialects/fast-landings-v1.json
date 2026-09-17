@@ -1,0 +1,255 @@
+{
+    "format": "ads-toolbox.template-dialect-profile",
+    "formatVersion": 1,
+    "id": "fast-landings-v1",
+    "label": "Fast Landings v1",
+    "languageVersion": 1,
+    "extends": "safe-html-v1",
+    "implementation": {
+        "kind": "application-owned",
+        "included": false
+    },
+    "trust": "trusted-authors-only",
+    "selection": "host-only",
+    "paths": {
+        "relativeOnly": true,
+        "executableSourceExtensions": true,
+        "entrypoints": [
+            "index.html",
+            "index.php"
+        ],
+        "pageExtensions": [
+            ".html",
+            ".php"
+        ]
+    },
+    "directives": {
+        "common": [
+            "template",
+            "previewData",
+            "endpreviewData",
+            "section",
+            "endsection",
+            "param",
+            "type",
+            "endtype",
+            "block",
+            "endblock",
+            "layout",
+            "endlayout",
+            "each",
+            "endeach",
+            "if",
+            "endif",
+            "render",
+            "include"
+        ],
+        "dialect": [
+            "validation",
+            "endvalidation"
+        ]
+    },
+    "runtime": {
+        "strategy": "TrafficOps\\TemplateDsl\\LiteralRuntimeStrategy",
+        "processing": "application-post-render",
+        "tokens": [
+            "{query.path}",
+            "{headers.path}",
+            "{body.path}",
+            "{query.*}",
+            "{headers.*}",
+            "{body.*}"
+        ],
+        "contextKeys": [],
+        "tokenSources": [
+            "author-source",
+            "rendered-setting-values"
+        ],
+        "wildcards": true,
+        "singlePass": true,
+        "postRenderScan": {
+            "inputs": [
+                "author-source",
+                "rendered-setting-values"
+            ],
+            "insertedRequestValuesRescanned": false,
+            "insertedRequestValuesEncoding": "html"
+        },
+        "limits": {
+            "owner": "application"
+        }
+    },
+    "execution": {
+        "phpSource": true,
+        "phpOutput": true,
+        "bladeSource": false,
+        "requestValidation": true
+    },
+    "requestValidation": {
+        "sources": [
+            "query",
+            "headers",
+            "body"
+        ],
+        "fieldTypes": [
+            "String",
+            "Number",
+            "Integer",
+            "Boolean"
+        ],
+        "blockOptions": [
+            "fallback"
+        ],
+        "fieldOptions": [
+            "required",
+            "min",
+            "max",
+            "length",
+            "mask"
+        ],
+        "compatibilityAliases": {
+            "lenght": "length"
+        },
+        "composition": {
+            "scope": "per-rendered-page",
+            "mainPageValidation": "once",
+            "usedPartialValidation": "once-per-name-in-first-use-order",
+            "unusedPartialValidationIncluded": false,
+            "renderedValueValidationDirectives": "escaped-as-data",
+            "finalComposedSourceRevalidated": true,
+            "finalRevalidationOrder": "after-rendered-directive-escaping-and-php-restoration",
+            "finalRevalidationChecks": [
+                "declaration-grammar",
+                "duplicate-request-parameters",
+                "runtime-macro-placement"
+            ]
+        }
+    },
+    "sourceProtection": {
+        "php": "opaque-during-common-parser-and-renderer",
+        "layoutBoundaryDetection": "php-token-aware",
+        "layoutBoundaryOpaqueContexts": [
+            "php-strings",
+            "php-heredocs",
+            "php-comments"
+        ],
+        "standaloneLayoutBoundaryAfterOpenPhpVisible": true,
+        "phpMarkerPrefixesCheckedAgainst": [
+            "source",
+            "existing-fragment-keys"
+        ],
+        "dialectMarkerPrefixesCheckedAgainst": [
+            "source"
+        ],
+        "markerNamespacesDistinct": true
+    },
+    "coreBudgets": {
+        "sourcePageCount": 100,
+        "sourceExpansionBytes": 2097152,
+        "sourceExpansionLines": 20000,
+        "includeDepth": 10,
+        "expandedMarkupBytes": 2097152,
+        "definitionJsonBytes": 8388608,
+        "additionalOutputPages": 100,
+        "pageOrPartialBytes": 2097152,
+        "combinedPageAndPartialBytes": 4194304,
+        "sections": 50,
+        "fields": 200,
+        "fieldDepth": 6,
+        "selectOptions": 100,
+        "repeaterItems": 50,
+        "imageSizes": 10,
+        "imageDimensionPixels": 4096,
+        "partials": 50,
+        "partialChain": 16,
+        "blockAnnotations": 200,
+        "blockNesting": 20,
+        "blockCallDepth": 20,
+        "blockExpansionOperations": 50000,
+        "renderExpressions": 10000,
+        "renderSectionDepth": 24,
+        "definitionGraphOperations": 50000,
+        "settingValues": 10000,
+        "renderOperations": 200000,
+        "renderDepth": 64,
+        "renderedOutputBytes": 8388608,
+        "lowerHostCeilingsAllowed": [
+            "sourceExpansionBytes",
+            "expandedMarkupBytes",
+            "renderedOutputBytes"
+        ]
+    },
+    "coreBudgetScopes": {
+        "parser": {
+            "rootSourceFilesPerCall": 100,
+            "rawSourceBytesAcrossRootsAndIncludesPerCall": 2097152,
+            "preparedSourceBytesAcrossRootsAndIncludesPerCall": 2097152,
+            "sourceLinesAcrossRootsAndIncludesPerCall": 20000,
+            "tokensAfterDialectExtractionPerParse": 20000,
+            "includeDepthPerChain": 10,
+            "finishedParsedPageBytes": 2097152,
+            "finishedParsedPagesBytesPerParse": 2097152
+        },
+        "markupCompiler": {
+            "expandedMarkupBytesPerPage": 2097152,
+            "markupDirectiveNestingPerTree": 20,
+            "blockCallDepthPerPage": 20,
+            "blockExpansionOperationsPerPage": 50000
+        },
+        "definition": {
+            "serializedJsonBytesPerParse": 8388608,
+            "additionalOutputPagesPerDefinition": 100,
+            "sourceBytesPerPageOrPartial": 2097152,
+            "combinedPageAndPartialBytesPerDefinition": 4194304,
+            "sectionsPerDefinition": 50,
+            "fieldsAcrossDefinition": 200,
+            "fieldDepthPerTree": 6,
+            "selectOptionsPerField": 100,
+            "repeaterItemsPerValue": 50,
+            "imageSizesPerField": 10,
+            "imageDimensionPixelsPerSize": 4096,
+            "partialsPerDefinition": 50,
+            "blockAnnotationsPerDefinition": 200
+        },
+        "rendererCompilation": {
+            "preparedSourceBytesPerMainOrPartial": 2097152,
+            "nodeWorkAcrossMainAndAllPartialsPerPage": 10000,
+            "sectionNestingPerPage": 24,
+            "partialChainPerTraversal": 16,
+            "partialLinkOperationsPerPartialRoot": 50000,
+            "mainPartialLinkOperationsPerPage": 50000,
+            "bindingOperationsPerPage": 50000
+        },
+        "values": {
+            "normalizationOperationsPerPass": 10000
+        },
+        "rendering": {
+            "operationsPerPage": 200000,
+            "nestingPerPage": 64,
+            "outputBytesPerPage": 8388608,
+            "outputBytesAcrossRenderPagesCall": 8388608
+        },
+        "lowerHostCeilingGroups": {
+            "sourceExpansionBytes": [
+                "parser.rawSourceBytesAcrossRootsAndIncludesPerCall",
+                "parser.preparedSourceBytesAcrossRootsAndIncludesPerCall",
+                "parser.finishedParsedPageBytes",
+                "parser.finishedParsedPagesBytesPerParse"
+            ],
+            "expandedMarkupBytes": [
+                "markupCompiler.expandedMarkupBytesPerPage"
+            ],
+            "renderedOutputBytes": [
+                "rendering.outputBytesPerPage",
+                "rendering.outputBytesAcrossRenderPagesCall"
+            ]
+        }
+    },
+    "notes": [
+        "This profile documents a trusted application integration; its implementation and request-runtime compiler are not shipped by this package.",
+        "The compact coreBudgets keys remain available to existing profile readers; coreBudgetScopes names each independent enforcement scope.",
+        "PHP fragments and request declarations are protected from common parsing and restored only by the application-owned dialect.",
+        "LiteralRuntimeStrategy preserves request tokens for later application processing and does not evaluate them.",
+        "Selecting this profile is a code-deployment privilege decision and must never be controlled by template source."
+    ]
+}

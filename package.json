@@ -1,0 +1,29 @@
+{
+  "name": "@trafficops/templates-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "runtime",
+    "tops-cli",
+    "editor",
+    "vscode-extension"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "npm test --workspaces --if-present",
+    "check": "npm run check --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "build:editor": "npm run build --workspace=@trafficops/template-editor",
+    "build:cli": "npm run build --workspace=@trafficops/cli",
+    "build:vsix": "npm run package --workspace=tops-templates",
+    "dev": "npm run dev --workspace=@trafficops/template-editor"
+  },
+  "overrides": {
+    "monaco-editor": {
+      "dompurify": "3.4.15"
+    }
+  }
+}

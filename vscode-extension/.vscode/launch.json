@@ -1,0 +1,10 @@
+{
+  "version": "0.2.0",
+  "configurations": [{
+    "name": "Run Fast Landings TPL Extension",
+    "type": "extensionHost",
+    "request": "launch",
+    "preLaunchTask": "build tpl extension",
+    "args": ["--extensionDevelopmentPath=${workspaceFolder}", "${workspaceFolder}/examples"]
+  }]
+}

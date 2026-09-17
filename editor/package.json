@@ -1,0 +1,28 @@
+{
+  "name": "@trafficops/template-editor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@fontsource-variable/onest": "^5.2.6",
+    "@trafficops/template-runtime": "0.1.0",
+    "fflate": "^0.8.2",
+    "lucide-react": "^0.468.0",
+    "monaco-editor": "^0.56.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "daisyui": "^5.5.0",
+    "tailwindcss": "^4.1.0",
+    "vite": "^7.3.0"
+  }
+}

@@ -1,0 +1,180 @@
+{
+  "name": "tops-templates",
+  "displayName": "TrafficOps Templates",
+  "description": "Syntax highlighting, completion and formatting for the TrafficOps template language.",
+  "version": "0.1.0",
+  "publisher": "trafficops-io",
+  "private": true,
+  "license": "MIT",
+  "type": "commonjs",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Formatters",
+    "Snippets"
+  ],
+  "keywords": [
+    "fast-landings",
+    "tpl",
+    "templates",
+    "dsl",
+    "html"
+  ],
+  "main": "./build/extension.js",
+  "activationEvents": [
+    "onLanguage:html",
+    "onLanguage:plaintext",
+    "onLanguage:php"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": true
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "fast-landings-tpl",
+        "aliases": [
+          "TrafficOps Templates",
+          "tpl"
+        ],
+        "extensions": [
+          ".tpl",
+          ".tpl.html",
+          ".tpl.txt",
+          ".tpl.php"
+        ],
+        "firstLine": "^\\s*@template\\b",
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "fast-landings-tpl",
+        "scopeName": "text.html.fast-landings-tpl",
+        "path": "./syntaxes/fast-landings-tpl.tmLanguage.json",
+        "embeddedLanguages": {
+          "source.css": "css",
+          "source.js": "javascript",
+          "meta.embedded.expression.fast-landings-tpl": "fast-landings-tpl",
+          "source.json": "json",
+          "source.php": "php"
+        },
+        "tokenTypes": {
+          "meta.interpolation.fast-landings-tpl": "other",
+          "meta.runtime-macro.fast-landings-tpl": "other"
+        }
+      },
+      {
+        "scopeName": "fast-landings-tpl.injection",
+        "path": "./syntaxes/injections.json",
+        "injectTo": [
+          "text.html.fast-landings-tpl"
+        ]
+      }
+    ],
+    "snippets": [
+      {
+        "language": "fast-landings-tpl",
+        "path": "./snippets/fast-landings-tpl.json"
+      }
+    ],
+    "configuration": {
+      "title": "TrafficOps Templates",
+      "properties": {
+        "fastLandingsTemplates.dialect": {
+          "type": "string",
+          "enum": [
+            "safe-html-v1",
+            "fast-landings-v1"
+          ],
+          "enumDescriptions": [
+            "Non-executable shared DSL with {query.name}, {locale} and {actions.name}; no PHP, request validation, headers, body or wildcards.",
+            "Trusted Fast Landings authoring dialect with PHP, @validation and query/headers/body request macros."
+          ],
+          "default": "safe-html-v1",
+          "scope": "resource",
+          "description": "Host-selected template language profile. Template source cannot change this setting."
+        },
+        "fastLandingsTemplates.format.enable": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Enable document formatting for DSL declarations and embedded HTML, CSS and JavaScript."
+        },
+        "fastLandingsTemplates.format.printWidth": {
+          "type": "integer",
+          "default": 100,
+          "minimum": 40,
+          "maximum": 300,
+          "scope": "resource",
+          "description": "Preferred line width for embedded HTML, CSS and JavaScript. DSL declarations remain on one line."
+        },
+        "fastLandingsTemplates.autoDetect": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Recognize HTML and text files that begin with an @template declaration."
+        },
+        "fastLandingsTemplates.customTypes": {
+          "type": "array",
+          "default": [],
+          "scope": "resource",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Za-z0-9_]*$"
+          },
+          "uniqueItems": true,
+          "description": "Additional primitive aliases registered in the application's TemplateFieldTypes registry. @type records are discovered automatically."
+        }
+      }
+    },
+    "configurationDefaults": {
+      "[fast-landings-tpl]": {
+        "editor.defaultFormatter": "trafficops-io.tops-templates",
+        "editor.quickSuggestions": {
+          "other": "on",
+          "comments": "off",
+          "strings": "on"
+        },
+        "editor.suggest.insertMode": "replace"
+      }
+    },
+    "commands": [
+      {
+        "command": "fastLandingsTemplates.setLanguage",
+        "title": "Use TrafficOps Templates Language",
+        "category": "Fast Landings"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node scripts/build.js",
+    "check": "node --check src/extension.js && node --check src/language.js && node --check src/projects.js && node --check src/formatter.js && node --check scripts/build.js",
+    "test": "node --test test/*.test.js",
+    "test:integration": "npm run build && node scripts/test-extension.js",
+    "test:runtime": "node scripts/test-formatter-runtime.js",
+    "package": "node scripts/package.js",
+    "vscode:prepublish": "npm run build"
+  },
+  "devDependencies": {
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "0.25.12",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
+  },
+  "dependencies": {
+    "prettier": "3.9.6"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trafficops-io/tops-templates.git",
+    "directory": "vscode-extension"
+  },
+  "homepage": "https://github.com/trafficops-io/tops-templates"
+}

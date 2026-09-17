@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit bootstrap="template-dsl/tests/bootstrap.php" colors="true" cacheDirectory=".phpunit.cache" failOnRisky="true" failOnWarning="true" beStrictAboutOutputDuringTests="true">
+  <testsuites><testsuite name="Template DSL"><directory>template-dsl/tests</directory></testsuite></testsuites>
+</phpunit>

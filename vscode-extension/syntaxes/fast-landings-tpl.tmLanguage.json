@@ -1,0 +1,588 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Fast Landings Template",
+  "scopeName": "text.html.fast-landings-tpl",
+  "patterns": [
+    {
+      "include": "#php"
+    },
+    {
+      "include": "#runtimeEscape"
+    },
+    {
+      "include": "#runtimeMacro"
+    },
+    {
+      "include": "#directives"
+    },
+    {
+      "include": "#interpolation"
+    },
+    {
+      "include": "text.html.basic"
+    }
+  ],
+  "repository": {
+    "directives": {
+      "patterns": [
+        {
+          "name": "meta.directive.preview-data.fast-landings-tpl",
+          "contentName": "source.json",
+          "begin": "^[ \\t]*(@previewData)\\b[ \\t]*$",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.directive.fast-landings-tpl"
+            }
+          },
+          "end": "^[ \\t]*(@endpreviewData)\\b[ \\t]*$",
+          "endCaptures": {
+            "1": {
+              "name": "keyword.control.directive.fast-landings-tpl"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#strings"
+            },
+            {
+              "match": "\\b(?:true|false|null)\\b",
+              "name": "constant.language.json"
+            },
+            {
+              "match": "-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][-+]?[0-9]+)?",
+              "name": "constant.numeric.json"
+            },
+            {
+              "match": "[{}\\[\\]]",
+              "name": "punctuation.section.json"
+            },
+            {
+              "match": "[:,]",
+              "name": "punctuation.separator.json"
+            }
+          ]
+        },
+        {
+          "name": "meta.directive.validation.fast-landings-tpl",
+          "begin": "^[ \\t]*(@validation)\\b(?:[ \\t]+(query|headers|body)\\b)?",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.directive.fast-landings-tpl"
+            },
+            "2": {
+              "name": "variable.language.runtime-source.fast-landings-tpl"
+            }
+          },
+          "end": "^[ \\t]*(@endvalidation)\\b[ \\t]*$",
+          "endCaptures": {
+            "1": {
+              "name": "keyword.control.directive.fast-landings-tpl"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#php"
+            },
+            {
+              "name": "meta.directive.runtime-param.fast-landings-tpl",
+              "begin": "^[ \\t]*(@param)\\b(?:[ \\t]+([A-Za-z0-9_][A-Za-z0-9_-]*(?:\\.[A-Za-z0-9_-]+)*))?(?:[ \\t]+([A-Za-z][A-Za-z0-9_]*))?",
+              "beginCaptures": {
+                "1": {
+                  "name": "keyword.control.directive.fast-landings-tpl"
+                },
+                "2": {
+                  "name": "variable.other.definition.fast-landings-tpl"
+                },
+                "3": {
+                  "name": "support.type.fast-landings-tpl"
+                }
+              },
+              "end": "$",
+              "patterns": [
+                {
+                  "include": "#options"
+                }
+              ]
+            },
+            {
+              "include": "#options"
+            }
+          ]
+        },
+        {
+          "match": "^[ \\t]*(@@)",
+          "captures": {
+            "1": {
+              "name": "constant.character.escape.fast-landings-tpl"
+            }
+          }
+        },
+        {
+          "name": "meta.directive.param.fast-landings-tpl",
+          "begin": "^[ \\t]*(@param)\\b(?:[ \\t]+([A-Za-z][A-Za-z0-9_]*))?(?:[ \\t]+([A-Za-z][A-Za-z0-9_]*)(\\[\\])?)?",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.directive.fast-landings-tpl"
+            },
+            "2": {
+              "name": "variable.other.definition.fast-landings-tpl"
+            },
+            "3": {
+              "name": "support.type.fast-landings-tpl"
+            },
+            "4": {
+              "name": "punctuation.definition.array.fast-landings-tpl"
+            }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "include": "#options"
+            }
+          ]
+        },
+        {
+          "name": "meta.directive.type.fast-landings-tpl",
+          "begin": "^[ \\t]*(@type)\\b(?:[ \\t]+([A-Za-z][A-Za-z0-9_]*))?",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.directive.fast-landings-tpl"
+            },
+            "2": {
+              "name": "entity.name.type.fast-landings-tpl"
+            }
+          },
+          "end": "$"
+        },
+        {
+          "name": "meta.directive.block.fast-landings-tpl",
+          "begin": "^[ \\t]*(@block)\\b(?:[ \\t]+([A-Za-z][A-Za-z0-9_]*))?",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.directive.fast-landings-tpl"
+            },
+            "2": {
+              "name": "entity.name.function.fast-landings-tpl"
+            }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "match": "([A-Za-z][A-Za-z0-9_]*)[ \\t]*(:)[ \\t]*([A-Za-z][A-Za-z0-9_]*)(\\[\\])?",
+              "captures": {
+                "1": {
+                  "name": "variable.parameter.fast-landings-tpl"
+                },
+                "2": {
+                  "name": "punctuation.separator.type.fast-landings-tpl"
+                },
+                "3": {
+                  "name": "support.type.fast-landings-tpl"
+                },
+                "4": {
+                  "name": "punctuation.definition.array.fast-landings-tpl"
+                }
+              }
+            },
+            {
+              "include": "#options"
+            },
+            {
+              "include": "#punctuation"
+            }
+          ]
+        },
+        {
+          "name": "meta.directive.render.fast-landings-tpl",
+          "begin": "^[ \\t]*(@render)\\b(?:[ \\t]+([A-Za-z][A-Za-z0-9_]*))?",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.directive.fast-landings-tpl"
+            },
+            "2": {
+              "name": "entity.name.function.fast-landings-tpl"
+            }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "include": "#path"
+            },
+            {
+              "include": "#punctuation"
+            }
+          ]
+        },
+        {
+          "name": "meta.directive.each.fast-landings-tpl",
+          "begin": "^[ \\t]*(@each)\\b(?:[ \\t]+([A-Za-z][A-Za-z0-9_]*))?(?:[ \\t]+(in)\\b)?",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.directive.fast-landings-tpl"
+            },
+            "2": {
+              "name": "variable.other.definition.fast-landings-tpl"
+            },
+            "3": {
+              "name": "keyword.operator.word.fast-landings-tpl"
+            }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "include": "#path"
+            },
+            {
+              "include": "#punctuation"
+            }
+          ]
+        },
+        {
+          "name": "meta.directive.if.fast-landings-tpl",
+          "begin": "^[ \\t]*(@if)\\b",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.directive.fast-landings-tpl"
+            }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "include": "#path"
+            }
+          ]
+        },
+        {
+          "name": "meta.directive.section.fast-landings-tpl",
+          "begin": "^[ \\t]*(@section)\\b(?:[ \\t]+([A-Za-z][A-Za-z0-9_]*))?",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.directive.fast-landings-tpl"
+            },
+            "2": {
+              "name": "entity.name.section.fast-landings-tpl"
+            }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "include": "#strings"
+            }
+          ]
+        },
+        {
+          "name": "meta.directive.fast-landings-tpl",
+          "begin": "^[ \\t]*(@(?:template|include|layout|endsection|endtype|endblock|endeach|endif|endlayout|endpreviewData))\\b",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.directive.fast-landings-tpl"
+            }
+          },
+          "end": "$",
+          "patterns": [
+            {
+              "include": "#options"
+            }
+          ]
+        }
+      ]
+    },
+    "interpolation": {
+      "name": "meta.interpolation.fast-landings-tpl",
+      "contentName": "meta.embedded.expression.fast-landings-tpl",
+      "begin": "\\{\\{",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.interpolation.begin.fast-landings-tpl"
+        }
+      },
+      "end": "\\}\\}|$",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.interpolation.end.fast-landings-tpl"
+        }
+      },
+      "patterns": [
+        {
+          "match": "\\G[ \\t]*(&)",
+          "captures": {
+            "1": {
+              "name": "keyword.operator.formatted.fast-landings-tpl"
+            }
+          }
+        },
+        {
+          "include": "#path"
+        }
+      ]
+    },
+    "path": {
+      "patterns": [
+        {
+          "match": "\\b[A-Za-z][A-Za-z0-9_]*\\b",
+          "name": "variable.other.readwrite.fast-landings-tpl"
+        },
+        {
+          "match": "\\.",
+          "name": "punctuation.accessor.fast-landings-tpl"
+        }
+      ]
+    },
+    "options": {
+      "patterns": [
+        {
+          "include": "#optionStrings"
+        },
+        {
+          "match": "\\b([A-Za-z][A-Za-z0-9_]*)[ \\t]*(=)",
+          "captures": {
+            "1": {
+              "name": "entity.other.attribute-name.fast-landings-tpl"
+            },
+            "2": {
+              "name": "keyword.operator.assignment.fast-landings-tpl"
+            }
+          }
+        },
+        {
+          "match": "\\brequired\\b",
+          "name": "entity.other.attribute-name.fast-landings-tpl"
+        },
+        {
+          "match": "\\b(?:true|false)\\b",
+          "name": "constant.language.boolean.fast-landings-tpl"
+        },
+        {
+          "match": "(?<![A-Za-z0-9_])[-+]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][-+]?[0-9]+)?(?![A-Za-z0-9_])",
+          "name": "constant.numeric.fast-landings-tpl"
+        },
+        {
+          "match": "=",
+          "name": "keyword.operator.assignment.fast-landings-tpl"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.fast-landings-tpl",
+          "begin": "\"",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.fast-landings-tpl"
+            }
+          },
+          "end": "\"|$",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.fast-landings-tpl"
+            }
+          },
+          "patterns": [
+            {
+              "match": "\\\\.",
+              "name": "constant.character.escape.fast-landings-tpl"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.fast-landings-tpl",
+          "begin": "'",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.fast-landings-tpl"
+            }
+          },
+          "end": "'|$",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.fast-landings-tpl"
+            }
+          },
+          "patterns": [
+            {
+              "match": "\\\\.",
+              "name": "constant.character.escape.fast-landings-tpl"
+            }
+          ]
+        }
+      ]
+    },
+    "punctuation": {
+      "patterns": [
+        {
+          "match": "[()]",
+          "name": "punctuation.section.arguments.fast-landings-tpl"
+        },
+        {
+          "match": ",",
+          "name": "punctuation.separator.arguments.fast-landings-tpl"
+        },
+        {
+          "match": ":",
+          "name": "punctuation.separator.fast-landings-tpl"
+        }
+      ]
+    },
+    "php": {
+      "name": "meta.embedded.php.fast-landings-tpl",
+      "contentName": "source.php",
+      "begin": "<\\?(?i:php(?=\\s|$)|=)",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.embedded.begin.php"
+        }
+      },
+      "end": "\\?>",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.embedded.end.php"
+        }
+      },
+      "patterns": [
+        {
+          "name": "string.unquoted.heredoc.php",
+          "begin": "<<<[ \\t]*[\\'\"]?([A-Za-z_][A-Za-z0-9_]*)[\\'\"]?[ \\t]*$",
+          "end": "^[ \\t]*\\1(?![A-Za-z0-9_])"
+        },
+        {
+          "name": "comment.block.php",
+          "begin": "/\\*",
+          "end": "\\*/"
+        },
+        {
+          "name": "comment.line.php",
+          "begin": "//|#(?!\\[)",
+          "end": "(?=\\?>)|$"
+        },
+        {
+          "name": "string.quoted.double.php",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "match": "\\\\.",
+              "name": "constant.character.escape.php"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.php",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "match": "\\\\.",
+              "name": "constant.character.escape.php"
+            }
+          ]
+        },
+        {
+          "name": "string.interpolated.php",
+          "begin": "`",
+          "end": "`",
+          "patterns": [
+            {
+              "match": "\\\\.",
+              "name": "constant.character.escape.php"
+            }
+          ]
+        },
+        {
+          "include": "source.php"
+        }
+      ]
+    },
+    "runtimeMacro": {
+      "name": "meta.runtime-macro.fast-landings-tpl",
+      "contentName": "meta.embedded.expression.fast-landings-tpl",
+      "begin": "(?<![\\\\{])(\\{)((?:query|headers|body))(?=\\.)",
+      "beginCaptures": {
+        "1": {
+          "name": "punctuation.section.interpolation.begin.fast-landings-tpl"
+        },
+        "2": {
+          "name": "variable.language.runtime-source.fast-landings-tpl"
+        }
+      },
+      "end": "\\}|$",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.interpolation.end.fast-landings-tpl"
+        }
+      },
+      "patterns": [
+        {
+          "match": "[A-Za-z0-9_-]+|\\*",
+          "name": "variable.other.runtime.fast-landings-tpl"
+        },
+        {
+          "match": "\\.",
+          "name": "punctuation.accessor.fast-landings-tpl"
+        }
+      ]
+    },
+    "optionStrings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.fast-landings-tpl",
+          "begin": "\"",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.fast-landings-tpl"
+            }
+          },
+          "end": "\"|$",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.fast-landings-tpl"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#runtimeEscape"
+            },
+            {
+              "match": "\\\\.",
+              "name": "constant.character.escape.fast-landings-tpl"
+            },
+            {
+              "include": "#runtimeMacro"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.fast-landings-tpl",
+          "begin": "'",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.fast-landings-tpl"
+            }
+          },
+          "end": "'|$",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.fast-landings-tpl"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#runtimeEscape"
+            },
+            {
+              "match": "\\\\.",
+              "name": "constant.character.escape.fast-landings-tpl"
+            },
+            {
+              "include": "#runtimeMacro"
+            }
+          ]
+        }
+      ]
+    },
+    "runtimeEscape": {
+      "match": "\\\\\\{(?:query|headers|body)\\.[A-Za-z0-9_.*-]+\\}",
+      "name": "constant.character.escape.fast-landings-tpl"
+    }
+  }
+}

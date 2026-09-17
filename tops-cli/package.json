@@ -1,0 +1,22 @@
+{
+  "name": "@trafficops/cli",
+  "version": "0.1.0",
+  "description": "Generate static pages from TrafficOps templates with an Ink form or JSON data",
+  "type": "module",
+  "bin": { "tops": "dist/cli.js", "trafficops": "dist/cli.js" },
+  "files": ["dist", "README.md", "LICENSE"],
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test test/*.test.js",
+    "prepack": "npm run build",
+    "test:pack": "node test/pack-smoke.mjs"
+  },
+  "dependencies": { "commander": "^14.0.0", "ink": "^6.3.1", "react": "^19.1.1", "marked": "^16.2.0", "sanitize-html": "^2.17.0" },
+  "devDependencies": { "esbuild": "^0.25.9" },
+  "engines": { "node": ">=22" },
+  "repository": { "type": "git", "url": "git+https://github.com/trafficops-io/tops-templates.git", "directory": "tops-cli" },
+  "homepage": "https://github.com/trafficops-io/tops-templates/tree/main/tops-cli",
+  "bugs": { "url": "https://github.com/trafficops-io/tops-templates/issues" },
+  "publishConfig": { "access": "public", "provenance": true },
+  "license": "MIT"
+}

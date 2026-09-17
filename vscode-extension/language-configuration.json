@@ -1,0 +1,132 @@
+{
+  "comments": {
+    "blockComment": [
+      "<!--",
+      "-->"
+    ]
+  },
+  "brackets": [
+    [
+      "{{",
+      "}}"
+    ],
+    [
+      "{",
+      "}"
+    ],
+    [
+      "[",
+      "]"
+    ],
+    [
+      "(",
+      ")"
+    ]
+  ],
+  "autoClosingPairs": [
+    {
+      "open": "{{",
+      "close": "}}"
+    },
+    {
+      "open": "{",
+      "close": "}",
+      "notIn": [
+        "string",
+        "comment"
+      ]
+    },
+    {
+      "open": "[",
+      "close": "]",
+      "notIn": [
+        "string",
+        "comment"
+      ]
+    },
+    {
+      "open": "(",
+      "close": ")",
+      "notIn": [
+        "string",
+        "comment"
+      ]
+    },
+    {
+      "open": "\"",
+      "close": "\"",
+      "notIn": [
+        "string",
+        "comment"
+      ]
+    },
+    {
+      "open": "'",
+      "close": "'",
+      "notIn": [
+        "string",
+        "comment"
+      ]
+    },
+    {
+      "open": "<!--",
+      "close": "-->",
+      "notIn": [
+        "comment",
+        "string"
+      ]
+    }
+  ],
+  "surroundingPairs": [
+    [
+      "{{",
+      "}}"
+    ],
+    [
+      "{",
+      "}"
+    ],
+    [
+      "[",
+      "]"
+    ],
+    [
+      "(",
+      ")"
+    ],
+    [
+      "\"",
+      "\""
+    ],
+    [
+      "'",
+      "'"
+    ]
+  ],
+  "wordPattern": "[A-Za-z][A-Za-z0-9_]*",
+  "indentationRules": {
+    "increaseIndentPattern": "^\\s*@(?:section|type|block|each|if|layout|previewData|validation)\\b.*$|<(?!(?:area|base|br|col|embed|hr|img|input|link|meta|param|source|track|wbr)\\b)([A-Za-z][\\w:-]*)(?:\\s[^<>]*)?>(?:(?!</\\1>).)*$",
+    "decreaseIndentPattern": "^\\s*(?:@(?:endsection|endtype|endblock|endeach|endif|endlayout|endpreviewData|endvalidation)\\b|</[A-Za-z][\\w:-]*\\s*>)"
+  },
+  "folding": {
+    "markers": {
+      "start": "^\\s*@(?:section|type|block|each|if|layout|previewData|validation)\\b",
+      "end": "^\\s*@(?:endsection|endtype|endblock|endeach|endif|endlayout|endpreviewData|endvalidation)\\b"
+    }
+  },
+  "onEnterRules": [
+    {
+      "beforeText": "^\\s*@(?:section|type|block|each|if|layout|previewData|validation)\\b.*$",
+      "afterText": "^\\s*@(?:endsection|endtype|endblock|endeach|endif|endlayout|endpreviewData|endvalidation)\\b",
+      "action": {
+        "indent": "indentOutdent"
+      }
+    },
+    {
+      "beforeText": "^\\s*@(?:section|type|block|each|if|layout|previewData|validation)\\b.*$",
+      "action": {
+        "indent": "indent"
+      }
+    }
+  ]
+}

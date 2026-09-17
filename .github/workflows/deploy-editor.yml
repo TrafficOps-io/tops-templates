@@ -1,0 +1,56 @@
+name: Deploy editor
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: netlify-production
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: vars.NETLIFY_DEPLOY_ENABLED == 'true' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    environment: netlify
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: editor
+          path: editor-dist
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: Deploy tested static output
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+        run: |
+          test -n "$NETLIFY_AUTH_TOKEN" && test -n "$NETLIFY_SITE_ID"
+          cd editor-dist
+          zip -r ../editor.zip .
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $NETLIFY_AUTH_TOKEN" \
+            -H 'Content-Type: application/zip' \
+            --data-binary @../editor.zip \
+            "https://api.netlify.com/api/v1/sites/$NETLIFY_SITE_ID/deploys" > ../deploy.json
+          python3 - <<'PYTHON'
+          import json, os, time, urllib.request
+          deploy = json.load(open('../deploy.json'))
+          for attempt in range(24):
+              request = urllib.request.Request(
+                  'https://api.netlify.com/api/v1/deploys/' + deploy['id'],
+                  headers={'Authorization': 'Bearer ' + os.environ['NETLIFY_AUTH_TOKEN']},
+              )
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  status = json.load(response)
+              if status['state'] == 'ready':
+                  print('Published:', status.get('ssl_url') or status['url'])
+                  break
+              if status['state'] == 'error':
+                  raise SystemExit('Netlify deployment failed; inspect the deploy log.')
+              time.sleep(5)
+          else:
+              raise SystemExit('Timed out waiting for Netlify deployment.')
+          PYTHON
