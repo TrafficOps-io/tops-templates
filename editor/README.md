@@ -20,10 +20,12 @@ Vite writes the deployable static site to `editor/dist`. The root Netlify config
 ## Workflow
 
 1. Start with the included example, choose **New project**, or **Open ZIP** containing `.tpl` / `.tpl.html` pages and assets. A common enclosing directory is removed automatically.
-2. Select a file and edit it in **Source code**. TPL declarations, expressions and embedded HTML have syntax highlighting. Use **Hide preview** to expand the code editor; **Show preview** restores the preview without losing edits. Create files with paths such as `blocks/header.tpl` or `pages/about.tpl`. Renaming does not rewrite references; update includes and asset paths in your source.
+2. Select a file and edit it in **Source code**. TPL declarations, expressions and embedded HTML have syntax highlighting and IntelliSense. Suggestions include directives/snippets, built-in and project types, parameter paths, typed blocks and include files. Hover shows reference information; `@render` calls show argument hints. HTML tags and attributes also have completion. Use **Hide preview** to expand the code editor; **Show preview** restores the preview without losing edits. Create files with paths such as `blocks/header.tpl` or `pages/about.tpl`. Renaming does not rewrite references; update includes and asset paths in your source.
 3. **Customize** builds labeled inputs from template declarations, including nested groups, repeaters, numbers, colors, choices and relative image paths. Load/save a settings JSON file to use the same values with the CLI.
 4. Choose a generated page and desktop/mobile preview. All `.tpl` pages with an `@layout` block are generated; files containing only declarations serve as includes.
 5. **Download pages** exports generated HTML plus unchanged assets. **Save template ZIP** exports the editable source project. Save settings separately with **Save JSON**.
+
+Use **Format** in the source toolbar, **Format Document** in the context menu, or **Shift+Alt+F** to format the current file. TPL formatting shares the VS Code extension's standalone formatter, indents declarations and HTML with two spaces by default, and is one undoable edit. Imported files are only reformatted when you request it. Press **Ctrl+Space** to show suggestions; **Tab** accepts a snippet and moves through its placeholders. Enter automatically indents TPL blocks and HTML elements. Ordinary HTML, CSS, JavaScript and JSON files use Monaco's bundled language services. All authoring services and formatting run locally in the browser.
 
 Changes live in memory. Download source and settings before closing; there is no automatic cloud or local-storage persistence. Browser navigation prompts when there are unsaved changes.
 
@@ -49,6 +51,8 @@ Source templates have additional parser and rendering limits enforced by the sha
 ## Branding
 
 The warm cream/coral palette, typography and logo derive from the original `packages/ui/resources/css/theme.css`, `BRAND_GUIDELINES.md` and TrafficOps SVG mark. Onest is bundled through `@fontsource-variable/onest`. Small button text uses dark text on coral as specified by the brand contrast guidance.
+
+The browser adapter reuses `vscode-extension/src/language.js` in the `safe-html-v1` dialect and lazily loads `vscode-extension/src/formatter.js`. Vite bundles these private workspace modules; no VS Code application or server is required.
 
 ## Implementation references
 

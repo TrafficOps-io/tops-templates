@@ -144,13 +144,31 @@ export const tplConfiguration = {
   folding: { markers: { start: /^\s*@(section|type|block|layout|each|if|previewData)\b/, end: /^\s*@end(section|type|block|layout|each|if|previewData)\b/ } },
 };
 
-export function registerTplLanguage(monaco, { css, javascript }) {
+export function registerTplLanguage(monaco, { css, javascript, htmlConfiguration = {} }) {
   if (monaco.languages.getLanguages().some(language => language.id === TPL_LANGUAGE_ID)) return;
   for (const [id, language] of [['trafficops-tpl-css', css], ['trafficops-tpl-javascript', javascript]]) {
     monaco.languages.register({ id });
     monaco.languages.setMonarchTokensProvider(id, withTemplateExpressions(language));
   }
   monaco.languages.register({ id: TPL_LANGUAGE_ID, extensions: ['.tpl', '.tpl.html'], aliases: ['TrafficOps Template', 'TPL'] });
-  monaco.languages.setLanguageConfiguration(TPL_LANGUAGE_ID, tplConfiguration);
+  monaco.languages.setLanguageConfiguration(TPL_LANGUAGE_ID, {
+    ...htmlConfiguration, ...tplConfiguration,
+    indentationRules: {
+      increaseIndentPattern: /^\s*@(section|type|block|layout|each|if|previewData)\b/,
+      decreaseIndentPattern: /^\s*@end(section|type|block|layout|each|if|previewData)\b/,
+    },
+    onEnterRules: [
+      {
+        beforeText: /^\s*@(section|type|block|layout|each|if|previewData)\b.*$/,
+        afterText: /^\s*@end(section|type|block|layout|each|if|previewData)\b/,
+        action: { indentAction: monaco.languages.IndentAction.IndentOutdent },
+      },
+      {
+        beforeText: /^\s*@(section|type|block|layout|each|if|previewData)\b.*$/,
+        action: { indentAction: monaco.languages.IndentAction.Indent },
+      },
+      ...(htmlConfiguration.onEnterRules || []),
+    ],
+  });
   monaco.languages.setMonarchTokensProvider(TPL_LANGUAGE_ID, tplLanguage);
 }

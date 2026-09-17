@@ -69,7 +69,14 @@ class Placeholders {
 function escapeRegExp(value) { return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
 function interpolations(source, placeholders) {
-  return source.replace(/\{\{\{[^{}\n]*\}\}\}|\{\{[^{}\n]*\}\}|(?<!\{)\{(?:query|headers|body)\.(?:\*|[A-Za-z0-9_][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)*)\}(?!\})/g, value => placeholders.add(value));
+  return source.replace(/\{\{\{[^{}\n]*\}\}\}|\{\{[^{}\n]*\}\}|(?<!\{)\{(?:(?:query|headers|body|actions)\.(?:\*|[A-Za-z0-9_][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)*)|locale)\}(?!\})/g, value => placeholders.add(value));
+}
+
+function protectComments(source, placeholders) {
+  // Comment contents can resemble HTML, declarations or runtime expressions.
+  // Keep them opaque to both the DSL masker and the HTML printer. Raw-element
+  // processing runs first so prettier-ignore still protects its target body.
+  return source.replace(/<!--[\s\S]*?(?:-->|$)/g, value => placeholders.add(value, name => `<!--${name}-->`));
 }
 
 function directive(line) {
@@ -341,7 +348,7 @@ async function formatChunk(source, options) {
   const placeholders = new Placeholders(source);
   const leading = source.match(/^\n*/)[0];
   const trailing = source.match(/\n*$/)[0];
-  const raw = await protectRawElements(source, placeholders, options);
+  const raw = protectComments(await protectRawElements(source, placeholders, options), placeholders);
   const beforeHtml = placeholders.entries.length;
   const masked = maskDirectives(interpolations(raw, placeholders), placeholders);
   let result;

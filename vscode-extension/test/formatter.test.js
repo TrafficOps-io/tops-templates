@@ -235,3 +235,21 @@ echo $value;
   assert.ok(result.includes('<?= $value ?>'));
   assert.match(result, /<div>\n\s+<p>\{body.name\}<\/p>\n\s+<\/div>/);
 });
+
+test('preserves safe-dialect locale/actions tokens even where JavaScript would reinterpret braces', async () => {
+  const source = '@layout\n<html lang="{locale}"><body><form action="{actions.submit}"><a href="/search?q={query.q}">{locale}</a></form><script>const value={locale};const action={actions.submit};</script><style>.card{background:url({actions.open});content:"{locale}"}</style></body></html>\n@endlayout';
+  const result = await format(source);
+  for (const token of ['{locale}', '{actions.submit}', '{actions.open}', '{query.q}']) {
+    assert.equal(result.split(token).length, source.split(token).length, token);
+  }
+  assert.match(result, /const value = \{locale\};/);
+  assert.match(result, /const action = \{actions\.submit\};/);
+  assert.ok(!result.includes('{ locale }'));
+});
+
+test('preserves multiline HTML comment contents containing directives, tags and runtime tokens', async () => {
+  const comment = '<!-- Keep  two spaces\n  literal {{title}} {locale}\n @not_a_directive\n  <script>let x=1;</script>\n-->';
+  const result = await format(`@layout\n${comment}\n<div><h1>{{title}}</h1></div>\n@endlayout`);
+  assert.ok(result.includes(comment));
+  assert.match(result, /<div>\n    <h1>/);
+});
