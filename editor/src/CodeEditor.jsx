@@ -35,7 +35,8 @@ monaco.editor.defineTheme('trafficops', {
   colors: { 'editor.background': '#211E1C', 'editor.foreground': '#F7F0EB', 'editorLineNumber.foreground': '#6F645E', 'editorLineNumber.activeForeground': '#B7AAA2', 'editor.lineHighlightBackground': '#2A2523', 'editor.selectionBackground': '#5B3833', 'editorCursor.foreground': '#FF8068', 'editorIndentGuide.background1': '#332E2B', 'editorIndentGuide.activeBackground1': '#5A4D47' },
 });
 
-export default function CodeEditor({ path, value, files, onChange, onOpenFile, reveal, onError, previewVisible, onTogglePreview }) {
+export default function CodeEditor({ path, value, files, onChange, onOpenFile, reveal, onError, previewVisible, onTogglePreview, readOnly = false }) {
+  const syncing = useRef(false);
   const container = useRef(null), editor = useRef(null), change = useRef(onChange);
   change.current = onChange;
   const sources = useRef(files), openFile = useRef(onOpenFile);
@@ -44,7 +45,7 @@ export default function CodeEditor({ path, value, files, onChange, onOpenFile, r
     const model = monaco.editor.createModel(value, languageFor(path), monaco.Uri.from({ scheme: 'trafficops-template', authority: 'project', path: `/${path}` }));
     projectSources.set(model, sources);
     const instance = monaco.editor.create(container.current, {
-      model, theme: 'trafficops', automaticLayout: true,
+      model, readOnly, theme: 'trafficops', automaticLayout: true,
       minimap: { enabled: false }, fontSize: 13, lineHeight: 22, padding: { top: 18 },
       scrollBeyondLastLine: false, wordWrap: 'on', tabSize: 2, insertSpaces: true, detectIndentation: false, renderLineHighlight: 'line',
       quickSuggestions: { other: true, comments: false, strings: true },
@@ -63,10 +64,11 @@ export default function CodeEditor({ path, value, files, onChange, onOpenFile, r
         return true;
       },
     });
-    const listener = instance.onDidChangeModelContent(() => change.current(instance.getValue()));
+    const listener = instance.onDidChangeModelContent(() => { if (!syncing.current) change.current(instance.getValue()); });
     return () => { opener.dispose(); listener.dispose(); projectSources.delete(model); instance.dispose(); model.dispose(); editor.current = null; };
   }, [path]);
-  useEffect(() => { if (editor.current && editor.current.getValue() !== value) editor.current.setValue(value); }, [value]);
+  useEffect(() => { if (editor.current && editor.current.getValue() !== value) { syncing.current = true; try { editor.current.setValue(value); } finally { syncing.current = false; } } }, [value]);
+  useEffect(() => { editor.current?.updateOptions({ readOnly }); }, [readOnly]);
   useEffect(() => {
     if (!reveal || !editor.current) return;
     const selection = reveal.selection || { lineNumber: 1, column: 1 };
@@ -80,6 +82,6 @@ export default function CodeEditor({ path, value, files, onChange, onOpenFile, r
     catch (error) { onError?.(error instanceof Error ? error.message : String(error)); }
   }
   const canFormat = ['trafficops-tpl', 'html', 'css', 'javascript', 'json'].includes(languageFor(path));
-  return <><div className="source-heading"><span>{path}</span><div className="source-tools">{canFormat && <button className="btn btn-ghost btn-xs" title="Format document (Shift+Alt+F)" onClick={format}><WandSparkles size={13} /> Format</button>}{onTogglePreview && <button className="btn btn-ghost btn-xs preview-toggle-button" aria-controls="preview-panel" aria-expanded={previewVisible} onClick={onTogglePreview}>{previewVisible ? <PanelRightClose size={13} /> : <PanelRightOpen size={13} />}{previewVisible ? 'Hide preview' : 'Show preview'}</button>}<span>UTF-8</span></div></div><div ref={container} className="code-editor" /></>;
+  return <><div className="source-heading"><span>{path}</span><div className="source-tools">{canFormat && !readOnly && <button className="btn btn-ghost btn-xs" title="Format document (Shift+Alt+F)" onClick={format}><WandSparkles size={13} /> Format</button>}{onTogglePreview && <button className="btn btn-ghost btn-xs preview-toggle-button" aria-controls="preview-panel" aria-expanded={previewVisible} onClick={onTogglePreview}>{previewVisible ? <PanelRightClose size={13} /> : <PanelRightOpen size={13} />}{previewVisible ? 'Hide preview' : 'Show preview'}</button>}<span>UTF-8</span></div></div><div ref={container} className="code-editor" /></>;
 
 }

@@ -13,3 +13,6 @@ build/
 .DS_Store
 .netlify/
 coverage/
+
+# Vite PWA development service worker output
+editor/dev-dist/

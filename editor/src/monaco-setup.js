@@ -1,4 +1,8 @@
 // editor.api supplies the editor shell; these contributions provide its authoring UI.
+// Lazy language services register these contributions after the first model opens.
+// Their services must exist before Monaco initializes its standalone container.
+import 'monaco-editor/editor/contrib/codelens/browser/codeLensCache.js';
+import 'monaco-editor/editor/common/services/treeViewsDndService.js';
 import 'monaco-editor/editor/contrib/suggest/browser/suggestController.js';
 import 'monaco-editor/editor/contrib/snippet/browser/snippetController2.js';
 import 'monaco-editor/editor/contrib/hover/browser/hoverContribution.js';

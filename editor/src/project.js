@@ -4,6 +4,7 @@ export const LIMITS = Object.freeze({ archive: 20 * 1024 * 1024, total: 32 * 102
 const TEXT_FILE = /\.(?:tpl(?:\.html)?|html?|css|js|mjs|json|md|txt|svg|xml|yaml|yml|csv|map)$/i;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
+const VALUES_ENTRY = '.trafficops/values.json';
 
 export function safePath(path) {
   if (typeof path !== 'string' || !path || path.length > 255 || /[\\:\x00-\x20\x7f?#%]/.test(path) || path.startsWith('/') || path.split('/').some(part => !part || part === '.' || part === '..' || part.startsWith('.') || ['__proto__', 'constructor', 'prototype'].includes(part))) {
@@ -88,7 +89,7 @@ export function inspectZip(bytes) {
     if (at + 46 + nameLength + extraLength + commentLength > end) throw new Error('The ZIP directory is truncated.');
     const path = decoder.decode(bytes.subarray(at + 46, at + 46 + nameLength));
     const directory = path.endsWith('/');
-    safePath(directory ? path.slice(0, -1) : path);
+    if (path !== VALUES_ENTRY && path !== '.trafficops/') safePath(directory ? path.slice(0, -1) : path);
     if (entries.has(path)) throw new Error(`Duplicate ZIP entry: ${path}`);
     if ((flags & 1) || ![0, 8].includes(method)) throw new Error(`Encrypted or unsupported ZIP entry: ${path}`);
     if (((view.getUint32(at + 38, true) >>> 16) & 0xf000) === 0xa000) throw new Error(`ZIP symlinks are unsupported: ${path}`);
@@ -115,29 +116,39 @@ export function readZipProject(bytes) {
   const entries = inspectZip(bytes);
   const unzipped = unzipSync(bytes);
   const files = Object.create(null);
+  let settings = {};
   for (const [path, info] of entries) {
     if (info.directory) continue;
     const data = unzipped[path];
     if (!data || data.byteLength !== info.size) throw new Error(`ZIP size mismatch: ${path}`);
-    files[path] = isText(path) ? decoder.decode(data) : data;
+    if (path === VALUES_ENTRY) {
+      settings = JSON.parse(decoder.decode(data));
+      if (!settings || Array.isArray(settings) || typeof settings !== 'object') throw new Error('Project values must be a JSON object.');
+    } else files[path] = isText(path) ? decoder.decode(data) : data;
   }
   validateProject(files);
-  let folders = [...entries].filter(([, info]) => info.directory).map(([path]) => path.slice(0, -1));
+  let folders = [...entries].filter(([path, info]) => info.directory && path !== '.trafficops/').map(([path]) => path.slice(0, -1));
   // A downloaded GitHub/project archive often has a single enclosing folder.
   const names = Object.keys(files), folder = names[0].split('/')[0];
   if (names.every(name => name.startsWith(`${folder}/`))) {
     const stripped = Object.fromEntries(Object.entries(files).map(([name, value]) => [name.slice(folder.length + 1), value]));
     folders = folders.filter(name => name !== folder).map(name => name.startsWith(`${folder}/`) ? name.slice(folder.length + 1) : name);
-    return { files: stripped, folders: validateFolders(stripped, folders) };
+    return { files: stripped, folders: validateFolders(stripped, folders), settings };
   }
-  return { files, folders: validateFolders(files, folders) };
+  return { files, folders: validateFolders(files, folders), settings };
 }
 
-export function createZip(files, { generated = false, directories = [] } = {}) {
+export function createZip(files, { generated = false, directories = [], settings } = {}) {
   validateProject(files, { generated });
   const folders = validateFolders(files, directories);
   const entries = Object.fromEntries(folders.map(path => [`${path}/`, new Uint8Array()]));
   for (const [name, value] of Object.entries(files)) entries[name] = typeof value === 'string' ? strToU8(value) : value;
+  if (!generated && settings && Object.keys(settings).length) {
+    const data = strToU8(JSON.stringify(settings, null, 2));
+    if (data.length > LIMITS.text) throw new Error('Project values exceed 2 MiB.');
+    entries[VALUES_ENTRY] = data;
+  }
+  if (Object.keys(entries).length > LIMITS.count) throw new Error('Too many entries for a project ZIP.');
   return zipSync(entries, { level: 6 });
 }
 
