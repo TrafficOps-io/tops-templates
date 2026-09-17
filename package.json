@@ -16,9 +16,9 @@
     "test": "npm test --workspaces --if-present",
     "check": "npm run check --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
-    "docs:dev": "vitepress dev docs",
-    "docs:build": "vitepress build docs",
-    "docs:preview": "vitepress preview docs",
+    "docs:dev": "npm --prefix docs run dev",
+    "docs:build": "npm --prefix docs run build",
+    "docs:preview": "npm --prefix docs run preview",
     "build:editor": "npm run build --workspace=@trafficops/template-editor",
     "build:cli": "npm run build --workspace=@trafficops/cli",
     "build:vsix": "npm run package --workspace=tops-templates",
@@ -28,8 +28,5 @@
     "monaco-editor": {
       "dompurify": "3.4.15"
     }
-  },
-  "devDependencies": {
-    "vitepress": "^1.6.4"
   }
 }

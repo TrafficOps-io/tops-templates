@@ -78,7 +78,7 @@ npm run build:vsix
 The documentation site covers the language, host-selected dialects, PHP/Laravel integration, CLI and browser editor. Run it locally with:
 
 ```sh
-npm ci
+npm ci --prefix docs
 npm run docs:dev
 ```
 

@@ -7,7 +7,7 @@ The site lives in `docs/`, is built with VitePress, and is deployed to GitHub Pa
 From the monorepo root:
 
 ```sh
-npm ci
+npm ci --prefix docs
 npm run docs:dev
 ```
 
@@ -25,7 +25,7 @@ Static output is written to `docs/.vitepress/dist` and is not committed.
 The `.github/workflows/deploy-docs.yml` workflow:
 
 1. runs after successful CI for a push to `main`, or manually;
-2. installs locked dependencies with `npm ci`;
+2. installs the isolated documentation dependencies with `npm ci --prefix docs`;
 3. builds VitePress with the `/tops-templates/` base path;
 4. uploads a Pages artifact;
 5. deploys it to the `github-pages` environment.

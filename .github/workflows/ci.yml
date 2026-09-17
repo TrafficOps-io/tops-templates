@@ -43,6 +43,7 @@ jobs:
       - run: npm run check
       - run: npm test
       - run: npm run build
+      - run: npm ci --prefix docs
       - run: npm run docs:build
       - run: npm run test:pack --workspace=@trafficops/cli
       - run: npm run build:vsix
