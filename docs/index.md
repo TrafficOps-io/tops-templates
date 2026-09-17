@@ -51,5 +51,5 @@ npx @trafficops/cli --template ./index.tpl --output ./generated
 ```
 
 ::: tip Where to go next
-Build your [first template](./guide/first-template.md), then choose your integration path: [PHP and Laravel](./guide/php.md) or [CLI and Template Studio](./guide/tooling.md).
+Build your [first template](./guide/first-template.md), then choose your integration path: [PHP and Laravel](./guide/php.md), [CLI and Template Studio](./guide/tooling.md), or [agent skills](./guide/skills.md).
 :::

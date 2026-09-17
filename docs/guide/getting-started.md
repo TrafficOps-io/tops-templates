@@ -11,6 +11,7 @@ TrafficOps Templates is a language and toolkit for static page templates. Author
 | `tops-cli/` | Interactive and non-interactive page generation. |
 | `editor/` | The Template Studio browser editor. |
 | `vscode-extension/` | Syntax highlighting, diagnostics, completion, and formatting. |
+| `skills/` | Installable agent instructions for authoring templates and integrating the PHP package. |
 | `docs/` | This site and the detailed language reference. |
 
 ## Data flow
@@ -51,4 +52,4 @@ Install `trafficops/template-dsl`, resolve `TemplateSourceParser` and `TemplateE
 - PHP 8.4+ and Laravel/Illuminate 12 for the PHP package;
 - Composer 2 for PHP dependency management.
 
-Next, [build your first template](./first-template.md).
+Next, [build your first template](./first-template.md). If you work with a coding agent, install the [TrafficOps agent skills](./skills.md) so it can follow the same language, runtime, and security rules.

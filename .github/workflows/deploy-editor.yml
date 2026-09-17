@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: netlify
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: editor
           path: editor-dist

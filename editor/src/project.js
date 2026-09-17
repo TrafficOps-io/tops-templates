@@ -36,6 +36,32 @@ export function validateProject(files, { generated = false } = {}) {
   return files;
 }
 
+export function validateFolders(files, folders = []) {
+  const unique = new Set();
+  for (const rawPath of folders) {
+    const path = safePath(String(rawPath).replace(/\/$/, ''));
+    if (unique.has(path)) continue;
+    if (Object.hasOwn(files, path)) throw new Error(`A folder conflicts with a file: ${path}`);
+    const parts = path.split('/');
+    while (parts.length > 1) {
+      parts.pop();
+      if (Object.hasOwn(files, parts.join('/'))) throw new Error(`A folder conflicts with a file: ${parts.join('/')}`);
+    }
+    const segments = path.split('/');
+    for (let index = 1; index <= segments.length; index++) unique.add(segments.slice(0, index).join('/'));
+  }
+  return [...unique].sort((a, b) => a.localeCompare(b));
+}
+
+export function projectFolders(files, explicit = []) {
+  const folders = new Set(explicit);
+  for (const path of Object.keys(files)) {
+    const parts = path.split('/');
+    while (parts.length > 1) { parts.pop(); folders.add(parts.join('/')); }
+  }
+  return validateFolders(files, folders);
+}
+
 // Inspect central-directory metadata before allocating decompression buffers.
 // ZIP64, encrypted files and symlinks deliberately are not accepted.
 export function inspectZip(bytes) {
@@ -82,6 +108,10 @@ export function inspectZip(bytes) {
 }
 
 export function readZip(bytes) {
+  return readZipProject(bytes).files;
+}
+
+export function readZipProject(bytes) {
   const entries = inspectZip(bytes);
   const unzipped = unzipSync(bytes);
   const files = Object.create(null);
@@ -92,17 +122,23 @@ export function readZip(bytes) {
     files[path] = isText(path) ? decoder.decode(data) : data;
   }
   validateProject(files);
+  let folders = [...entries].filter(([, info]) => info.directory).map(([path]) => path.slice(0, -1));
   // A downloaded GitHub/project archive often has a single enclosing folder.
   const names = Object.keys(files), folder = names[0].split('/')[0];
   if (names.every(name => name.startsWith(`${folder}/`))) {
-    return Object.fromEntries(Object.entries(files).map(([name, value]) => [name.slice(folder.length + 1), value]));
+    const stripped = Object.fromEntries(Object.entries(files).map(([name, value]) => [name.slice(folder.length + 1), value]));
+    folders = folders.filter(name => name !== folder).map(name => name.startsWith(`${folder}/`) ? name.slice(folder.length + 1) : name);
+    return { files: stripped, folders: validateFolders(stripped, folders) };
   }
-  return files;
+  return { files, folders: validateFolders(files, folders) };
 }
 
-export function createZip(files, { generated = false } = {}) {
+export function createZip(files, { generated = false, directories = [] } = {}) {
   validateProject(files, { generated });
-  return zipSync(Object.fromEntries(Object.entries(files).map(([name, value]) => [name, typeof value === 'string' ? strToU8(value) : value])), { level: 6 });
+  const folders = validateFolders(files, directories);
+  const entries = Object.fromEntries(folders.map(path => [`${path}/`, new Uint8Array()]));
+  for (const [name, value] of Object.entries(files)) entries[name] = typeof value === 'string' ? strToU8(value) : value;
+  return zipSync(entries, { level: 6 });
 }
 
 export function renameFile(files, from, to) {

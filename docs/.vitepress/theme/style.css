@@ -1,27 +1,43 @@
 :root {
-  --vp-c-brand-1: #d84c35;
-  --vp-c-brand-2: #ec684d;
-  --vp-c-brand-3: #f37b63;
-  --vp-c-brand-soft: rgba(236, 104, 77, 0.14);
-  --vp-c-bg: #fffaf2;
-  --vp-c-bg-alt: #f7efe4;
-  --vp-c-bg-soft: #f7efe4;
-  --vp-font-family-base: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --vp-c-brand-1: #e75d45;
+  --vp-c-brand-2: #d9523b;
+  --vp-c-brand-3: #c64833;
+  --vp-c-brand-soft: color-mix(in srgb, #e75d45 14%, transparent);
+  --vp-c-bg: #fffdfb;
+  --vp-c-bg-alt: #fbf7f2;
+  --vp-c-bg-elv: #fffdfb;
+  --vp-c-bg-soft: #fbf7f2;
+  --vp-c-divider: #e7ddd6;
+  --vp-c-border: #e7ddd6;
+  --vp-c-gutter: #e7ddd6;
+  --vp-c-text-1: #241f1d;
+  --vp-c-text-2: #766e69;
+  --vp-c-text-3: color-mix(in srgb, #766e69 72%, transparent);
+  --vp-layout-max-width: 80rem;
+  --vp-border-radius: .75rem;
+  --vp-font-family-base: 'Onest Variable', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
   --vp-font-family-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
 .dark {
-  --vp-c-bg: #171311;
-  --vp-c-bg-alt: #211b18;
-  --vp-c-bg-soft: #2b221e;
-  --vp-c-brand-1: #ff927c;
-  --vp-c-brand-2: #f37b63;
-  --vp-c-brand-3: #ec684d;
-  --vp-c-brand-soft: rgba(243, 123, 99, 0.16);
+  --vp-c-bg: #262220;
+  --vp-c-bg-alt: #1d1a19;
+  --vp-c-bg-elv: #262220;
+  --vp-c-bg-soft: #1d1a19;
+  --vp-c-divider: #3b3430;
+  --vp-c-border: #3b3430;
+  --vp-c-gutter: #3b3430;
+  --vp-c-text-1: #f7f0eb;
+  --vp-c-text-2: #b7aaa2;
+  --vp-c-text-3: color-mix(in srgb, #b7aaa2 72%, transparent);
+  --vp-c-brand-1: #ff8068;
+  --vp-c-brand-2: #ff9677;
+  --vp-c-brand-3: #ffab91;
+  --vp-c-brand-soft: color-mix(in srgb, #ff8068 16%, transparent);
 }
 
 .VPHero .name {
-  background: linear-gradient(120deg, #d84c35 18%, #ff9d67 82%);
+  background: linear-gradient(120deg, var(--vp-c-brand-1) 18%, #ff9677 82%);
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -33,8 +49,47 @@
 
 .VPFeature {
   border-color: color-mix(in srgb, var(--vp-c-brand-2) 18%, transparent);
+  border-radius: .75rem !important;
+  background: var(--vp-c-bg-soft) !important;
 }
 
 .vp-doc div[class*='language-'] {
   border: 1px solid color-mix(in srgb, var(--vp-c-brand-2) 18%, transparent);
+  border-radius: .75rem;
+}
+
+.VPNavBarTitle .logo {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+.VPNavBarTitle .title {
+  font-weight: 700;
+  letter-spacing: -.025em;
+}
+
+.VPButton,
+.DocSearch-Button,
+.VPLocalSearchBox .search-input {
+  border-radius: .55rem !important;
+  font-weight: 500;
+}
+
+.VPButton.brand {
+  font-weight: 600;
+}
+
+.vp-doc h1,
+.vp-doc h2,
+.vp-doc h3 {
+  letter-spacing: -.025em;
+}
+
+.vp-doc h1,
+.vp-doc h2 {
+  font-weight: 600;
+}
+
+.vp-doc table {
+  border-radius: .75rem;
 }

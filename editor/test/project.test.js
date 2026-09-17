@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { zipSync, strToU8, unzipSync } from 'fflate';
-import { createZip, inspectZip, LIMITS, readZip, renameFile, safePath, validateProject } from '../src/project.js';
+import { createZip, inspectZip, LIMITS, projectFolders, readZip, readZipProject, renameFile, safePath, validateFolders, validateProject } from '../src/project.js';
 import { resolveAsset } from '../src/preview.js';
 import { starterProject } from '../src/starter.js';
 import { generateProject, getDefaults, parseProject } from '@trafficops/template-runtime';
@@ -45,6 +45,15 @@ test('file mutations reject overwrite and file/folder conflicts', () => {
   assert.throws(() => validateProject({ 'a': 'file', 'a/b.txt': 'child' }), /conflicts/);
   assert.equal(renameFile(files, 'a.txt', 'assets/b.txt')['assets/b.txt'], 'kept');
   assert.equal(files['a.txt'], 'kept');
+});
+test('explicit project folders are validated and survive a ZIP round trip', () => {
+  const files = { 'index.tpl': 'hello', 'images/cover.svg': '<svg />' };
+  const folders = validateFolders(files, ['empty/nested', 'images']);
+  const restored = readZipProject(createZip(files, { directories: folders }));
+  assert.deepEqual({ ...restored.files }, files);
+  assert.deepEqual(restored.folders, ['empty', 'empty/nested', 'images']);
+  assert.deepEqual(projectFolders(files, ['empty']), ['empty', 'images']);
+  assert.throws(() => validateFolders({ images: 'file' }, ['images']), /conflicts/);
 });
 test('preview asset resolution stays inside the project and supports nested pages', () => {
   assert.equal(resolveAsset('../images/a.png', 'pages/index.html'), 'images/a.png');

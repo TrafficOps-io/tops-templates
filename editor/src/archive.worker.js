@@ -1,5 +1,5 @@
-import { readZip } from './project.js';
+import { readZipProject } from './project.js';
 self.onmessage = ({ data }) => {
-  try { self.postMessage({ files: readZip(new Uint8Array(data)) }); }
+  try { self.postMessage(readZipProject(new Uint8Array(data))); }
   catch (error) { self.postMessage({ error: error.message }); }
 };

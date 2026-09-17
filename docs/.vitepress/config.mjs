@@ -27,7 +27,7 @@ export default defineConfig({
   lastUpdated: true,
   srcExclude: ['README.md'],
   head: [
-    ['meta', {name: 'theme-color', content: '#ec684d'}],
+    ['meta', {name: 'theme-color', content: '#e75d45'}],
   ],
   markdown: {
     lineNumbers: true,
@@ -67,6 +67,7 @@ export default defineConfig({
       {text: 'Language', link: '/guide/language'},
       {text: 'PHP', link: '/guide/php'},
       {text: 'CLI & Editor', link: '/guide/tooling'},
+      {text: 'Agent skills', link: '/guide/skills'},
       {text: 'Editor', link: 'https://trafficops-templates.netlify.app'},
     ],
     sidebar: [
@@ -92,6 +93,7 @@ export default defineConfig({
         items: [
           {text: 'PHP and Laravel', link: '/guide/php'},
           {text: 'CLI and Template Studio', link: '/guide/tooling'},
+          {text: 'Agent skills', link: '/guide/skills'},
           {text: 'Publishing the docs', link: '/guide/documentation'},
         ],
       },
