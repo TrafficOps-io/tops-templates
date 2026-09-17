@@ -23,11 +23,12 @@ export default defineConfig({
   title: 'TrafficOps Templates',
   description: 'A template language and local-first tools for building static pages.',
   base: '/tops-templates/',
+  appearance: 'force-dark',
   cleanUrls: true,
   lastUpdated: true,
   srcExclude: ['README.md'],
   head: [
-    ['meta', {name: 'theme-color', content: '#e75d45'}],
+    ['meta', {name: 'theme-color', content: '#1d1a19'}],
   ],
   markdown: {
     lineNumbers: true,

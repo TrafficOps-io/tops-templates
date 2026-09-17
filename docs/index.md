@@ -2,9 +2,12 @@
 layout: home
 
 hero:
-  name: TrafficOps Templates
+  name: TEMPLATE INFRASTRUCTURE / LOCAL-FIRST
   text: Templates that remain data
   tagline: A typed DSL, safe HTML rendering, PHP API, CLI, and local-first browser editor in one monorepo.
+  image:
+    src: /template-flow.svg
+    alt: TrafficOps template pipeline from source to static output
   actions:
     - theme: brand
       text: Get started

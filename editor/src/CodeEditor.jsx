@@ -22,17 +22,17 @@ const projectSources = new WeakMap();
 registerTplIntelliSense(monaco, { getProjectFiles: model => projectSources.get(model)?.current || {} });
 registerTplFormatting(monaco);
 monaco.editor.defineTheme('trafficops', {
-  base: 'vs', inherit: true,
+  base: 'vs-dark', inherit: true,
   rules: [
-    { token: 'comment', foreground: '766E69' }, { token: 'string', foreground: '537559' }, { token: 'tag', foreground: 'A64734' },
-    { token: 'keyword.directive.tpl', foreground: 'A64734', fontStyle: 'bold' },
-    { token: 'type.identifier.tpl', foreground: '7B4D91' }, { token: 'entity.name.function.tpl', foreground: '79552E' },
-    { token: 'variable.tpl', foreground: '315E83' }, { token: 'variable.predefined.tpl', foreground: '315E83' },
-    { token: 'delimiter.template', foreground: 'A64734' },
-    { token: 'attribute.name.tpl', foreground: '79552E' }, { token: 'metatag.tpl', foreground: '766E69' },
-    { token: 'number.tpl', foreground: '537559' }, { token: 'keyword.tpl', foreground: '7B4D91' },
+    { token: 'comment', foreground: '8D817A' }, { token: 'string', foreground: '9CC8AF' }, { token: 'tag', foreground: 'FF9677' },
+    { token: 'keyword.directive.tpl', foreground: 'FF8068', fontStyle: 'bold' },
+    { token: 'type.identifier.tpl', foreground: 'D4A6D9' }, { token: 'entity.name.function.tpl', foreground: 'E6C386' },
+    { token: 'variable.tpl', foreground: '9FC5E8' }, { token: 'variable.predefined.tpl', foreground: '9FC5E8' },
+    { token: 'delimiter.template', foreground: 'FF8068' },
+    { token: 'attribute.name.tpl', foreground: 'E6C386' }, { token: 'metatag.tpl', foreground: '8D817A' },
+    { token: 'number.tpl', foreground: '9CC8AF' }, { token: 'keyword.tpl', foreground: 'D4A6D9' },
   ],
-  colors: { 'editor.background': '#FFFDFB', 'editor.foreground': '#241F1D', 'editorLineNumber.foreground': '#9A8E85', 'editor.lineHighlightBackground': '#FBF7F2', 'editor.selectionBackground': '#F6D7C9', 'editorCursor.foreground': '#E75D45' },
+  colors: { 'editor.background': '#211E1C', 'editor.foreground': '#F7F0EB', 'editorLineNumber.foreground': '#6F645E', 'editorLineNumber.activeForeground': '#B7AAA2', 'editor.lineHighlightBackground': '#2A2523', 'editor.selectionBackground': '#5B3833', 'editorCursor.foreground': '#FF8068', 'editorIndentGuide.background1': '#332E2B', 'editorIndentGuide.activeBackground1': '#5A4D47' },
 });
 
 export default function CodeEditor({ path, value, files, onChange, onOpenFile, reveal, onError }) {
