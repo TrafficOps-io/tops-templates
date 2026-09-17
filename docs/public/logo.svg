@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="TrafficOps">
+  <rect width="48" height="48" rx="13" fill="#ec684d"/>
+  <path d="M11 13h26v7H27v17h-7V20h-9z" fill="#fffaf2"/>
+  <circle cx="34" cy="34" r="4" fill="#251b17"/>
+</svg>

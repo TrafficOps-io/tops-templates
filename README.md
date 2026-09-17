@@ -9,7 +9,7 @@ A template language and a local-first toolkit for building static pages: a PHP p
 | `tops-cli/` | Commander.js CLI and Ink parameter form | `@trafficops/cli` on npm |
 | `editor/` | Monaco, React, Tailwind CSS and daisyUI editor | Static Netlify deployment |
 | `vscode-extension/` | Syntax, diagnostics, completion and formatting | VSIX in GitHub Releases |
-| `docs/` | Language specification and integration documentation | Markdown |
+| `docs/` | VitePress documentation site and language reference | GitHub Pages |
 | `skills/` | Template authoring and PHP integration skills | `npx skills add` |
 
 ## Generate a page
@@ -72,6 +72,17 @@ Download the `.vsix` file from [GitHub Releases](https://github.com/trafficops-i
 npm ci
 npm run build:vsix
 ```
+
+## Documentation
+
+The documentation site covers the language, host-selected dialects, PHP/Laravel integration, CLI and browser editor. Run it locally with:
+
+```sh
+npm ci
+npm run docs:dev
+```
+
+Production output is built with `npm run docs:build`. After successful CI on `main`, GitHub Actions publishes it to [trafficops-io.github.io/tops-templates](https://trafficops-io.github.io/tops-templates/). Repository Pages must use **GitHub Actions** as its publishing source.
 
 ## Development and releases
 

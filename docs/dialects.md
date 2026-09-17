@@ -83,7 +83,7 @@ If the application constructs parser or engine objects manually, inject the same
 
 `fast-landings-v1` documents the compatibility surface of an application-owned dialect. The package does not ship its implementation or its request-runtime compiler. That dialect protects PHP fragments from the common parser, associates request validation with pages, leaves request macros literal during common rendering, and returns trusted PHP-capable output for later host processing. Its later application phase also recognizes request tokens deliberately stored in string settings; inserted request values remain single pass. Selecting it means the host accepts responsibility for trusted authors, runtime compilation, code execution, isolation and deployment.
 
-Machine-readable profiles live in [`resources/dialects`](../template-dsl/resources/dialects). They are descriptive fixtures for editors, importers and compatibility tests. Loading a JSON profile must not instantiate or authorize a dialect.
+Machine-readable profiles live in [`template-dsl/resources/dialects`](https://github.com/TrafficOps-io/tops-templates/tree/main/template-dsl/resources/dialects). They are descriptive fixtures for editors, importers and compatibility tests. Loading a JSON profile must not instantiate or authorize a dialect.
 
 ## Compatibility rules
 

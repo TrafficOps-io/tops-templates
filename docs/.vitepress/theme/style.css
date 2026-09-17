@@ -1,0 +1,40 @@
+:root {
+  --vp-c-brand-1: #d84c35;
+  --vp-c-brand-2: #ec684d;
+  --vp-c-brand-3: #f37b63;
+  --vp-c-brand-soft: rgba(236, 104, 77, 0.14);
+  --vp-c-bg: #fffaf2;
+  --vp-c-bg-alt: #f7efe4;
+  --vp-c-bg-soft: #f7efe4;
+  --vp-font-family-base: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --vp-font-family-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+.dark {
+  --vp-c-bg: #171311;
+  --vp-c-bg-alt: #211b18;
+  --vp-c-bg-soft: #2b221e;
+  --vp-c-brand-1: #ff927c;
+  --vp-c-brand-2: #f37b63;
+  --vp-c-brand-3: #ec684d;
+  --vp-c-brand-soft: rgba(243, 123, 99, 0.16);
+}
+
+.VPHero .name {
+  background: linear-gradient(120deg, #d84c35 18%, #ff9d67 82%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.VPHero .text {
+  max-width: 760px;
+}
+
+.VPFeature {
+  border-color: color-mix(in srgb, var(--vp-c-brand-2) 18%, transparent);
+}
+
+.vp-doc div[class*='language-'] {
+  border: 1px solid color-mix(in srgb, var(--vp-c-brand-2) 18%, transparent);
+}

@@ -120,4 +120,4 @@ The package does not:
 6. Set service-level byte, time and concurrency limits below package hard caps where practical.
 7. Key caches and stored policy decisions by language version and dialect ID.
 8. Run package and dialect integration tests when either side changes.
-9. Follow [SECURITY.md](../SECURITY.md) for suspected bypasses.
+9. Follow [SECURITY.md](https://github.com/TrafficOps-io/tops-templates/blob/main/SECURITY.md) for suspected bypasses.
