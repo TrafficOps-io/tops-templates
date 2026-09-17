@@ -30,17 +30,17 @@ features:
 @template "Campaign" version=1
 
 @section content "Content"
-@param title String = "New campaign" required
-@param body Markdown = "Start with an **idea**."
-@param destination Url = "https://trafficops.io"
+  @param title String = "New campaign" required
+  @param body Markdown = "Start with an **idea**."
+  @param destination Url = "https://trafficops.io"
 @endsection
 
 @layout
-<main>
-  <h1>{{title}}</h1>
-  <div>{{& body}}</div>
-  <a href="{{destination}}">Continue</a>
-</main>
+  <main>
+    <h1>{{title}}</h1>
+    <div>{{& body}}</div>
+    <a href="{{destination}}">Continue</a>
+  </main>
 @endlayout
 ```
 

@@ -17,30 +17,30 @@ campaign/
 @template "Campaign" version=1 description="First campaign"
 
 @section content "Content"
-@param title String = "New campaign" label="Headline" required
-@param introduction Markdown = "A short **description**." label="Introduction"
-@param accent Color = "#ec684d" label="Accent"
-@param destination Url = "https://trafficops.io" label="Destination"
+  @param title String = "New campaign" label="Headline" required
+  @param introduction Markdown = "A short **description**." label="Introduction"
+  @param accent Color = "#ec684d" label="Accent"
+  @param destination Url = "https://trafficops.io" label="Destination"
 @endsection
 
 @layout
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{title}}</title>
-  <link rel="stylesheet" href="assets/style.css">
-</head>
-<body style="--accent: {{accent}}">
-  <main>
-    <p>Campaign: {query.campaign}</p>
-    <h1>{{title}}</h1>
-    <div>{{& introduction}}</div>
-    <a href="{{destination}}">Continue</a>
-  </main>
-</body>
-</html>
+  <!doctype html>
+  <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>{{title}}</title>
+      <link rel="stylesheet" href="assets/style.css" />
+    </head>
+    <body style="--accent: {{accent}}">
+      <main>
+        <p>Campaign: {query.campaign}</p>
+        <h1>{{title}}</h1>
+        <div>{{& introduction}}</div>
+        <a href="{{destination}}">Continue</a>
+      </main>
+    </body>
+  </html>
 @endlayout
 ```
 

@@ -22,11 +22,11 @@ A dialect is a host-selected policy layer around the common language. It defines
 @param title String = "Campaign"
 
 @layout
-<main>
-  <h1>{{title}}</h1>
-  <p>Source: {query.source}</p>
-  <a href="{actions.continue}">Continue</a>
-</main>
+  <main>
+    <h1>{{title}}</h1>
+    <p>Source: {query.source}</p>
+    <a href="{actions.continue}">Continue</a>
+  </main>
 @endlayout
 ```
 
@@ -50,7 +50,7 @@ An entry page can validate query parameters:
 @template "Runtime request form" version=1
 
 @section main "Main page"
-@param title String = "Request a call"
+  @param title String = "Request a call"
 @endsection
 
 @validation query fallback="/error.html"
@@ -59,12 +59,12 @@ An entry page can validate query parameters:
 @endvalidation
 
 @layout
-<h1>{{title}}</h1>
-<form method="post" action="/success.php" data-pixel="{query.pixel}">
-  <input type="hidden" name="subid" value="{query.subid}">
-  <input name="name" required minlength="4">
-  <button type="submit">Send</button>
-</form>
+  <h1>{{title}}</h1>
+  <form method="post" action="/success.php" data-pixel="{query.pixel}">
+    <input type="hidden" name="subid" value="{query.subid}" />
+    <input name="name" required minlength="4" />
+    <button type="submit">Send</button>
+  </form>
 @endlayout
 ```
 
@@ -72,7 +72,7 @@ A `success.tpl.php` page can validate the body and preserve trusted PHP:
 
 ```tpl
 @section success "Success page"
-@param message Text = "Thank you, {body.name}!"
+  @param message Text = "Thank you, {body.name}!"
 @endsection
 
 @validation body fallback="/submit-error.html"
@@ -81,9 +81,9 @@ A `success.tpl.php` page can validate the body and preserve trusted PHP:
 @endvalidation
 
 @layout
-<?php http_response_code(201); ?>
-<h1>Request received</h1>
-<p>{{message}}</p>
+  <?php http_response_code(201); ?>
+  <h1>Request received</h1>
+  <p>{{message}}</p>
 @endlayout
 ```
 

@@ -12,33 +12,33 @@ Every page source must contain exactly one `@layout` block. Settings, author-def
 @template "Campaign page" version=1 description="A small example"
 
 @section content "Content"
-@param headline String required label="Headline"
-@param body Markdown label="Body"
-@param target Url label="Destination"
+  @param headline String required label="Headline"
+  @param body Markdown label="Body"
+  @param target Url label="Destination"
 @endsection
 
 @type Card
-@param title String required
-@param copy Text
+  @param title String required
+  @param copy Text
 @endtype
 
 @param cards Card[] min_items=1 max_items=6
 
 @block card(item: Card) aiInstructions="Render one card"
-<article>
+  <article>
     <h2>{{item.title}}</h2>
     <p>{{item.copy}}</p>
-</article>
+  </article>
 @endblock
 
 @layout
-<main>
+  <main>
     <h1>{{headline}}</h1>
     <div>{{& body}}</div>
     @each card in cards:
-        @render card(card)
+      @render card(card)
     @endeach
-</main>
+  </main>
 @endlayout
 ```
 
@@ -57,7 +57,7 @@ The declaration is optional; defaults are version 1 and the name `Imported templ
 
 ```tpl
 @previewData
-{"headline":"Preview"}
+{ "headline": "Preview" }
 @endpreviewData
 ```
 
@@ -69,7 +69,7 @@ Sections group editor fields:
 
 ```tpl
 @section identity "Identity"
-@param brand String label="Brand" required
+  @param brand String label="Brand" required
 @endsection
 ```
 
@@ -112,8 +112,8 @@ An author-defined type groups parameters. Appending `[]` at a use site creates a
 
 ```tpl
 @type Link
-@param label String required
-@param url Url required
+  @param label String required
+  @param url Url required
 @endtype
 
 @param footer Link
@@ -128,13 +128,13 @@ Blocks are typed authoring macros expanded while the source is parsed. They are 
 
 ```tpl
 @block link(item: Link)
-<a href="{{item.url}}">{{item.label}}</a>
+  <a href="{{item.url}}">{{item.label}}</a>
 @endblock
 
 @layout
-@each item in navigation:
+  @each item in navigation:
     @render link(item)
-@endeach
+  @endeach
 @endlayout
 ```
 

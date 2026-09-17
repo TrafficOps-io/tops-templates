@@ -8,20 +8,20 @@ A source file is UTF-8 text. Directives begin with `@` on their own line, page m
 @template "Product page" version=1 description="A product card"
 
 @section main "Main"
-@param title String label="Name" required
-@param description Markdown label="Description"
-@param price Number min=0 step=0.01
-@param available Boolean = true
+  @param title String label="Name" required
+  @param description Markdown label="Description"
+  @param price Number min=0 step=0.01
+  @param available Boolean = true
 @endsection
 
 @layout
-<article>
-  <h1>{{title}}</h1>
-  <div>{{& description}}</div>
-  @if available
-    <p>{{price}}</p>
-  @endif
-</article>
+  <article>
+    <h1>{{title}}</h1>
+    <div>{{& description}}</div>
+    @if available
+      <p>{{price}}</p>
+    @endif
+  </article>
 @endlayout
 ```
 
@@ -53,9 +53,9 @@ The declaration form is:
 
 ```tpl
 @type Card
-@param title String required
-@param body Text
-@param link Url
+  @param title String required
+  @param body Text
+  @param link Url
 @endtype
 
 @param featured Card
@@ -70,19 +70,19 @@ A block is a typed authoring macro expanded while the source is parsed:
 
 ```tpl
 @block card(item: Card)
-<article>
-  <h2>{{item.title}}</h2>
-  <p>{{item.body}}</p>
-  <a href="{{item.link}}">Learn more</a>
-</article>
+  <article>
+    <h2>{{item.title}}</h2>
+    <p>{{item.body}}</p>
+    <a href="{{item.link}}">Learn more</a>
+  </article>
 @endblock
 
 @layout
-<section class="cards">
-  @each item in cards:
-    @render card(item)
-  @endeach
-</section>
+  <section class="cards">
+    @each item in cards:
+      @render card(item)
+    @endeach
+  </section>
 @endlayout
 ```
 
