@@ -1,6 +1,22 @@
+import {readFileSync} from 'node:fs';
+import {bundledLanguages} from 'shiki';
 import {defineConfig} from 'vitepress';
 
 const repository = 'https://github.com/TrafficOps-io/tops-templates';
+const tplGrammar = JSON.parse(
+  readFileSync(
+    new URL('../../vscode-extension/syntaxes/fast-landings-tpl.tmLanguage.json', import.meta.url),
+    'utf8',
+  ),
+);
+
+const tplLanguage = {
+  ...tplGrammar,
+  name: 'tpl',
+  displayName: 'TrafficOps Template',
+  aliases: ['trafficops-template'],
+  embeddedLangs: ['html', 'php'],
+};
 
 export default defineConfig({
   lang: 'en-US',
@@ -15,34 +31,7 @@ export default defineConfig({
   ],
   markdown: {
     lineNumbers: true,
-    languages: [
-      {
-        name: 'tpl',
-        displayName: 'TrafficOps Template',
-        scopeName: 'source.tpl',
-        patterns: [
-          {include: '#comments'},
-          {include: '#directives'},
-          {include: '#expressions'},
-          {include: '#runtime'},
-          {include: 'text.html.basic'},
-        ],
-        repository: {
-          comments: {
-            patterns: [{name: 'comment.line.number-sign.tpl', match: '#.*$'}],
-          },
-          directives: {
-            patterns: [{name: 'keyword.control.tpl', match: '^\\s*@[A-Za-z][A-Za-z0-9_-]*'}],
-          },
-          expressions: {
-            patterns: [{name: 'variable.other.tpl', match: '\\{\\{[&#!/^>]?[\\s\\S]*?\\}\\}'}],
-          },
-          runtime: {
-            patterns: [{name: 'variable.language.tpl', match: '\\{(?:query|locale|actions|headers|body)(?:\\.[A-Za-z0-9_*-]+)*\\}'}],
-          },
-        },
-      },
-    ],
+    languages: [bundledLanguages.html, bundledLanguages.php, tplLanguage],
     config(md) {
       md.renderer.rules.code_inline = (tokens, index) => {
         const content = md.utils.escapeHtml(tokens[index].content);

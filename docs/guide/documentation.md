@@ -20,6 +20,16 @@ npm run docs:preview
 
 Static output is written to `docs/.vitepress/dist` and is not committed.
 
+Use a `tpl` fence for template-language examples. VitePress loads the same
+TextMate grammar as the VS Code extension, so directives, declarations,
+options, expressions, HTML, and embedded PHP stay highlighted consistently.
+
+````md
+```tpl
+@param title String required
+```
+````
+
 ## GitHub Pages
 
 The `.github/workflows/deploy-docs.yml` workflow:
@@ -38,6 +48,7 @@ In **Settings → Pages → Build and deployment**, select **GitHub Actions** as
 
 - navigation and metadata: `docs/.vitepress/config.mjs`;
 - theme: `docs/.vitepress/theme/style.css`;
+- template syntax grammar: `vscode-extension/syntaxes/fast-landings-tpl.tmLanguage.json`;
 - guides: `docs/guide/*.md`;
 - full language specification: `docs/language-v1.md`;
 - dialect API: `docs/dialects.md`;
