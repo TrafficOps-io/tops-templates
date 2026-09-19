@@ -1,0 +1,11 @@
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import * as monaco from 'monaco-editor/editor/editor.api.js';
+import EditorShell from '@trafficops/template-editor-shell';
+import {thirdHost} from './third-host.js';
+import './style.css';
+const host=thirdHost(), mode=new URL(location.href).searchParams.get('dialect');
+if(mode==='unknown') host.dialect={...host.dialect,id:'future-unknown-v9'};
+if(mode==='schema') host.dialect={...host.dialect,schema:9};
+window.editorModels=()=>monaco.editor.getModels().map(model=>({language:model.getLanguageId(),text:model.getValue()}));
+createRoot(document.getElementById('root')).render(<EditorShell host={host}/>);

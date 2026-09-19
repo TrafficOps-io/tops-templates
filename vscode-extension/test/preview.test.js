@@ -2,8 +2,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { parseDocument, buildProject, getCompletions, getHover, getDefinition } = require('../src/language');
-const { formatDocument } = require('../src/formatter');
+const { parseDocument, buildProject, getCompletions, getHover, getDefinition } = require('@trafficops/template-language');
+const { formatDocument } = require('@trafficops/template-language/formatter');
 
 const uri = 'file:///templates/template.tpl';
 const parse = text => parseDocument(uri, text);

@@ -1,0 +1,58 @@
+{
+  "name": "@trafficops/template-editor-shell",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/EditorShell.jsx",
+    "./shell.css": "./src/shell.css",
+    "./AssetPreview": "./src/AssetPreview.jsx",
+    "./CodeEditor": "./src/CodeEditor.jsx",
+    "./ImageCropDialog": "./src/ImageCropDialog.jsx",
+    "./ImageField": "./src/ImageField.jsx",
+    "./OpenRouterPanel": "./src/OpenRouterPanel.jsx",
+    "./ParameterForm": "./src/ParameterForm.jsx",
+    "./PathInput": "./src/PathInput.jsx",
+    "./ProjectSidebar": "./src/ProjectSidebar.jsx",
+    "./ResizableWorkspace": "./src/ResizableWorkspace.jsx",
+    "./host-context": "./src/host-context.js",
+    "./image-editing": "./src/image-editing.js",
+    "./openrouter-ai": "./src/openrouter-ai.js",
+    "./openrouter-images": "./src/openrouter-images.js",
+    "./openrouter-template-agent": "./src/openrouter-template-agent.js",
+    "./preview": "./src/preview.js",
+    "./studio-i18n": "./src/studio-i18n.js",
+    "./studio-translations": "./src/studio-translations.json",
+    "./validate-ai-draft": "./src/validate-ai-draft.js",
+    "./translation": "./src/translation.js"
+  },
+  "files": [
+    "src",
+    "LICENSE",
+    "README.md"
+  ],
+  "dependencies": {
+    "@trafficops/template-editor-core": "0.1.0",
+    "@trafficops/template-editor-monaco": "0.1.0",
+    "@openrouter/ai-sdk-provider": "^3.0.0",
+    "ai": "^7.0.105",
+    "lucide-react": "^0.468.0",
+    "zod": "^4.6.5"
+  },
+  "peerDependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "monaco-editor": "^0.56.0",
+    "tailwindcss": "^4.1.0",
+    "daisyui": "^5.5.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "devDependencies": {
+    "@babel/parser": "^7.29.8"
+  }
+}

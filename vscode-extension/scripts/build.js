@@ -16,7 +16,8 @@ async function buildExtension() {
     legalComments: 'eof',
     logLevel: 'info',
   });
-  await fs.copyFile(require.resolve('prettier/LICENSE'), path.resolve(__dirname, '../build/PRETTIER-LICENSE'));
+  const languageRequire = require('node:module').createRequire(require.resolve('@trafficops/template-language'));
+  await fs.copyFile(languageRequire.resolve('prettier/LICENSE'), path.resolve(__dirname, '../build/PRETTIER-LICENSE'));
 }
 
 if (require.main === module) buildExtension().catch(error => { console.error(error); process.exitCode = 1; });

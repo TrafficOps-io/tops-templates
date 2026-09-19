@@ -1,0 +1,36 @@
+{
+  "name": "@trafficops/template-editor-monaco",
+  "version": "0.1.0",
+  "description": "Dialect-aware Monaco services for TrafficOps template hosts.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js",
+    "./language": "./src/tpl-language.js",
+    "./intellisense": "./src/tpl-intellisense.js",
+    "./formatting": "./src/tpl-formatting.js",
+    "./setup": "./src/monaco-setup.js",
+    "./dialect": "./src/dialect.js"
+  },
+  "files": [
+    "src"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@trafficops/template-language": "0.1.0"
+  },
+  "peerDependencies": {
+    "monaco-editor": "^0.56.0"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "check": "node --check src/index.js && node --check src/dialect.js && node --check src/tpl-intellisense.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trafficops-io/tops-templates.git",
+    "directory": "packages/template-editor-monaco"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

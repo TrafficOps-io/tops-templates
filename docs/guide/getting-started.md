@@ -40,7 +40,7 @@ The default profile never executes arbitrary template code. Expressions are boun
 
 ### Without a server integration
 
-Use [Template Studio](https://trafficops-templates.netlify.app) for visual authoring or the CLI for local and CI builds. Both use the JavaScript runtime and support the portable `safe-html-v1` profile.
+Use [Template Studio](https://studio.trafficops.io) for visual authoring or the CLI for local and CI builds. Both use the JavaScript runtime and support the portable `safe-html-v1` profile.
 
 ### Inside a PHP application
 
@@ -53,3 +53,5 @@ Install `trafficops/template-dsl`, resolve `TemplateSourceParser` and `TemplateE
 - Composer 2 for PHP dependency management.
 
 Next, [build your first template](./first-template.md). If you work with a coding agent, install the [TrafficOps agent skills](./skills.md) so it can follow the same language, runtime, and security rules.
+
+The JavaScript analyzer and formatter are distributed as `@trafficops/template-language` (`packages/template-language`). Both the editor and the VS Code extension consume that package.

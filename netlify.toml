@@ -1,6 +1,6 @@
 [build]
   base = "."
-  command = "npm run build:editor"
+  command = "npm run build --workspace=@trafficops/template-studio"
   publish = "editor/dist"
 
 [build.environment]

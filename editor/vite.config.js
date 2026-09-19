@@ -12,7 +12,7 @@ export default defineConfig({
       id: '/',
       name: 'Landing Studio by TrafficOps',
       short_name: 'Landing Studio',
-      description: 'Create, edit, and generate TrafficOps template projects locally.',
+      description: 'Create templates and landing pages with a local code editor and an optional AI assistant.',
       start_url: '/?studio=1',
       scope: '/',
       display: 'standalone',
@@ -34,7 +34,7 @@ export default defineConfig({
     devOptions: { enabled: true, type: 'module' },
   })],
   worker: { format: 'es' },
-  // Reuse the VS Code extension's standalone language model and formatter.
-  optimizeDeps: { include: ['tops-templates/src/language.js', 'tops-templates/src/formatter.js'] },
-  build: { target: 'es2022', commonjsOptions: { include: [/node_modules/, /vscode-extension\/src\//] } },
+  // Bundle the published CommonJS language package in the browser.
+  optimizeDeps: { include: ['@trafficops/template-language', '@trafficops/template-language/formatter'] },
+  build: { target: 'es2022', commonjsOptions: { include: [/node_modules/, /packages\/template-language\/src\//] } },
 });

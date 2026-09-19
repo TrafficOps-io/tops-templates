@@ -1,21 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { URI } from 'monaco-editor/base/common/uri.js';
-import language from 'tops-templates/src/language.js';
-import { registerTplIntelliSense, completionItem, modelRange } from '../src/tpl-intellisense.js';
+import language from '@trafficops/template-language';
+import { registerTplIntelliSense, completionItem, modelRange } from '@trafficops/template-editor-monaco/intellisense';
 
+const safeDialect = () => ({ schema: 1, id: 'safe-html-v1' });
 const itemKinds = { Keyword: 17, Variable: 4, Field: 3, Property: 9, Struct: 6, Function: 1, File: 20, Text: 18 };
-function harness(readFiles = () => ({})) {
+function harness(readFiles = () => ({}), getDialect = safeDialect) {
   const providers = {}, calls = [], disposed = [];
   const languages = { CompletionItemKind: itemKinds, CompletionItemInsertTextRule: { InsertAsSnippet: 4 } };
   for (const name of ['CompletionItem', 'Hover', 'SignatureHelp', 'Definition']) {
     languages[`register${name}Provider`] = (id, provider) => {
-      assert.equal(id, 'trafficops-tpl'); providers[name] = provider; calls.push(name);
+      assert.ok(['trafficops-tpl', 'trafficops-tpl-trusted'].includes(id)); providers[name] = provider; calls.push(name);
       return { dispose: () => disposed.push(name) };
     };
   }
   const monaco = { languages, Uri: URI };
-  const registration = registerTplIntelliSense(monaco, { getProjectFiles: readFiles });
+  const registration = registerTplIntelliSense(monaco, { getDialect, getProjectFiles: readFiles });
   return { monaco, providers, calls, disposed, registration };
 }
 function model(source, path = 'index.tpl') {
@@ -139,11 +140,11 @@ test('include completion and definitions use the current file directory and proj
 test('registration is idempotent, replaceable and disposable', () => {
   const h = harness(() => ({ 'old.tpl': '@param old String' })), m = model('{{§}}');
   assert.ok(labels(suggestions(h, m)).includes('old'));
-  const same = registerTplIntelliSense(h.monaco, { getProjectFiles: () => ({ 'new.tpl': '@param newValue String' }) });
-  assert.equal(same, h.registration); assert.equal(h.calls.length, 4);
+  const same = registerTplIntelliSense(h.monaco, { getDialect: safeDialect, getProjectFiles: () => ({ 'new.tpl': '@param newValue String' }) });
+  assert.equal(same, h.registration); assert.equal(h.calls.length, 8);
   assert.deepEqual(labels(suggestions(h, m)), ['newValue']);
-  same.dispose(); same.dispose(); assert.equal(h.disposed.length, 4);
-  registerTplIntelliSense(h.monaco, { getProjectFiles: () => ({}) }); assert.equal(h.calls.length, 8);
+  same.dispose(); same.dispose(); assert.equal(h.disposed.length, 8);
+  registerTplIntelliSense(h.monaco, { getDialect: safeDialect, getProjectFiles: () => ({}) }); assert.equal(h.calls.length, 16);
 });
 
 test('cache reuses parsed projects and invalidates sibling edits; canceled/stale snapshots return no results', () => {
@@ -156,7 +157,7 @@ test('cache reuses parsed projects and invalidates sibling edits; canceled/stale
     suggestions(h, m); h.providers.Hover.provideHover(m, m.position(), {}); assert.equal(builds, 1);
     files['shared.tpl'] = '@param updated String'; suggestions(h, m); assert.equal(builds, 2);
     assert.deepEqual(suggestions(h, m, { isCancellationRequested: true }), []); assert.equal(builds, 2);
-    registerTplIntelliSense(h.monaco, { getProjectFiles: () => { m.setSource('@param changed String\n{{§}}'); return files; } });
+    registerTplIntelliSense(h.monaco, { getDialect: safeDialect, getProjectFiles: () => { m.setSource('@param changed String\n{{§}}'); return files; } });
     assert.deepEqual(suggestions(h, m), []); assert.equal(builds, 2);
   } finally { language.buildProject = original; }
 });
@@ -166,4 +167,39 @@ test('mapping falls back to text and zero-width UTF-16 ranges for generic core i
   const item = completionItem(h.monaco, m, { label: 'value', kind: 'other' }, 2);
   assert.equal(item.kind, itemKinds.Text); assert.equal(item.insertText, 'value');
   assert.deepEqual(item.range, modelRange(m, { start: 2, end: 2 })); assert.equal(item.range.startColumn, 3);
+});
+
+test('unknown host descriptors return no assistance without entering the language core', () => {
+  const original = language.buildProject;
+  let builds = 0;
+  language.buildProject = (...args) => { builds++; return original(...args); };
+  try {
+    for (const descriptor of [undefined, null, {}, { schema: 2, id: 'safe-html-v1' }, { schema: 1, id: 'future' }]) {
+      const h = harness(() => { assert.fail('unknown descriptors must not read project files'); }, () => descriptor), m = model('@§');
+      assert.deepEqual(suggestions(h, m), []);
+      for (const method of ['Hover', 'SignatureHelp', 'Definition']) assert.equal(h.providers[method][`provide${method}`](m, m.position(), {}), null);
+    }
+    assert.equal(builds, 0);
+  } finally { language.buildProject = original; }
+});
+
+test('two models retain independent dialects and descriptor changes invalidate the cache', () => {
+  const descriptors = new WeakMap(), files = { 'request.tpl.php': '@param serverOnly String' };
+  const h = harness(() => files, m => descriptors.get(m));
+  const safe = model('@§'), trusted = model('@§', 'request.tpl.php');
+  descriptors.set(safe, { schema: 1, id: 'safe-html-v1' });
+  descriptors.set(trusted, { schema: 1, id: 'fast-landings-v1' });
+  assert.ok(!labels(suggestions(h, safe)).includes('@validation'));
+  assert.ok(labels(suggestions(h, trusted)).includes('@validation'));
+  safe.setSource('@layout\n{§}'); trusted.setSource('@layout\n{§}');
+  assert.deepEqual(labels(suggestions(h, safe)), ['query', 'locale', 'actions']);
+  assert.deepEqual(labels(suggestions(h, trusted)), ['query', 'headers', 'body']);
+  descriptors.set(trusted, { schema: 1, id: 'safe-html-v1' });
+  assert.deepEqual(labels(suggestions(h, trusted)), ['query', 'locale', 'actions']);
+  descriptors.set(trusted, { schema: 9, id: 'fast-landings-v1' });
+  assert.deepEqual(suggestions(h, trusted), []);
+  safe.setSource('{{§}}');
+  assert.deepEqual(suggestions(h, safe), []);
+  descriptors.set(safe, { schema: 1, id: 'fast-landings-v1' });
+  assert.ok(labels(suggestions(h, safe)).includes('serverOnly'));
 });

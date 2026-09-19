@@ -267,6 +267,8 @@ Unit-тесты проверяют formatter, семантические под�
 
 Отдельная проверка `test:runtime` требует PHP с DOM и установленных Composer-зависимостей в корне репозитория. Она компилирует шаблоны до и после форматирования настоящим серверным parser/renderer и сравнивает форму, значения, разметку, CSS и поведение тестового JavaScript.
 
-`src/language.js` содержит анализатор DSL без VS Code API, `src/projects.js` разрешает include-граф через `workspace.fs`, `src/formatter.js` форматирует DSL и встроенные языки, а `src/extension.js` подключает редакторские providers. `npm run build` собирает их вместе с Prettier в `build/extension.js`; VSIX включает этот bundle и лицензию Prettier, без зависимости от `node_modules` пользователя. Подсветка хранится отдельно в `syntaxes/`, snippets — в `snippets/`.
+`@trafficops/template-language` содержит анализатор DSL без VS Code API, `src/projects.js` разрешает include-граф через `workspace.fs`, `@trafficops/template-language/formatter` форматирует DSL и встроенные языки, а `src/extension.js` подключает редакторские providers. `npm run build` собирает их вместе с Prettier в `build/extension.js`; VSIX включает этот bundle и лицензию Prettier, без зависимости от `node_modules` пользователя. Подсветка хранится отдельно в `syntaxes/`, snippets — в `snippets/`.
 
 Расширение следует DSL v1. При расширении серверного языка обновляйте его каталог директив/типов, анализатор, грамматику и соответствующие тесты; сервер Fast Landings остаётся источником окончательной проверки шаблона.
+
+The extension bundles `@trafficops/template-language` and its formatter. Its Marketplace identity remains `trafficops-io.tops-templates`.

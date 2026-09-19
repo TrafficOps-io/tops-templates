@@ -4,7 +4,7 @@ import { compile } from 'monaco-editor/editor/standalone/common/monarch/monarchC
 import { MonarchTokenizer } from 'monaco-editor/editor/standalone/common/monarch/monarchLexer.js';
 import { TokenizationRegistry } from 'monaco-editor/editor/common/languages.js';
 import { language as css } from 'monaco-editor/languages/definitions/css/css.js';
-import { tplLanguage, withTemplateExpressions, TPL_LANGUAGE_ID } from '../src/tpl-language.js';
+import { tplLanguage, withTemplateExpressions, TPL_LANGUAGE_ID } from '@trafficops/template-editor-monaco/language';
 import { languageFor } from '../src/project.js';
 
 // Use Monaco's actual compiler, state machine and embedded-language registry.
@@ -22,7 +22,7 @@ function provider(id, language) {
   disposables.push(tokenizer, TokenizationRegistry.register(id, tokenizer));
   return tokenizer;
 }
-provider('trafficops-tpl-css', withTemplateExpressions(css));
+provider('trafficops-tpl-css', withTemplateExpressions(css, { schema: 1, id: 'safe-html-v1' }));
 const tpl = provider(TPL_LANGUAGE_ID, tplLanguage);
 after(() => disposables.reverse().forEach(value => value.dispose()));
 
@@ -79,4 +79,17 @@ test('real Monaco CSS embedding preserves rules and quoted strings around templa
   has(lines[1], 'color:', 'attribute.name.css'); has(lines[1], 'accent', 'variable.css'); has(lines[1], 'title', 'variable.css'); has(lines[1], ' after', 'string.css'); has(lines[1], 'width:', 'attribute.name.css');
   assert.notEqual(tokenAt(lines[2], '@media'), 'keyword.directive.tpl');
   has(lines[3], 'style', 'tag.tpl'); has(lines[4], 'p>', 'tag.tpl'); has(lines[4], 'title', 'variable.tpl');
+});
+
+test('trusted grammar exposes its request sources, wildcards and validation only in its profile', async () => {
+  const { languageForDialect } = await import('@trafficops/template-editor-monaco/language');
+  const trusted = provider('trafficops-tpl-trusted', languageForDialect({ schema: 1, id: 'fast-landings-v1' }));
+  const source = '@validation body\n@param name String required\n@endvalidation\n{body.name} {headers.user-agent} {query.*} {locale}';
+  const lines = tokenize(source, trusted);
+  has(lines[0], '@validation', 'keyword.directive.tpl'); has(lines[2], '@endvalidation', 'keyword.directive.tpl');
+  has(lines[3], 'body', 'variable.predefined.tpl'); has(lines[3], 'headers', 'variable.predefined.tpl'); has(lines[3], '*', 'variable.tpl');
+  assert.notEqual(tokenAt(lines[3], 'locale'), 'variable.predefined.tpl');
+  const safe = tokenize(source);
+  assert.notEqual(tokenAt(safe[0], '@validation'), 'keyword.directive.tpl');
+  assert.notEqual(tokenAt(safe[3], 'body'), 'variable.predefined.tpl');
 });

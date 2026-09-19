@@ -14,7 +14,7 @@ hero:
       link: /guide/getting-started
     - theme: alt
       text: Open Template Studio
-      link: https://trafficops-templates.netlify.app
+      link: https://studio.trafficops.io
 
 features:
   - title: One language
@@ -47,7 +47,7 @@ features:
 @endlayout
 ```
 
-Save it as `index.tpl`, then open it in [Template Studio](https://trafficops-templates.netlify.app) or generate the page with the CLI:
+Save it as `index.tpl`, then open it in [Template Studio](https://studio.trafficops.io) or generate the page with the CLI:
 
 ```sh
 npx @trafficops/cli --template ./index.tpl --output ./generated

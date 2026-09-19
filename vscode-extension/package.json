@@ -154,7 +154,7 @@
   },
   "scripts": {
     "build": "node scripts/build.js",
-    "check": "node --check src/extension.js && node --check src/language.js && node --check src/projects.js && node --check src/formatter.js && node --check scripts/build.js",
+    "check": "node --check src/extension.js && node --check src/projects.js && node --check scripts/build.js",
     "test": "node --test test/*.test.js",
     "test:integration": "npm run build && node scripts/test-extension.js",
     "test:runtime": "node scripts/test-formatter-runtime.js",
@@ -169,7 +169,7 @@
     "vscode-textmate": "^9.3.2"
   },
   "dependencies": {
-    "prettier": "3.9.6"
+    "@trafficops/template-language": "0.1.0"
   },
   "repository": {
     "type": "git",

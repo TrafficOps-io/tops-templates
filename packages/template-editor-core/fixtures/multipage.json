@@ -1,0 +1,26 @@
+{
+  "files": {
+    "index.tpl": "@template \"Shared project\"\n@type Card\n@param title String label=\"Card title\" required\n@endtype\n@section content \"Content\"\n@param cards Card[]\n@param accent Color = \"#ff8068\"\n@endsection\n@layout\n<a href=\"demo/app.html\">Next</a>\n@each card in cards\n<h2>{{card.title}}</h2>\n@endeach\n@endlayout\n",
+    "demo/app.tpl.html": "@template \"Details\"\n@section details \"Details\"\n@param headline String = \"Details\"\n@endsection\n@layout\n<h1>{{headline}}</h1>\n@each card in cards\n<p>{{card.title}}</p>\n@endeach\n@endlayout\n",
+    "styles.css": "body{color:#222}",
+    "images/cover.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1 1\"><path d=\"M0 0h1v1H0z\"/></svg>"
+  },
+  "pages": [
+    "index.html",
+    "demo/app.html"
+  ],
+  "fields": [
+    "cards",
+    "accent",
+    "headline"
+  ],
+  "values": {
+    "cards": [
+      {
+        "title": "Shared card"
+      }
+    ],
+    "accent": "#ff8068",
+    "headline": "Details"
+  }
+}

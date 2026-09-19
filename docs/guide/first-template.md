@@ -83,6 +83,6 @@ Without `--data`, the CLI opens an interactive form. Add `--force` when intentio
 
 ## 4. Continue in the editor
 
-Open [Template Studio](https://trafficops-templates.netlify.app), choose **Open ZIP**, and import a ZIP containing the contents of `campaign/`. The editor provides a parameter form, live preview, and downloads for either generated pages or the editable source project.
+Open [Template Studio](https://studio.trafficops.io), choose **Open ZIP**, and import a ZIP containing the contents of `campaign/`. The editor provides a parameter form, live preview, and downloads for either generated pages or the editable source project.
 
 A complete two-page project is available in [`examples/campaign`](https://github.com/TrafficOps-io/tops-templates/tree/main/examples/campaign).

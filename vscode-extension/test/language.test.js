@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { DIALECTS, DEFAULT_DIALECT, DIALECT_PROFILES, normalizeDialect, parseDocument, buildProject, getCompletions, getDefinition, getHover, getSignatureHelp, getSymbols } = require('../src/language');
+const { DIALECTS, DEFAULT_DIALECT, DIALECT_PROFILES, normalizeDialect, parseDocument, buildProject, getCompletions, getDefinition, getHover, getSignatureHelp, getSymbols } = require('@trafficops/template-language');
 
 const URI = 'file:///templates/template.tpl';
 const declarations = `@type Avatar
@@ -287,7 +287,7 @@ test('request validation declarations stay out of editable globals and companion
   const index = '@validation query fallback="/error"\n@param subid String required\n@param pixel String lenght=10 required\n@endvalidation\n@param title String';
   const success = '@validation body fallback="submit-error"\n@param name String min=4 required\n@param phone String mask="+380 ... ... ..." required\n@param user.first-name String\n@endvalidation';
   const project = buildProject([{ uri: URI, text: index }, { uri: 'file:///templates/success.tpl.php', text: success }]);
-  const { getRuntimeMacros } = require('../src/language');
+  const { getRuntimeMacros } = require('@trafficops/template-language');
   assert.deepEqual([...project.params.keys()], ['title']);
   const document = project.documents.get(URI);
   assert.equal(document.diagnostics.length, 0);
@@ -448,7 +448,7 @@ CONTENT;
 });
 
 test('included fragments inherit one owning page without merging distinct page scopes', () => {
-  const { getRuntimeMacros } = require('../src/language');
+  const { getRuntimeMacros } = require('@trafficops/template-language');
   const index = { uri: 'file:///templates/index.tpl.php', text: '@validation query fallback="/error"\n@param subid String\n@endvalidation\n@include "shared.tpl"' };
   const fragment = { uri: 'file:///templates/shared.tpl', text: '<p>{query.subid}</p>' };
   assert.deepEqual(getRuntimeMacros(buildProject([index, fragment]), fragment.uri).map(item => item.name), ['query.subid']);

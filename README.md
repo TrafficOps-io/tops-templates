@@ -1,5 +1,10 @@
 # TrafficOps Templates
 
+[![CI](https://github.com/TrafficOps-io/tops-templates/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/TrafficOps-io/tops-templates/actions/workflows/ci.yml)
+[![Release](https://github.com/TrafficOps-io/tops-templates/actions/workflows/release.yml/badge.svg)](https://github.com/TrafficOps-io/tops-templates/actions/workflows/release.yml)
+[![Packagist](https://img.shields.io/packagist/v/trafficops/template-dsl)](https://packagist.org/packages/trafficops/template-dsl)
+[![npm](https://img.shields.io/npm/v/@trafficops/cli)](https://www.npmjs.com/package/@trafficops/cli)
+
 A template language and a local-first toolkit for building static pages: a PHP package, a terminal generator, a browser editor, a VS Code extension and installable agent skills. All tools live in this monorepo under the MIT license.
 
 | Directory | Purpose | Distribution |
@@ -34,7 +39,7 @@ node tops-cli/dist/cli.js --template ./examples/campaign --data ./examples/campa
 
 ## Edit in the browser
 
-[Open Template Studio](https://trafficops-templates.netlify.app), or run locally:
+[Open Template Studio](https://studio.trafficops.io), or run locally:
 
 ```sh
 npm ci
@@ -87,3 +92,5 @@ Production output is built with `npm run docs:build`. After successful CI on `ma
 ## Development and releases
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for checks and [RELEASING.md](RELEASING.md) for initial registry setup, GitHub environments, secrets and release commands. A checked-in workflow is publication configuration; it does not mean a package has already been registered or published.
+
+The JavaScript analyzer and formatter are distributed as `@trafficops/template-language` (`packages/template-language`). Both the editor and the VS Code extension consume that package.

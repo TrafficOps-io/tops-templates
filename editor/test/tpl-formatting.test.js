@@ -3,16 +3,16 @@ import test from 'node:test';
 import { existsSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import formatter from 'tops-templates/src/formatter.js';
-import { registerTplFormatting } from '../src/tpl-formatting.js';
-import { TPL_LANGUAGE_ID } from '../src/tpl-language.js';
+import formatter from '@trafficops/template-language/formatter';
+import { registerTplFormatting } from '@trafficops/template-editor-monaco/formatting';
+import { TPL_LANGUAGE_ID } from '@trafficops/template-editor-monaco/language';
 import { starterProject } from '../src/starter.js';
 import { getDefaults, parseTemplate, renderTemplate } from '@trafficops/template-runtime';
 
 function registration() {
   const calls = []; let disposed = 0;
   const monaco = { languages: { registerDocumentFormattingEditProvider(id, provider) { calls.push({ id, provider }); return { dispose() { disposed++; } }; } } };
-  const disposable = registerTplFormatting(monaco);
+  const disposable = registerTplFormatting(monaco, { getDialect: () => ({ schema: 1, id: 'safe-html-v1' }) });
   return { monaco, calls, provider: calls[0].provider, disposable, disposed: () => disposed };
 }
 function model(source) {
@@ -30,15 +30,15 @@ const normalizeHtml = html => html
   .replace(/<style>([\s\S]*?)<\/style>/g, (_, css) => `<style>${css.replace(/\s*([{}:;,])\s*/g, '$1').replace(/;}/g, '}').trim()}</style>`)
   .replace(/>\s+</g, '><').trim();
 
-test('registers one TPL provider and returns a disposable that permits clean registration again', () => {
+test('registers both dialect providers and returns a disposable that permits clean registration again', () => {
   const state = registration();
   assert.equal(state.calls[0].id, TPL_LANGUAGE_ID);
-  assert.equal(registerTplFormatting(state.monaco), state.disposable);
-  assert.equal(state.calls.length, 1);
-  state.disposable.dispose(); state.disposable.dispose();
-  assert.equal(state.disposed(), 1);
-  assert.notEqual(registerTplFormatting(state.monaco), state.disposable);
+  assert.equal(registerTplFormatting(state.monaco, { getDialect: () => ({ schema: 1, id: 'safe-html-v1' }) }), state.disposable);
   assert.equal(state.calls.length, 2);
+  state.disposable.dispose(); state.disposable.dispose();
+  assert.equal(state.disposed(), 2);
+  assert.notEqual(registerTplFormatting(state.monaco, { getDialect: () => ({ schema: 1, id: 'safe-html-v1' }) }), state.disposable);
+  assert.equal(state.calls.length, 4);
 });
 
 test('Format Document returns one full-document TextEdit without changing the model', async () => {
@@ -160,4 +160,19 @@ test('formatted safe-dialect templates retain PHP defaults and rendered semantic
   const before = render(semanticSource), after = render(await formatted(semanticSource));
   assert.deepEqual(before.defaults, after.defaults);
   assert.equal(normalizeHtml(before.html), normalizeHtml(after.html));
+});
+
+test('unknown descriptors and dialect changes during formatting never apply edits', async () => {
+  const state = registration(), input = model('@layout\n<div><h1>Title</h1></div>\n@endlayout');
+  let descriptor = { schema: 1, id: 'safe-html-v1' };
+  registerTplFormatting(state.monaco, { getDialect: () => descriptor });
+  const pending = state.provider.provideDocumentFormattingEdits(input, options);
+  descriptor = { schema: 1, id: 'fast-landings-v1' };
+  assert.deepEqual(await pending, []);
+  descriptor = { schema: 2, id: 'safe-html-v1' };
+  assert.deepEqual(await state.provider.provideDocumentFormattingEdits(input, options), []);
+  descriptor = { schema: 1, id: 'safe-html-v1' };
+  const closing = state.provider.provideDocumentFormattingEdits(input, options);
+  state.disposable.dispose();
+  assert.deepEqual(await closing, []);
 });

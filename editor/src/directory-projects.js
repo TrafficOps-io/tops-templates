@@ -1,3 +1,5 @@
+import { contentsEqual, ConflictError } from '@trafficops/template-editor-core';
+export { contentsEqual } from '@trafficops/template-editor-core';
 import { isText, LIMITS, safePath, validateFolders, validateProject } from './project.js';
 
 const DATABASE = 'trafficops-template-studio';
@@ -97,14 +99,6 @@ function bytes(value) {
   return typeof value === 'string' ? encoder.encode(value) : value;
 }
 
-export function contentsEqual(left, right) {
-  if (typeof left === 'string' && typeof right === 'string') return left === right;
-  const leftBytes = bytes(left), rightBytes = bytes(right);
-  if (leftBytes.byteLength !== rightBytes.byteLength) return false;
-  for (let index = 0; index < leftBytes.byteLength; index++) if (leftBytes[index] !== rightBytes[index]) return false;
-  return true;
-}
-
 export function projectSnapshotEqual(left, right) {
   const leftNames = Object.keys(left.files), rightNames = Object.keys(right.files);
   if (leftNames.length !== rightNames.length || left.folders.length !== right.folders.length) return false;
@@ -141,7 +135,7 @@ async function readDiskValue(root, path) {
 }
 
 function conflict(path) {
-  return new Error(`The file changed outside Studio: ${path}. Reload the folder before saving.`);
+  return new ConflictError(`The file changed outside Studio: ${path}. Reload the folder before saving.`);
 }
 
 export async function syncDirectoryProject(root, previousProject, nextProject) {

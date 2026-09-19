@@ -210,3 +210,7 @@ These are ceilings, not capacity promises. Hosts should apply tighter upload, ar
 ## Versioning
 
 The integer `version` identifies the stored language/definition contract independently of the Composer package version. Readers must reject unsupported language versions. Backward-compatible clarifications may keep version 1; a change that makes a previously valid definition mean something different requires a deliberate migration and normally a new language version.
+
+### Inverse conditions
+
+`@unless path` … `@endunless` renders when a field is empty or false. It preserves the enclosing scope, including for empty lists. This enables lossless migration of legacy inverse sections. Named `@each` loops access their row through the alias; other names retain their enclosing lexical bindings. Supported by the shared JavaScript runtime and PHP package 0.2.0.

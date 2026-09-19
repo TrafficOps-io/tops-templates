@@ -1,5 +1,5 @@
 {
-  "name": "@trafficops/template-editor",
+  "name": "@trafficops/template-studio",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -7,26 +7,34 @@
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "build:embed": "vite build --config vite.embed.config.js",
+    "pack:embed": "npm run build:embed && node scripts/pack-embed.mjs",
+    "check": "tsc -p tsconfig.hosts.json"
   },
   "dependencies": {
     "@fontsource-variable/onest": "^5.2.6",
     "@openrouter/ai-sdk-provider": "^3.0.0",
+    "@trafficops/template-editor-core": "0.1.0",
+    "@trafficops/template-editor-monaco": "0.1.0",
     "@trafficops/template-runtime": "0.1.0",
     "ai": "^7.0.105",
     "fflate": "^0.8.2",
+    "image-size": "^2.0.4",
     "lucide-react": "^0.468.0",
     "monaco-editor": "^0.56.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "tops-templates": "0.1.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.5",
+    "@trafficops/template-editor-shell": "0.1.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.0",
+    "@trafficops/template-language": "0.1.0",
     "@vitejs/plugin-react": "^5.0.0",
     "daisyui": "^5.5.0",
     "tailwindcss": "^4.1.0",
+    "typescript": "^5.9.3",
     "vite": "^7.3.0",
     "vite-plugin-pwa": "^1.3.0"
   }

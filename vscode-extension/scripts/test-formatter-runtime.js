@@ -6,7 +6,7 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
-const { formatDocument } = require('../src/formatter');
+const { formatDocument } = require('@trafficops/template-language/formatter');
 
 const packageRoot = path.resolve(__dirname, '..');
 const applicationRoot = path.resolve(packageRoot, '..');

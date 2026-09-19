@@ -1,0 +1,293 @@
+[
+  {
+    "id": "required-translations",
+    "files": {
+      "index.tpl": "@type Item\n@param title String label=\"Item title\" required\n@endtype\n@section main \"Main\"\n@param items Item[]\n@endsection\n@layout\n@each item in items\n<h1>{{item.title}}</h1>\n@endeach\n@endlayout"
+    },
+    "translations": {
+      "en": {
+        "items": [
+          {
+            "title": "Okay"
+          }
+        ]
+      },
+      "uk": {
+        "items": [
+          {
+            "title": ""
+          }
+        ]
+      }
+    },
+    "expected": {
+      "pages": [
+        "index.html"
+      ],
+      "diagnostics": [
+        {
+          "locale": "uk",
+          "section": "main",
+          "path": "items.0.title",
+          "code": "required"
+        }
+      ],
+      "sourceDiagnostics": []
+    }
+  },
+  {
+    "id": "multiple-scalars",
+    "files": {
+      "index.tpl": "@section main \"Main\"\n@param count Number min=1 max=10\n@param enabled Boolean\n@param email Email\n@endsection\n@layout\n<h1>{{count}}</h1>\n@endlayout"
+    },
+    "translations": {
+      "en": {
+        "count": 20,
+        "enabled": "yes",
+        "email": "bad"
+      }
+    },
+    "expected": {
+      "pages": [
+        "index.html"
+      ],
+      "diagnostics": [
+        {
+          "locale": "en",
+          "section": "main",
+          "path": "count",
+          "code": "invalid_value"
+        },
+        {
+          "locale": "en",
+          "section": "main",
+          "path": "enabled",
+          "code": "invalid_value"
+        },
+        {
+          "locale": "en",
+          "section": "main",
+          "path": "email",
+          "code": "invalid_value"
+        }
+      ],
+      "sourceDiagnostics": []
+    }
+  },
+  {
+    "id": "missing-image",
+    "files": {
+      "index.tpl": "@section media \"Media\"\n@param cover Image\n@endsection\n@layout\n<img src=\"{{cover}}\">\n@endlayout"
+    },
+    "translations": {
+      "en": {
+        "cover": "images/missing.png"
+      }
+    },
+    "expected": {
+      "pages": [
+        "index.html"
+      ],
+      "diagnostics": [
+        {
+          "locale": "en",
+          "section": "media",
+          "path": "cover",
+          "code": "image_missing"
+        }
+      ],
+      "sourceDiagnostics": []
+    }
+  },
+  {
+    "id": "retired-values",
+    "files": {
+      "index.tpl": "@type Card\n@param title String required\n@endtype\n@section main \"Main\"\n@param card Card\n@endsection\n@layout\n<h1>{{card.title}}</h1>\n@endlayout"
+    },
+    "translations": {
+      "en": {
+        "card": {
+          "title": "Kept",
+          "retired": "preserved"
+        },
+        "old": "preserved"
+      }
+    },
+    "expected": {
+      "pages": [
+        "index.html"
+      ],
+      "diagnostics": [],
+      "sourceDiagnostics": []
+    }
+  },
+  {
+    "id": "plain-html-pages",
+    "files": {
+      "index.html": "<h1>One</h1>",
+      "other.html": "<h1>Two</h1>"
+    },
+    "translations": {
+      "en": {}
+    },
+    "expected": {
+      "pages": [
+        "index.html",
+        "other.html"
+      ],
+      "diagnostics": [],
+      "sourceDiagnostics": []
+    }
+  },
+  {
+    "id": "php-is-source-error",
+    "files": {
+      "index.tpl": "@layout\n<?php echo 1; ?>\n@endlayout"
+    },
+    "translations": {
+      "en": {}
+    },
+    "expected": {
+      "pages": [],
+      "diagnostics": [],
+      "sourceDiagnostics": [
+        {
+          "file": "index.tpl",
+          "line": null,
+          "code": "source.invalid"
+        }
+      ]
+    }
+  },
+  {
+    "id": "unknown-directive",
+    "files": {
+      "index.tpl": "@unknown\n@layout\n<h1>Test</h1>\n@endlayout"
+    },
+    "translations": {
+      "en": {}
+    },
+    "expected": {
+      "pages": [],
+      "diagnostics": [],
+      "sourceDiagnostics": [
+        {
+          "file": "index.tpl",
+          "line": 1,
+          "code": "source.invalid"
+        }
+      ]
+    }
+  },
+  {
+    "id": "included-source-error",
+    "files": {
+      "index.tpl": "@include \"fields.tpl\"\n@layout\n<h1>Page</h1>\n@endlayout",
+      "fields.tpl": "@section content \"Content\"\n@param title UnknownType\n@endsection"
+    },
+    "translations": {
+      "en": {}
+    },
+    "expected": {
+      "pages": [],
+      "diagnostics": [],
+      "sourceDiagnostics": [
+        {
+          "file": "fields.tpl",
+          "line": 2,
+          "code": "source.invalid"
+        }
+      ]
+    }
+  },
+  {
+    "id": "svg-matching-size",
+    "files": {
+      "index.tpl": "@section media \"Media\"\n@param cover Image sizes=\"240x120\"\n@endsection\n@layout\n<img src=\"{{cover}}\">\n@endlayout",
+      "cover.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 240 120\"><rect width=\"240\" height=\"120\"/></svg>"
+    },
+    "translations": {
+      "en": {
+        "cover": "cover.svg"
+      }
+    },
+    "expected": {
+      "pages": [
+        "index.html"
+      ],
+      "diagnostics": [],
+      "sourceDiagnostics": []
+    }
+  },
+  {
+    "id": "svg-size-mismatch",
+    "files": {
+      "index.tpl": "@section media \"Media\"\n@param cover Image sizes=\"240x120\"\n@endsection\n@layout\n<img src=\"{{cover}}\">\n@endlayout",
+      "cover.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"100\"/>"
+    },
+    "translations": {
+      "en": {
+        "cover": "cover.svg"
+      }
+    },
+    "expected": {
+      "pages": [
+        "index.html"
+      ],
+      "diagnostics": [
+        {
+          "locale": "en",
+          "section": "media",
+          "path": "cover",
+          "code": "image_dimensions"
+        }
+      ],
+      "sourceDiagnostics": []
+    }
+  },
+  {
+    "id": "svg-ratio-mismatch",
+    "files": {
+      "index.tpl": "@section media \"Media\"\n@param cover Image aspect_ratio=\"2:1\"\n@endsection\n@layout\n<img src=\"{{cover}}\">\n@endlayout",
+      "cover.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"100\"/>"
+    },
+    "translations": {
+      "en": {
+        "cover": "cover.svg"
+      }
+    },
+    "expected": {
+      "pages": [
+        "index.html"
+      ],
+      "diagnostics": [
+        {
+          "locale": "en",
+          "section": "media",
+          "path": "cover",
+          "code": "image_dimensions"
+        }
+      ],
+      "sourceDiagnostics": []
+    }
+  },
+  {
+    "id": "svg-ratio-rounding",
+    "files": {
+      "index.tpl": "@section media \"Media\"\n@param cover Image aspect_ratio=\"2:1\"\n@endsection\n@layout\n<img src=\"{{cover}}\">\n@endlayout",
+      "cover.svg": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"239\" height=\"120\"/>"
+    },
+    "translations": {
+      "en": {
+        "cover": "cover.svg"
+      }
+    },
+    "expected": {
+      "pages": [
+        "index.html"
+      ],
+      "diagnostics": [],
+      "sourceDiagnostics": []
+    }
+  }
+]

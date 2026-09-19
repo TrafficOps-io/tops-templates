@@ -1,0 +1,4 @@
+@import '@trafficops/template-editor-shell/shell.css';
+@source './node_modules/@trafficops/template-editor-shell/src';
+:root { --color-base-100:#fffdfb; --color-base-200:#fbf7f2; --color-base-300:#e7ddd6; --color-base-content:#241f1d; --color-primary:#ff8068; --color-primary-content:#241f1d; --color-secondary:#766e69; --color-success:#58b887; --color-error:#b33; --color-warning:#b73; --radius-field:.55rem; --radius-box:.75rem; --radius-selector:.55rem; font-family:system-ui; }
+body {margin:1rem;}

@@ -1,0 +1,19 @@
+{
+  "name": "@trafficops/template-editor-embed",
+  "version": "0.4.11",
+  "type": "module",
+  "description": "Embeddable TrafficOps Studio with bundled runtime, Monaco and React",
+  "license": "MIT",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    "./editor.js": "./dist/editor.js",
+    "./editor.css": "./dist/editor.css",
+    "./messages.json": "./dist/messages.json"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trafficops-io/tops-templates"
+  }
+}

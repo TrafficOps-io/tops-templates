@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
-const { formatDocument } = require('../src/formatter');
+const { formatDocument } = require('@trafficops/template-language/formatter');
 
 async function format(source, options) {
   const result = await formatDocument(source, options);

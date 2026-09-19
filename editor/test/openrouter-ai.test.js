@@ -1,7 +1,8 @@
+import { validateDraft } from './support/ai-validator.js';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { generateProject, getDefaults, parseProject } from '@trafficops/template-runtime';
-import { parseStructuredContent, projectFromAiResponse, requestOpenRouter, valuesFromAiResponse, valuesSchema } from '../src/openrouter-ai.js';
+import { parseStructuredContent, projectFromAiResponse, requestOpenRouter, valuesFromAiResponse, valuesSchema } from '@trafficops/template-editor-shell/openrouter-ai';
 import { normalizeOpenRouterSettings } from '../src/openrouter-settings.js';
 import { starterProject } from '../src/starter.js';
 
@@ -12,25 +13,25 @@ test('structured AI content accepts JSON and a defensive fenced fallback', () =>
   assert.throws(() => parseStructuredContent('[]'), /JSON object/);
 });
 
-test('generated AI projects cross the ordinary path, parser and renderer boundaries', () => {
+test('generated AI projects cross the ordinary path, parser and renderer boundaries', async () => {
   const original = starterProject(true);
-  const files = projectFromAiResponse({ files: Object.entries(original).map(([path, content]) => ({ path, content })) });
+  const files = await projectFromAiResponse({ files: Object.entries(original).map(([path, content]) => ({ path, content })) }, validateDraft);
   const parsed = parseProject(files);
   assert.match(generateProject(files, getDefaults(parsed.definition))['index.html'], /Your next idea/);
-  assert.throws(() => projectFromAiResponse({ files: [{ path: '../escape.tpl', content: 'x' }] }), /Unsafe/);
-  assert.throws(() => projectFromAiResponse({ files: [{ path: 'index.png', content: 'fake' }] }), /non-text/);
-  assert.throws(() => projectFromAiResponse({ files: [{ path: 'notes.md', content: 'No template' }] }), /\.tpl/);
+  await assert.rejects(() => projectFromAiResponse({ files: [{ path: '../escape.tpl', content: 'x' }] }, validateDraft), /Unsafe/);
+  await assert.rejects(() => projectFromAiResponse({ files: [{ path: 'index.png', content: 'fake' }] }, validateDraft), /non-text/);
+  await assert.rejects(() => projectFromAiResponse({ files: [{ path: 'notes.md', content: 'No template' }] }, validateDraft), /\.tpl/);
 });
 
-test('content schema mirrors field types and generated values are runtime-validated', () => {
+test('content schema mirrors field types and generated values are runtime-validated', async () => {
   const files = starterProject();
   const { definition } = parseProject(files);
   const schema = valuesSchema(definition);
   assert.equal(schema.properties.values.properties.showNote.type, 'boolean');
   assert.equal(schema.properties.values.properties.accent.type, 'string');
   const values = { ...getDefaults(definition), headline: 'A generated headline', showNote: false };
-  assert.equal(valuesFromAiResponse({ values }, definition, files).headline, 'A generated headline');
-  assert.throws(() => valuesFromAiResponse({ values: { ...values, showNote: 'no' } }, definition, files), /boolean/);
+  assert.equal((await valuesFromAiResponse({ values }, definition, files, validateDraft)).headline, 'A generated headline');
+  await assert.rejects(() => valuesFromAiResponse({ values: { ...values, showNote: 'no' } }, definition, files, validateDraft), /boolean/);
 });
 
 test('OpenRouter requests use BYOK, strict JSON schema and privacy-aware routing', async () => {

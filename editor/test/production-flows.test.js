@@ -3,9 +3,9 @@ import test from 'node:test';
 import { unzipSync, zipSync, strToU8 } from 'fflate';
 import { generateProject, getDefaults, parseProject } from '@trafficops/template-runtime';
 import { createZip, readZipProject } from '../src/project.js';
-import { imageTarget, cropRectangle } from '../src/image-editing.js';
-import { imageFromResponse, generateImageWithOpenRouter, OPENROUTER_IMAGE_ENDPOINT } from '../src/openrouter-images.js';
-import { installedDisplayMode } from '../src/app-mode.js';
+import { imageTarget, cropRectangle } from '@trafficops/template-editor-shell/image-editing';
+import { imageFromResponse, generateImageWithOpenRouter, OPENROUTER_IMAGE_ENDPOINT } from '@trafficops/template-editor-shell/openrouter-images';
+import { installedDisplayMode, watchDisplayMode } from '../src/app-mode.js';
 import { starterProject } from '../src/starter.js';
 
 test('PWA capabilities require installed display mode, never a launch query', () => {
@@ -13,6 +13,91 @@ test('PWA capabilities require installed display mode, never a launch query', ()
   assert.equal(installedDisplayMode(browser), false);
   assert.equal(installedDisplayMode({ ...browser, navigator: { standalone: true } }), true);
   assert.equal(installedDisplayMode({ ...browser, matchMedia: query => ({ matches: query === '(display-mode: standalone)' }) }), true);
+  assert.equal(installedDisplayMode({ ...browser, matchMedia: query => ({ matches: query === '(display-mode: minimal-ui)' }) }), true);
+  assert.equal(installedDisplayMode({ ...browser, matchMedia: query => ({ matches: query === '(display-mode: fullscreen)' }) }), false);
+});
+
+function displayEnvironment(initialMode) {
+  let mode = initialMode;
+  const queries = new Map();
+  const environment = Object.assign(new EventTarget(), {
+    navigator: {},
+    matchMedia(query) {
+      if (!queries.has(query)) {
+        const result = new EventTarget();
+        Object.defineProperty(result, 'matches', { get: () => query === `(display-mode: ${mode})` });
+        queries.set(query, result);
+      }
+      return queries.get(query);
+    },
+  });
+  return { environment, setMode(nextMode) {
+    const previous = mode;
+    mode = nextMode;
+    for (const [query, result] of queries) {
+      if (query === `(display-mode: ${previous})` || query === `(display-mode: ${mode})`) result.dispatchEvent(new Event('change'));
+    }
+  } };
+}
+
+test('confirmed PWA fullscreen retains capabilities until the window returns to browser mode', () => {
+  for (const launchMode of ['standalone', 'minimal-ui']) {
+    const { environment, setMode } = displayEnvironment(launchMode);
+    assert.equal(installedDisplayMode(environment), true);
+    setMode('fullscreen');
+    assert.equal(installedDisplayMode(environment), true);
+    setMode('browser');
+    assert.equal(installedDisplayMode(environment), false);
+    setMode('fullscreen');
+    assert.equal(installedDisplayMode(environment), false);
+  }
+});
+
+test('iOS standalone confirms its own window and explicit browser mode clears confirmation', () => {
+  const { environment, setMode } = displayEnvironment('unknown');
+  environment.navigator.standalone = true;
+  assert.equal(installedDisplayMode(environment), true);
+  environment.navigator.standalone = false;
+  setMode('fullscreen');
+  assert.equal(installedDisplayMode(environment), true);
+  const otherWindow = displayEnvironment('fullscreen');
+  assert.equal(installedDisplayMode(otherWindow.environment), false);
+  setMode('browser');
+  environment.navigator.standalone = true;
+  assert.equal(installedDisplayMode(environment), true);
+  environment.navigator.standalone = false;
+  assert.equal(installedDisplayMode(environment), false);
+  setMode('fullscreen');
+  assert.equal(installedDisplayMode(environment), false);
+});
+
+test('display-mode watcher observes fullscreen and clears app confirmation in browser mode', () => {
+  const { environment, setMode } = displayEnvironment('standalone');
+  const updates = [];
+  const stop = watchDisplayMode(value => updates.push(value), environment);
+  setMode('fullscreen');
+  assert.equal(updates.at(-1), true);
+  setMode('browser');
+  assert.equal(updates.at(-1), false);
+  setMode('fullscreen');
+  assert.equal(updates.at(-1), false);
+  const updateCount = updates.length;
+  stop();
+  setMode('standalone');
+  environment.dispatchEvent(new Event('appinstalled'));
+  assert.equal(updates.length, updateCount);
+});
+
+test('appinstalled in an ordinary tab never grants AI or filesystem capabilities, including fullscreen', () => {
+  const { environment, setMode } = displayEnvironment('browser');
+  const updates = [];
+  const stop = watchDisplayMode(value => updates.push(value), environment);
+  environment.dispatchEvent(new Event('appinstalled'));
+  assert.deepEqual(updates, [false]);
+  setMode('fullscreen');
+  assert.equal(installedDisplayMode(environment), false);
+  assert.ok(updates.every(value => value === false));
+  stop();
 });
 
 test('source export round trips customized values and binary assets; landing export contains rendered values only', () => {

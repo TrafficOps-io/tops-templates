@@ -56,13 +56,13 @@ final class TemplateMarkupCompiler
                 }
                 $index++;
                 $nodes[] = ['kind' => 'each', 'alias' => $match[1], 'path' => $match[2], 'children' => $this->nodes($tokens, $index, 'endeach', $depth + 1), 'source' => $token];
-            } elseif ($kind === 'if') {
+            } elseif (in_array($kind, ['if', 'unless'], true)) {
                 $path = trim($token['args']);
                 if (! preg_match('/^[A-Za-z][A-Za-z0-9_.]*$/', $path)) {
-                    $this->fail($token, '@if expects a parameter path.');
+                    $this->fail($token, '@'.$kind.' expects a parameter path.');
                 }
                 $index++;
-                $nodes[] = ['kind' => 'if', 'path' => $path, 'children' => $this->nodes($tokens, $index, 'endif', $depth + 1), 'source' => $token];
+                $nodes[] = ['kind' => $kind, 'path' => $path, 'children' => $this->nodes($tokens, $index, 'end'.$kind, $depth + 1), 'source' => $token];
             } elseif ($kind === 'render') {
                 if (! preg_match('/^([A-Za-z][A-Za-z0-9_]*)\s*\((.*)\)$/', $token['args'], $match)) {
                     $this->fail($token, 'Use @render blockName(argument, otherArgument).');
@@ -130,12 +130,14 @@ final class TemplateMarkupCompiler
                     $item = ['path' => [...$value['path'], '*'.++$scopeId], 'type' => substr($value['type'], 0, -2)];
                     $nestedBindings[$node['alias']] = $item;
                     $nestedContexts[] = $item['path'];
+                } elseif ($node['kind'] === 'unless') {
+                    // An inverse section keeps the enclosing scope, including for objects and lists.
                 } elseif (str_ends_with($value['type'], '[]')) {
                     $this->fail($token, 'Use @each for lists.');
                 } elseif (isset($types[$value['type']])) {
                     $nestedContexts[] = $value['path'];
                 }
-                $html .= '{{#'.$reference.'}}'.$this->emit($node['children'], $blocks, $roots, $types, $nestedBindings, $nestedContexts, $calls, $budget, $scopeId).'{{/'.$reference.'}}';
+                $html .= '{{'.($node['kind'] === 'unless' ? '^' : '#').$reference.'}}'.$this->emit($node['children'], $blocks, $roots, $types, $nestedBindings, $nestedContexts, $calls, $budget, $scopeId).'{{/'.$reference.'}}';
             }
             if (strlen($html) > $this->maxDefinitionBytes) {
                 $this->fail($token, 'Expanded blocks exceed the 2 MB template limit.');

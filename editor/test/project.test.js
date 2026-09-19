@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { zipSync, strToU8, unzipSync } from 'fflate';
 import { createZip, inspectZip, LIMITS, projectFolders, readZip, readZipProject, renameFile, safePath, validateFolders, validateProject } from '../src/project.js';
-import { resolveAsset } from '../src/preview.js';
+import { resolveAsset } from '@trafficops/template-editor-shell/preview';
 import { starterProject } from '../src/starter.js';
 import { generateProject, getDefaults, parseProject } from '@trafficops/template-runtime';
 
@@ -78,7 +78,7 @@ test('generated HTML export permits the runtime output budget without relaxing s
 });
 
 test('preview bounds repeated data URLs and deeply nested CSS before expansion', async () => {
-  const { createAssetResolver } = await import('../src/preview.js');
+  const { createAssetResolver } = await import('@trafficops/template-editor-shell/preview');
   const repeated = createAssetResolver({ 'image.png': new Uint8Array(1000) }, { limit: 5000 });
   repeated.asset('image.png', 'index.html');
   assert.throws(() => { for (let i = 0; i < 10; i++) repeated.asset('image.png', 'index.html'); }, /Preview exceeds/);

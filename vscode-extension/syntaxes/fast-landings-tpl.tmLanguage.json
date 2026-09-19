@@ -239,7 +239,7 @@
         },
         {
           "name": "meta.directive.if.fast-landings-tpl",
-          "begin": "^[ \\t]*(@if)\\b",
+          "begin": "^[ \\t]*(@(?:if|unless))\\b",
           "beginCaptures": {
             "1": {
               "name": "keyword.control.directive.fast-landings-tpl"
@@ -272,7 +272,7 @@
         },
         {
           "name": "meta.directive.fast-landings-tpl",
-          "begin": "^[ \\t]*(@(?:template|include|layout|endsection|endtype|endblock|endeach|endif|endlayout|endpreviewData))\\b",
+          "begin": "^[ \\t]*(@(?:template|include|layout|endsection|endtype|endblock|endeach|endif|endunless|endlayout|endpreviewData))\\b",
           "beginCaptures": {
             "1": {
               "name": "keyword.control.directive.fast-landings-tpl"

@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path').posix;
 const { ProjectLoader, LIMITS } = require('../src/projects');
-const language = require('../src/language');
+const language = require('@trafficops/template-language');
 
 class Uri {
     constructor(value, scheme = 'file', authority = '') {

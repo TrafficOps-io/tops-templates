@@ -1,0 +1,30 @@
+{
+  "name": "@trafficops/template-language",
+  "version": "0.1.0",
+  "description": "Host-selected TrafficOps template analysis, completion and formatting without a VS Code dependency.",
+  "type": "commonjs",
+  "main": "./src/language.js",
+  "exports": {
+    ".": "./src/language.js",
+    "./formatter": "./src/formatter.js"
+  },
+  "files": [
+    "src"
+  ],
+  "license": "MIT",
+  "scripts": {
+    "check": "node --check src/language.js && node --check src/formatter.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "prettier": "3.9.6"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trafficops-io/tops-templates.git",
+    "directory": "packages/template-language"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

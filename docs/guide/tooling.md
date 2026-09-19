@@ -52,7 +52,7 @@ Type `\n` for multiline content. Required fields and constraints are checked bef
 
 ## Template Studio
 
-[Open Template Studio](https://trafficops-templates.netlify.app)
+[Open Template Studio](https://studio.trafficops.io)
 
 The editor runs entirely in the browser:
 

@@ -41,7 +41,15 @@ body {
 .VPNavBar,
 .VPNavBar.has-sidebar { background: transparent !important; }
 
-.VPNavBar .container { max-width: 80rem; }
+.VPNavBar .container {
+  /*
+   * The docs body is intentionally capped at 80rem, but the navbar also has
+   * to accommodate the fixed sidebar/title column. Capping the whole navbar
+   * leaves too little room for search + primary navigation on wide screens
+   * and makes its right edge stop well before the viewport edge.
+   */
+  max-width: none;
+}
 
 .VPNavBarTitle .logo {
   width: 2.125rem;

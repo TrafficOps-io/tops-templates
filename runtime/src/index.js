@@ -18,6 +18,7 @@ const escape = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({'&
 function identifier(value, what = 'identifier') { if (!IDENT.test(value) || FORBIDDEN.has(value)) fail(`Invalid ${what}: ${value}`); return value; }
 export function safePath(path) {
   if (typeof path !== 'string' || !path || bytes(path) > 255 || /[\\:%?#\x00-\x20\x7f]/.test(path) || path.startsWith('/') || path.split('/').some((part) => !part || part.startsWith('.') || FORBIDDEN.has(part))) fail(`Unsafe project path: ${path}`);
+  if (/\.(?:php\d*|phtml|phar|blade(?:\.php)?|cgi|pl|py|rb|sh|asp|aspx|jsp)(?:\.|$)/i.test(path)) fail('Source names must be safe relative paths without executable extensions.');
   return path;
 }
 function joined(from, path) { safePath(path); return safePath([...from.split('/').slice(0, -1), path].join('/')); }
@@ -56,35 +57,59 @@ function options(tokens, allowed) {
   }
   return result;
 }
+const fieldLocations = new WeakMap();
+function atSource(error, origin) {
+  if (origin && !error.file) { error.file = origin.file; error.line = origin.line; }
+  return error;
+}
 function expand(source, filename, resolver, stack = [], budget = {bytes: 0, lines: 0}) {
   if (typeof source !== 'string') fail(`${filename}: source must be text`);
-  budget.bytes += bytes(source); budget.lines += source.split('\n').length;
+  const rows = source.replace(/\r\n?/g, '\n').split('\n');
+  budget.bytes += bytes(source); budget.lines += rows.length;
   if (budget.bytes > LIMITS.sourceBytes || budget.lines > 20000) fail('Expanded source exceeds its budget');
   if (stack.includes(filename) || stack.length >= LIMITS.includeDepth) fail(`Include cycle or depth limit at ${filename}`);
-  return source.replace(/^\s*@include\s+([^\r\n]+)\s*$/gm, (_, args) => {
-    const tokens = words(args);
-    if (tokens.length !== 1) fail('@include needs one path');
-    const path = safePath(tokens[0]);
-    if (!/\.tpl(?:\.html)?$/i.test(path)) fail('Includes must use .tpl or .tpl.html');
-    if (!resolver) fail(`No include resolver for ${path}`);
-    const next = joined(filename, path);
-    const content = resolver(path, filename);
-    if (typeof content !== 'string') fail(`Include resolver did not return text for ${next}`);
-    return expand(content, next, resolver, [...stack, filename], budget);
-  });
+  const output = [], origins = [];
+  for (const [index, row] of rows.entries()) {
+    const origin = {file:filename, line:index + 1};
+    const include = /^\s*@include\s+([^\r\n]+)\s*$/.exec(row);
+    if (!include) { output.push(row); origins.push(origin); continue; }
+    try {
+      const tokens = words(include[1]);
+      if (tokens.length !== 1) fail('@include needs one path');
+      const path = safePath(tokens[0]);
+      if (!/\.tpl(?:\.html)?$/i.test(path)) fail('Includes must use .tpl or .tpl.html');
+      if (!resolver) fail(`No include resolver for ${path}`);
+      const next = joined(filename, path), content = resolver(path, filename);
+      if (typeof content !== 'string') fail(`Include resolver did not return text for ${next}`);
+      assertSource(content, next);
+      const expanded = expand(content, next, resolver, [...stack, filename], budget);
+      output.push(...expanded.text.split('\n')); origins.push(...expanded.origins);
+    } catch (error) { throw atSource(error, origin); }
+  }
+  return {text:output.join('\n'), origins};
 }
-function rawField(args) {
+function rawField(args, origin) {
+  try {
   const [name, author_type, ...rest] = words(args);
   identifier(name, 'field name');
   if (!/^[A-Z][A-Za-z0-9_]*(?:\[\])?$/.test(author_type ?? '')) fail(`Invalid type for ${name}`);
-  return {name, author_type, ...options(rest)};
+  const field = {name, author_type, ...options(rest)};
+  if (origin) fieldLocations.set(field, origin);
+  return field;
+  } catch (error) { throw atSource(error, origin); }
 }
-function collect(source, filename, resolver) {
-  const lines = expand(source, filename, resolver).replace(/\r\n?/g, '\n').split('\n');
+function assertSource(source, filename) {
+  if (/<\?|<%|\{!!|<script\b[^>]*\blanguage\s*=\s*['"]?php\b|@(?:php|endphp|extends|yield|inject|use|component|endcomponent|livewire|vite|csrf|method|auth|endauth|guest|endguest|can|endcan|cannot|endcannot|foreach|endforeach|forelse|endforelse|while|endwhile|for|endfor|switch|endswitch|once|endonce|push|endpush|stack|verbatim|endverbatim|validation|endvalidation)\b|@(?:include|if|elseif|unless|each)\s*\(|\{\{\s*\$/i.test(source)) throw Object.assign(new TemplateError(`${filename}: Executable PHP, Blade and request validation sources are unsupported.`), {file:filename, line:null});
+}
+function collect(source, filename, resolver, suppliedOrigins) {
+  assertSource(source, filename);
+  const expanded = suppliedOrigins ? {text:source, origins:suppliedOrigins} : expand(source, filename, resolver);
+  const lines = expanded.text.split('\n'), origins = expanded.origins;
   const result = {sections: [], types: {}, blocks: {}, fields: [], filename, meta: {}, layout: null};
   const ids = new Set(); let section = null;
   const body = (start, end) => { const rows = []; let i = start + 1; for (; i < lines.length && lines[i].trim() !== `@${end}`; i++) rows.push(lines[i]); if (i === lines.length) fail(`${filename}:${start + 1}: missing @${end}`); return {text: rows.join('\n'), end: i}; };
   for (let i = 0; i < lines.length; i++) {
+    try {
     const line = lines[i].trim(); if (!line || line.startsWith('<!--') && line.endsWith('-->')) continue;
     const match = /^@([A-Za-z]+)(?:\s+(.*))?$/.exec(line);
     if (!match) fail(`${filename}:${i + 1}: content belongs inside @layout or @block`);
@@ -103,13 +128,13 @@ function collect(source, filename, resolver) {
       section = {id, label, fields: []}; ids.add(id); result.sections.push(section);
     } else if (directive === 'endsection') { if (!section || args) fail('Unexpected @endsection'); section = null; }
     else if (directive === 'param') {
-      const field = rawField(args); if (result.fields.some((f) => f.name === field.name)) fail(`Duplicate field ${field.name}`);
+      const field = rawField(args, origins[i]); if (result.fields.some((f) => f.name === field.name)) fail(`Duplicate field ${field.name}`);
       if (!section && !result.sections.some((s) => s.id === 'general')) { result.sections.push({id:'general', label:'General', fields:[]}); ids.add('general'); }
       (section || result.sections.find((s) => s.id === 'general')).fields.push(field); result.fields.push(field);
     } else if (directive === 'type') {
       if (!/^[A-Z][A-Za-z0-9_]*$/.test(args) || own(TYPES, args) || own(result.types, args)) fail(`Invalid or duplicate type ${args}`);
-      const collected = body(i, 'endtype'); i = collected.end;
-      result.types[args] = collected.text.split('\n').filter((row) => row.trim()).map((row) => { const m = /^\s*@param\s+(.+)$/.exec(row); if (!m) fail('Types only contain @param declarations'); return rawField(m[1]); });
+      const start = i, collected = body(i, 'endtype'); i = collected.end;
+      result.types[args] = collected.text.split('\n').map((row, at) => { if (!row.trim()) return null; const m = /^\s*@param\s+(.+)$/.exec(row); if (!m) fail('Types only contain @param declarations'); return rawField(m[1], origins[start + at + 1]); }).filter(Boolean);
     } else if (directive === 'block') {
       const signature = /^([A-Za-z][A-Za-z0-9_]*)\(([^)]*)\)(.*)$/.exec(args);
       if (!signature) fail('Invalid @block signature');
@@ -126,6 +151,7 @@ function collect(source, filename, resolver) {
       if (result.meta.previewData !== undefined) fail('Duplicate preview data');
       const collected = body(i, 'endpreviewData'); i = collected.end; result.meta.previewData = collected.text;
     } else fail(`${filename}:${i + 1}: unsupported directive @${directive}`);
+    } catch (error) { throw atSource(error, origins[i]); }
   }
   if (section) fail('Unclosed @section');
   if (result.layout === null || !result.layout.trim()) fail(`${filename}: exactly one non-empty @layout is required`);
@@ -135,6 +161,7 @@ function normalizeFields(raw, types, seen = [], counter = {value:0}) {
   if (seen.length > LIMITS.depth) fail('Field nesting exceeds six levels');
   const names = new Set();
   return raw.map((field) => {
+    try {
     if (++counter.value > LIMITS.fields) fail('Too many fields');
     if (names.has(field.name)) fail(`Duplicate field ${field.name}`); names.add(field.name);
     const {name, author_type, ...opts} = field;
@@ -168,6 +195,7 @@ function normalizeFields(raw, types, seen = [], counter = {value:0}) {
       else if (['group','repeater'].includes(type)) { try { normalized.default = JSON.parse(opts.default); } catch { fail(`Default for ${name} must be JSON`); } }
     }
     return normalized;
+    } catch (error) { throw atSource(error, fieldLocations.get(field)); }
   });
 }
 function boundedCopy(value, budget, depth = 0) {
@@ -220,7 +248,7 @@ function normalizeValues(fields, data, path = '', budget = {value:0}, allowMissi
         if (!allowMissingRequired && field.required && isRichTextEmpty(renderRichText(field.type,value))) fail(`${name} is required`);
       }
       if (value && field.type === 'url' && !safeUrl(value)) fail(`${name} must be an HTTP(S) URL or relative path`);
-      if (value && field.type === 'image') safePath(value);
+      if (value && field.type === 'image') { if (/^https?:\/\//i.test(value)) { if (!safeUrl(value)) fail(`${name} must be a safe image URL`); } else safePath(value.split(/[?#]/)[0]); }
       if (value && field.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) fail(`${name} must be an email address`);
       if (value && field.type === 'color' && !/^#(?:[\da-f]{3}|[\da-f]{6}|[\da-f]{8})$/i.test(value)) fail(`${name} must be a hex color`);
       if (field.type === 'select' && !own(field.options, value)) fail(`${name} must be a listed option`);
@@ -240,9 +268,10 @@ function parseBody(body) {
     const match = /^\s*@([A-Za-z-]+)(?:\s+(.*))?\s*$/.exec(row);
     if (!match || CSS.has(match[1])) { text += row + '\n'; continue; }
     flush(); const [, directive, args = ''] = match;
-    if (directive === 'if') tokens.push({kind:'open', mode:'if', path:args.replace(/:\s*$/, '').trim(), close:'endif'});
+    if (directive === 'unless') tokens.push({kind:'open', mode:'inverse', path:args.replace(/:\s*$/, '').trim(), close:'endunless'});
+    else if (directive === 'if') tokens.push({kind:'open', mode:'if', path:args.replace(/:\s*$/, '').trim(), close:'endif'});
     else if (directive === 'each') { const m = /^([A-Za-z][A-Za-z0-9_]*)\s+in\s+(.*?)\s*:??$/.exec(args); if (!m) fail('Invalid @each'); tokens.push({kind:'open', mode:'each', alias:identifier(m[1]), path:m[2].replace(/:$/, '').trim(), close:'endeach'}); }
-    else if (directive === 'endif' || directive === 'endeach') { if (args) fail(`Invalid @${directive}`); tokens.push({kind:'close', close:directive}); }
+    else if (directive === 'endif' || directive === 'endunless' || directive === 'endeach') { if (args) fail(`Invalid @${directive}`); tokens.push({kind:'close', close:directive}); }
     else if (directive === 'render') { const m = /^([A-Za-z][A-Za-z0-9_]*)\(([^)]*)\)$/.exec(args); if (!m) fail('Invalid @render'); tokens.push({kind:'block', name:m[1], args:m[2].trim() ? m[2].split(',').map((p) => p.trim()) : []}); }
     else fail(`Unsupported body directive @${directive}`);
   }
@@ -302,7 +331,8 @@ function lookup(path, scope, field = false) {
 function schemaMap(fields) { return Object.fromEntries(fields.map((field) => [field.name, field])); }
 function rootScope(fields, data = {}) { const scope = {schema:schemaMap(fields), data, bindings:{}, parent:null, block:false}; scope.root = scope; return scope; }
 function childScope(scope, field, data, alias) {
-  const child = {schema:schemaMap(field.fields || []), data:data || {}, bindings:{...scope.bindings}, parent:scope, root:scope.root, block:scope.block};
+  // Named @each aliases have lexical scope; raw {{#sections}} retain Mustache context.
+  const child = {schema:alias ? scope.schema : schemaMap(field.fields || []), data:alias ? scope.data : data || {}, bindings:{...scope.bindings}, parent:scope, root:scope.root, block:scope.block};
   if (alias) child.bindings[alias] = {schema:{...field, type:'group', author_type:field.author_type.replace(/\[\]$/, '')}, data};
   return child;
 }
@@ -360,9 +390,13 @@ export function parseProject(files) {
   const included = new Set();
   const resolveInclude = (path, from) => { const key = joined(from, path); if (!own(files, key)) fail(`Missing include: ${key}`); included.add(key); return decode(files[key], key); };
   const expanded = new Map(sourcePaths.map((path) => [path, expand(decode(files[path], path),path,resolveInclude)]));
-  const pages = sourcePaths.filter((path) => !included.has(path) && /^\s*@layout\s*$/m.test(expanded.get(path)));
-  if (!pages.length || pages.length > LIMITS.pages) fail(`A project needs 1–${LIMITS.pages} entry templates containing @layout after includes`);
-  const collected = pages.map((path) => collect(expanded.get(path), path));
+  const pages = sourcePaths.filter((path) => !included.has(path) && /^\s*@layout\s*$/m.test(expanded.get(path).text));
+  const plain = Object.keys(files).filter(path => /\.html?$/i.test(path) && !/\.tpl\.html$/i.test(path) && !included.has(path));
+  if (!pages.length && !plain.length || pages.length + plain.length > LIMITS.pages) fail(`A project needs 1–${LIMITS.pages} entry templates containing @layout after includes`);
+  const collected = [...pages.map(path => collect(expanded.get(path).text, path, undefined, expanded.get(path).origins)), ...plain.map(path => {
+    const source = decode(files[path], path); assertSource(source, path);
+    return {sections:[], types:{}, blocks:{}, fields:[], filename:path, meta:{name:'Page'}, layout:source.replace(/^(\s*)@/gm, '$1@@')};
+  })];
   const shared = {fields:[], sections:[], types:{}, blocks:{}};
   for (const page of collected) {
     for (const map of ['types','blocks']) for (const [name,value] of Object.entries(page[map])) { if (own(shared[map], name) && JSON.stringify(shared[map][name]) !== JSON.stringify(value)) fail(`Conflicting ${map}: ${name}`); shared[map][name] = value; }
@@ -377,8 +411,8 @@ export function parseProject(files) {
     }
   }
   if (shared.sections.length > 50) fail('Too many sections');
-  const definitions = collected.map((page) => build(page, shared));
-  const outputs = new Set(Object.keys(files).filter((path) => !/\.tpl(?:\.html)?$/i.test(path)).map((path) => path.toLowerCase()));
+  const definitions = collected.map((page) => build(page, shared)).sort((a,b) => a.entrypoint === 'index.html' ? -1 : b.entrypoint === 'index.html' ? 1 : a.entrypoint.localeCompare(b.entrypoint, 'en', {numeric:true, sensitivity:'base'}));
+  const outputs = new Set(Object.keys(files).filter((path) => !/\.tpl(?:\.html)?$/i.test(path) && !plain.includes(path)).map((path) => path.toLowerCase()));
   for (const definition of definitions) { const output = definition.entrypoint.toLowerCase(); if (outputs.has(output)) fail(`Output collision: ${definition.entrypoint}`); outputs.add(output); }
   for (const output of outputs) { const parts = output.split('/'); for (let i = 1; i < parts.length; i++) if (outputs.has(parts.slice(0,i).join('/'))) fail(`Output file/directory collision: ${output}`); }
   return {definition:definitions[0], pages:definitions, files};
@@ -417,16 +451,18 @@ function runtimeContext(context) {
   }
   return result;
 }
-export function renderTemplate(definition, data = {}, context = {}) {
+export function renderTemplate(definition, data = {}, context = {}, { draft = false } = {}) {
   const program = programs.get(definition); if (!program) fail('renderTemplate expects a definition returned by parseTemplate or parseProject');
-  const normalized = validateValues(definition, data), runtime = runtimeContext(context), output = [];
+  const relax = field => ({...field, required:false, ...(field.type === 'repeater' ? {min_items:0} : {}), ...(field.fields ? {fields:field.fields.map(relax)} : {})});
+  const normalized = draft ? normalizeValues(definition.fields.map(relax), data) : validateValues(definition, data), runtime = runtimeContext(context), output = [];
   renderSegments(program.nodes, rootScope(definition.fields, normalized), program.blocks, runtime, {operations:0, bytes:0}, output);
   return encodeSegments(output, {fail, escape, safeUrl, bytes, maxBytes:LIMITS.outputBytes});
 }
-export function generateProject(files, data = {}, context = {}) {
+/** @returns {Record<string, string | Uint8Array>} */
+export function generateProject(files, data = {}, context = {}, options = {}) {
   const project = parseProject(files), output = {};
   for (const [path,value] of Object.entries(files)) if (!/\.tpl(?:\.html)?$/i.test(path)) output[path] = value;
-  for (const definition of project.pages) output[definition.entrypoint] = renderTemplate(definition, data, context);
+  for (const definition of project.pages) output[definition.entrypoint] = renderTemplate(definition, data, context, options);
   if (Object.values(output).reduce((total,value) => total + bytes(value),0) > LIMITS.projectBytes) fail('Generated project exceeds 32 MiB');
   return output;
 }

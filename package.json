@@ -7,7 +7,8 @@
     "runtime",
     "tops-cli",
     "editor",
-    "vscode-extension"
+    "vscode-extension",
+    "packages/*"
   ],
   "engines": {
     "node": ">=22"
@@ -19,10 +20,10 @@
     "docs:dev": "npm --prefix docs run dev",
     "docs:build": "npm --prefix docs run build",
     "docs:preview": "npm --prefix docs run preview",
-    "build:editor": "npm run build --workspace=@trafficops/template-editor",
+    "build:editor": "npm run build --workspace=@trafficops/template-studio",
     "build:cli": "npm run build --workspace=@trafficops/cli",
     "build:vsix": "npm run package --workspace=tops-templates",
-    "dev": "npm run dev --workspace=@trafficops/template-editor"
+    "dev": "npm run dev --workspace=@trafficops/template-studio"
   },
   "overrides": {
     "monaco-editor": {

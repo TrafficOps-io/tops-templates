@@ -1,0 +1,4 @@
+@import "@trafficops/template-editor-shell/shell.css";
+@source "../../../packages/template-editor-shell/src";
+
+:host{display:block;background:transparent;font:inherit;color:inherit;color-scheme:inherit;--font-sans:inherit;--radius-selector:inherit;--radius-field:inherit;--radius-box:inherit;--color-base-100:inherit;--color-base-200:inherit;--color-base-300:inherit;--color-base-content:inherit;--color-primary:inherit;--color-primary-content:inherit;--color-secondary:inherit;--color-secondary-content:inherit;--color-accent:inherit;--color-accent-content:inherit;--color-neutral:inherit;--color-neutral-content:inherit;--color-info:inherit;--color-info-content:inherit;--color-success:inherit;--color-success-content:inherit;--color-warning:inherit;--color-warning-content:inherit;--color-error:inherit;--color-error-content:inherit;}

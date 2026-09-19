@@ -1,4 +1,4 @@
-import { DEFAULT_OPENROUTER_MODEL } from './openrouter-ai.js';
+import { DEFAULT_OPENROUTER_MODEL } from '@trafficops/template-editor-shell/openrouter-ai';
 
 const DATABASE = 'trafficops-template-studio-ai';
 const VERSION = 1;

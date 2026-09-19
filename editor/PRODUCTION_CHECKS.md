@@ -1,5 +1,49 @@
 # Landing Studio verification
 
+## Current capability scope — 2026-09-19
+
+AI creation, AI-assisted source editing, content filling, image generation and AI/BYOK settings are available only in the installed Studio PWA. File System Access folder operations also require the installed PWA, including restoring or reconnecting remembered folders whose permission was previously granted. Ordinary Studio browser tabs retain the manual local library, template/blank creation, source editing and ZIP import/export workflows. Neither `?studio=1` nor browser fullscreen unlocks installed-app capabilities. The embedded PWApps `HttpHost` follows its own host capabilities and is unaffected.
+
+The clarified boundary was checked against the local production build:
+
+- All 178 Studio and 14 shared-shell unit tests, workspace type/syntax checks, and both Studio and embedded production builds passed. Port tests cover denied storage/provider/filesystem access, saved connections, capability changes during asynchronous operations and queued saves.
+- `pwa-access-browser.mjs` passed in Chrome: ordinary tabs expose no AI creation, assistant, image generation, connection settings or folder controls. Saved credentials and a pending AI brief do not start or claim generation. Previously granted folder handles are not loaded or accessed, and folder recovery survives ordinary library navigation, project creation and reload.
+- `?studio=1`, an `appinstalled` event and browser fullscreen do not unlock a tab. DOM fullscreen is exercised directly; its media query is additionally simulated because headless Chrome does not consistently expose it. Installed launch mode is simulated in an isolated context and exposes AI and the explicit folder picker.
+- A simulated standalone → fullscreen transition retains the open AI settings and working folder picker. Returning to browser mode revokes them; entering fullscreen again cannot restore them. Installed confirmation belongs only to the current window and is cleared on return to browser mode.
+- Studio, AI-agent, library-AI, library/offline, folder-recovery and embedded-creation browser checks passed after applying the restriction. AI responses are mocked and folder recovery uses isolated test handles; this pass sends no paid requests and does not claim a native installation or real-folder retest.
+- The access regression is included in CI. The embedded PWApps editor retains its host-provided AI capabilities.
+
+The records below retain the earlier broader verification results. This pass does not record a deployment.
+
+## Local library and PWA verification — 2026-09-19
+
+This pass covered the source tree and local production build before the capability-scope clarification above. It does not record a deployment.
+
+- Studio now has separate local templates and landings, creation from a template/blank page/AI, three bundled starters, gallery previews, search, duplicate/delete, source ZIP import and a save-as-template action. Copies include editable values, files and binary assets and do not mutate their source.
+- LibraryHost commits versioned IndexedDB records before reporting success. Saves protect against stale tabs and deleted records; navigation flushes through the editor so its revision stays synchronized. Storage failures pause automatic retries while keeping edits and explicit retry available.
+- Legacy ZIP recovery migrates into the library. Detached folder recovery stays detached even after an in-memory save, and unreadable folders open the recovery copy. A conflicted project can be saved as a new independent project.
+- AI startup is claimed durably before contacting the provider. Reloading preserves the brief without repeating generation. Pending application navigation blocks starting a new AI run.
+- PWA registration replays update readiness, checks updates on return/online and periodically, reports failures, and does not reload other windows without their acceptance. The update action flushes edits first.
+
+Validation completed:
+
+- `npm test`: 319 passing tests across the JavaScript workspaces.
+- `npm run check`: passed.
+- Production Studio and embedded editor builds: passed. Service worker precaches 45 entries, approximately 15.5 MiB, including Monaco workers and fonts.
+- Chrome library flow: blank creation and restore; template-to-landing independence; autosaved content; save as template; source ZIP field roundtrip; duplication, deletion, search and filtering.
+- Chrome PWA flow: actual service-worker caching, offline reload, restored projects, Monaco editing and autosave, source ZIP download and a second offline reload. Installed display mode is simulated in an isolated browser context.
+- Chrome AI creation flow: mocked provider, persisted claim before the first request, streamed draft, validation, apply/autosave, no repeat on reload, missing-key Settings flow, cancellation and recovery after a provider error. This pass sends no paid requests.
+- Shared shell and embedded regressions: fullscreen layout, focus/Escape behavior, mobile preview, source export, streamed edit/delete/clarifications, cancellation, named template action and HTTP kickoff.
+- Recovery browser checks: detached copies survive save/reload, malformed folder settings open the recovery, and a project deleted in another tab can be rescued with its edits, binary assets and folders. These use isolated simulated folder handles with real IndexedDB transactions; the native OPFS probe disconnected both tested Chromium processes in this environment. A minimal blank page with no Studio code reproduced the disconnect when reading the persisted handle after reload.
+- Real React autosave hook: failed storage does not create a retry loop; manual retry, external operation lock and revision-safe flush work.
+- Library and creation dialog fit a 390 px mobile viewport without horizontal overflow. Desktop and mobile screenshots were inspected.
+
+The CI workflow now includes these browser checks with pinned Playwright and Chromium. Existing build warnings concern the size of bundled Monaco/formatter chunks and upstream Zod annotations; they do not prevent the build or offline precache.
+
+## Historical verification — 2026-09-17
+
+The notes below describe the earlier editor revision and its live-provider/native-install checks. The current browser/library behavior is described above.
+
 Verified locally on 2026-09-17. This records the editor changes and their validation; it is not a deployment record.
 
 ## Automated checks

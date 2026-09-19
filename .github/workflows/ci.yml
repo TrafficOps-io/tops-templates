@@ -48,7 +48,7 @@ jobs:
       - run: npm run test:pack --workspace=@trafficops/cli
       - run: npm run build:vsix
       - run: mkdir -p dist
-      - run: npm pack --workspace=@trafficops/cli --pack-destination=dist
+      - run: npm pack --workspace=@trafficops/cli --workspace=@trafficops/template-language --workspace=@trafficops/template-editor-monaco --workspace=@trafficops/template-editor-core --workspace=@trafficops/template-editor-shell --pack-destination=dist
       - uses: actions/upload-artifact@v7
         if: matrix.node == '22'
         with:
@@ -61,6 +61,34 @@ jobs:
         with:
           name: editor
           path: editor/dist
+  studio-browser:
+    runs-on: ubuntu-latest
+    env:
+      PLAYWRIGHT_MODULE: ${{ runner.temp }}/studio-browser/node_modules/playwright
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm install --prefix "$RUNNER_TEMP/studio-browser" --ignore-scripts --no-audit --no-fund playwright@1.62.1
+      - run: node "$PLAYWRIGHT_MODULE/cli.js" install --with-deps chromium
+      - run: npm run build:editor
+      - run: node editor/test/studio-browser.mjs editor/dist
+      - run: node editor/test/pwa-access-browser.mjs editor/dist
+      - run: node editor/test/library-browser.mjs editor/dist
+      - run: node editor/test/library-ai-browser.mjs editor/dist
+      - run: node editor/test/recovery-browser.mjs editor/dist
+      - run: node editor/test/agent-browser.mjs editor/dist
+      - run: node editor/test/autosave-browser.mjs
+      - run: npm run build:embed --workspace=@trafficops/template-studio
+      - run: node editor/test/creation-browser.mjs
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: studio-browser-failure
+          path: /tmp/*browser*.png
   formatter-integration:
     runs-on: ubuntu-latest
     steps:

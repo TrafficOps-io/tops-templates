@@ -4,8 +4,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { buildProject, getCompletions, getDefinition, getHover, getSignatureHelp } = require('../src/language');
-const { formatDocument } = require('../src/formatter');
+const { buildProject, getCompletions, getDefinition, getHover, getSignatureHelp } = require('@trafficops/template-language');
+const { formatDocument } = require('@trafficops/template-language/formatter');
 
 const URI = 'file:///templates/template.tpl';
 const declarations = `@type Article

@@ -112,3 +112,23 @@ test('PHP parity: runtime tokens reject quoted-tag and raw-text context bypasses
     assert.throws(() => javascriptRender(input), undefined, `JavaScript must reject ${body}`);
   }
 });
+
+test('PHP parity: inverse sections preserve their enclosing scope for empty lists and nested fields', {skip}, () => {
+  const source = `@type Item
+@param title String
+@endtype
+@param title String
+@param items Item[]
+@layout
+@unless items
+<p>Empty: {{title}}</p>
+@endunless
+@each item in items
+@unless item.title
+<p>Missing: {{title}}</p>
+@endunless
+@endeach
+@endlayout`;
+  compare({source, values: {title: 'Root', items: []}});
+  compare({source, values: {title: 'Root', items: [{title: ''}, {title: 'present'}]}});
+});

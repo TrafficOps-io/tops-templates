@@ -1,0 +1,35 @@
+{
+  "name": "@trafficops/template-editor-core",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Headless project model and host contracts for TrafficOps editors",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./contract.d.ts",
+      "default": "./src/index.js"
+    },
+    "./project": "./src/project.js",
+    "./host-project": "./src/host-project.js",
+    "./project-changes": "./src/project-changes.js",
+    "./contract": "./contract.d.ts",
+    "./fixtures/*": "./fixtures/*"
+  },
+  "files": [
+    "src",
+    "contract.d.ts",
+    "fixtures",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "check": "node --check src/index.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,9 +1,9 @@
 'use strict';
 
 const vscode = require('vscode');
-const language = require('./language');
+const language = require('@trafficops/template-language');
 const { ProjectLoader } = require('./projects');
-const { formatDocument } = require('./formatter');
+const { formatDocument } = require('@trafficops/template-language/formatter');
 
 const LANGUAGE_ID = 'fast-landings-tpl';
 const selector = { language: LANGUAGE_ID };
