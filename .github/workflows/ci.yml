@@ -72,7 +72,7 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - run: npm install --prefix "$RUNNER_TEMP/studio-browser" --ignore-scripts --no-audit --no-fund playwright@1.62.1
+      - run: npm install --prefix "$RUNNER_TEMP/studio-browser" --ignore-scripts --no-audit --no-fund playwright@1.63.0
       - run: node "$PLAYWRIGHT_MODULE/cli.js" install --with-deps chromium
       - run: npm run build:editor
       - run: node editor/test/studio-browser.mjs editor/dist
