@@ -63,10 +63,10 @@ jobs:
           path: editor/dist
   studio-browser:
     runs-on: ubuntu-latest
-    env:
-      PLAYWRIGHT_MODULE: ${{ runner.temp }}/studio-browser/node_modules/playwright
     steps:
       - uses: actions/checkout@v7
+      - name: Configure browser test dependencies
+        run: echo "PLAYWRIGHT_MODULE=$RUNNER_TEMP/studio-browser/node_modules/playwright" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
