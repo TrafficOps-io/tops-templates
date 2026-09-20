@@ -63,7 +63,7 @@ async function create(name, { template = false } = {}) {
   if (template) await dialog.getByRole('button', { name: /Reusable template/ }).click();
   await dialog.getByRole('button', { name: template ? 'Create template' : 'Create landing', exact: true }).click();
   await dialog.waitFor({ state: 'hidden' });
-  await page.locator('.browser-frame iframe').waitFor();
+  await page.locator('.browser-frame iframe.is-visible').waitFor();
   return waitForSaved(name);
 }
 

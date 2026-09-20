@@ -462,3 +462,12 @@ fieldset:disabled { opacity: .65; }
 .ai-current-request { margin-block: .75rem; font-size: .8125rem; }
 .ai-current-request summary { cursor: pointer; color: var(--ui-muted); }
 .ai-current-request p { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 8rem; overflow: auto; }
+
+.preview-run-controls { display: flex; gap: .125rem; flex-shrink: 0; }
+.preview-run-controls [aria-pressed="true"] { color: var(--color-primary); background: var(--ui-page); }
+.preview-update-error { display: flex; flex-direction: column; gap: .25rem; padding: .625rem 1rem; font-size: .75rem; color: var(--color-error); background: var(--ui-page); overflow-wrap: anywhere; max-height: 6rem; overflow: auto; }
+@media (max-width: 800px) { .preview-label > span:last-child { display: none; } .preview-toolbar { gap: .25rem; } }
+.preview-frame-stack { position: relative; flex: 1; min-height: 0; width: 100%; }
+.browser-frame .preview-document { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.preview-document.is-preparing { opacity: 0; pointer-events: none; }
+.preview-document.is-visible { opacity: 1; }

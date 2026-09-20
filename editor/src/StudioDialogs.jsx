@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { FolderOpen, FolderPlus, LoaderCircle, RefreshCw, ShieldCheck, Trash2, X } from 'lucide-react';
+import AiSettings from '@trafficops/template-editor-shell/AiSettings';
+import { StudioHostContext } from '@trafficops/template-editor-shell/host-context';
 import { projectLocation } from './ProjectSwitcher.jsx';
 export function TourDialog({ onClose, installedMode = false }) {
   const nativeDialog = useRef(null);
@@ -18,3 +20,10 @@ export function ProjectsDialog({ projects, currentId, supported, busy, onAdd, on
   </div><button type="button" className="modal-backdrop" aria-label="Close projects" onClick={onClose} /></dialog>;
 }
 
+export function AiSettingsDialog({ ai, onClose }) {
+  const nativeDialog = useRef(null);
+  useEffect(() => { nativeDialog.current.showModal(); }, []);
+  return <dialog ref={nativeDialog} className="modal" aria-label="OpenRouter settings" onCancel={onClose}>
+    <div className="modal-box"><StudioHostContext.Provider value={{ ai }}><AiSettings onBack={onClose} backLabel="Close" /></StudioHostContext.Provider></div>
+  </dialog>;
+}

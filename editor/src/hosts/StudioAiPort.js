@@ -1,4 +1,5 @@
 // @ts-check
+import { validateOpenRouterApiKey } from '@trafficops/template-editor-shell/openrouter-ai';
 import { ConflictError, PolicyError, runOperation } from '@trafficops/template-editor-core';
 import { loadOpenRouterSettings, saveOpenRouterSettings, clearOpenRouterSettings } from '../openrouter-settings.js';
 
@@ -23,7 +24,7 @@ export function createStudioAiPort({ fetchImpl = globalThis.fetch, storage = { l
     }),
     save: (value, { signal } = {}) => runOperation(signal, async () => {
       assertEnabled();
-      const saved = await storage.save(value);
+      const saved = await storage.save({ ...value, apiKey: validateOpenRouterApiKey(value.apiKey) });
       assertEnabled();
       return configured(saved);
     }, 'validation'),
@@ -37,8 +38,25 @@ export function createStudioAiPort({ fetchImpl = globalThis.fetch, storage = { l
       const value = await storage.load();
       assertEnabled();
       if (!value.apiKey) throw new PolicyError('Add your OpenRouter connection in Settings first.');
-      const response = await guardedFetch('https://openrouter.ai/api/v1/key', { signal, headers: { Authorization: `Bearer ${value.apiKey}` } });
-      if (!response.ok) throw Object.assign(new Error('The AI connection check failed.'), { status: response.status });
+      const key = validateOpenRouterApiKey(value.apiKey);
+      let response;
+      try {
+        response = await guardedFetch('https://openrouter.ai/api/v1/key', { signal, headers: { Authorization: `Bearer ${key}` } });
+      } catch (error) {
+        if (error instanceof PolicyError || signal?.aborted || error?.name === 'AbortError') throw error;
+        throw new Error('Could not reach OpenRouter. Check your network connection and try again.');
+      }
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        const detail = payload?.error?.message;
+        const hint = response.status === 401 ? 'OpenRouter rejected the saved API key. Replace it in Settings, save the connection, and try again.'
+          : response.status === 403 ? 'OpenRouter denied access for this API key. Check its permissions and account restrictions.'
+          : response.status === 429 ? 'OpenRouter is rate limiting requests. Wait and try again.'
+          : response.status >= 500 ? 'OpenRouter is temporarily unavailable. Try again later.'
+          : 'OpenRouter could not verify the saved API key.';
+        const safeDetail = typeof detail === 'string' ? detail.replaceAll(key, '[redacted]').slice(0, 500) : '';
+        throw Object.assign(new Error(`OpenRouter (HTTP ${response.status}): ${hint}${safeDetail ? ` ${safeDetail}` : ''}`), { status: response.status });
+      }
       return { message: 'Connection works.' };
     }),
   };
@@ -53,7 +71,7 @@ export function createStudioAiPort({ fetchImpl = globalThis.fetch, storage = { l
         const connection = await storage.load();
         assertEnabled();
         if (!connection.apiKey) throw new PolicyError('Add your OpenRouter connection in Settings first.');
-        return { ...configured(connection), fetchImpl: guardedFetch };
+        return { ...configured(connection), apiKey: validateOpenRouterApiKey(connection.apiKey), fetchImpl: guardedFetch };
       }).catch(error => { if (active === token) active = null; throw error; });
     },
     async finish() { active = null; },

@@ -105,6 +105,56 @@ export async function createHttpHost(options) {
     async revoke(value, { signal } = {}) { await json('revoke', { previewId: value.id }, { signal }); },
     history(target, { signal, locale }) { return json('history-preview', { revisionId: target.id, editingLocale: locale }, { signal }); },
   };
+  // One editor session owns a bounded set of immutable content revisions. Keep
+  // transport completion even after UI cancellation so its grant is never lost.
+  let liveSession = null, liveQueue = Promise.resolve(), liveTimer = null;
+  function serialLive(operation) {
+    const task = liveQueue.catch(() => {}).then(operation); liveQueue = task; return task;
+  }
+  function sessionFields() {
+    return liveSession ? { previewSessionId: liveSession.previewSessionId, previewSessionToken: liveSession.previewSessionToken } : {};
+  }
+  function touchLater() {
+    clearTimeout(liveTimer);
+    liveTimer = setTimeout(() => {
+      serialLive(async () => {
+        if (!liveSession) return;
+        try { await json('live-preview-touch', sessionFields()); }
+        catch (error) { if (error.status === 404) liveSession = null; }
+        if (liveSession) touchLater();
+      }).catch(() => {});
+    }, 240000);
+    liveTimer.unref?.();
+  }
+  /** @type {import('@trafficops/template-editor-core').LivePreviewPort} */
+  const livePreview = {
+    render(state, { signal, locale, page, keepRevisionId }) {
+      return runOperation(signal, () => serialLive(async () => {
+        throwIfAborted(signal);
+        let result;
+        const data = { ...wire(state, locale), previewPage: page || undefined };
+        try { result = await json('live-preview', { ...data, ...sessionFields(), ...(liveSession && keepRevisionId ? { keepRevisionId } : {}) }); }
+        catch (error) {
+          if (error.status !== 404 || !liveSession) throw error;
+          liveSession = null;
+          throwIfAborted(signal);
+          result = await json('live-preview', data);
+        }
+        liveSession = result; touchLater();
+        throwIfAborted(signal);
+        return { id: result.id, url: result.url, page: result.page || page || state.entrypoint || 'index.html' };
+      }));
+    },
+    async dispose() {
+      clearTimeout(liveTimer);
+      await serialLive(async () => {
+        clearTimeout(liveTimer);
+        if (!liveSession) return;
+        const session = sessionFields(); liveSession = null;
+        await json('live-preview-close', session).catch(() => {});
+      });
+    },
+  };
   /** @type {import('@trafficops/template-editor-core').LifecyclePort} */
   const lifecycle = {
     async run(action, state, { signal, locale, target, inputValue }) {
@@ -153,5 +203,5 @@ export async function createHttpHost(options) {
     finish,
   };
   return { language: options.language || 'en', messages: options.messages || {}, capabilities, dialect: initial.dialect,
-    project, analyzer, preview, lifecycle, ...(capabilities.ai ? { ai } : {}), async dispose() { if (run) await finish().catch(() => {}); } };
+    project, analyzer, preview, lifecycle, ...(initial.previewEnabled ? { livePreview } : {}), ...(capabilities.ai ? { ai } : {}), async dispose() { await livePreview.dispose(); if (run) await finish().catch(() => {}); } };
 }

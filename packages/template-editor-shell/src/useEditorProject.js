@@ -9,7 +9,13 @@ export function useEditorProject(host, onSnapshot, recovered, externalBusy = fal
   const [aiBusy, setAiBusy] = useState(false), [aiDraft, setAiDraft] = useState(null);
   const [error, setError] = useState(''), [notice, setNotice] = useState(''), [conflict, setConflict] = useState(false);
   const [preview, setPreview] = useState(null), [previewError, setPreviewError] = useState(''), [previewPage, setPreviewPage] = useState('');
-  const [generatedFiles, setGeneratedFiles] = useState(null);
+  const [previewPaused, setPreviewPaused] = useState(false), [previewBusy, setPreviewBusy] = useState(false);
+  const displayedPreview = useRef(null), visiblePreview = useRef(null), previewResources = useRef(new Set()), latestPreviewRequest = useRef(null), previewRevision = useRef(0);
+  const releasePreview = useCallback(frame => { if (previewResources.current.delete(frame)) frame.dispose?.(); }, []);
+  const releasePreviews = useCallback(() => {
+    for (const frame of previewResources.current) releasePreview(frame);
+    displayedPreview.current = null; visiblePreview.current = null;
+  }, [releasePreview]);
   const [showPreview, setShowPreview] = useState(host.capabilities.inlinePreview);
   const current = useRef(null), dirtyRef = useRef(false), editVersion = useRef(0), saving = useRef(false), mounted = useRef(false);
   const autosavePaused = useRef(false);
@@ -94,35 +100,58 @@ export function useEditorProject(host, onSnapshot, recovered, externalBusy = fal
     return () => { clearTimeout(timer); controller.abort(); };
   }, [state?.files, state?.translations, state?.entrypoint, renderFiles, draftValues, host, locale, report]);
   const canPreview = Boolean(state && showPreview && locale && host.capabilities.inlinePreview && state.availability.inlinePreview);
+  const interactivePreview = Boolean(host.livePreview);
+  const previewPages = analysis?.pages || [];
+  const resolvedPreviewPage = previewPages.includes(previewPage) ? previewPage : state?.entrypoint || previewPages[0] || '';
   useEffect(() => {
-    if (!canPreview) { setGeneratedFiles(null); setPreviewError(''); return; }
+    if (!canPreview) { releasePreviews(); setPreview(null); setPreviewError(''); setPreviewBusy(false); return; }
     const renderer = createPreviewRenderer({
-      render: (request, signal) => host.analyzer.render(request.state, { signal, locale: request.locale }),
-      onSuccess: generated => { setGeneratedFiles(generated); setPreviewError(''); },
+      latestOnly: true,
+      render: async (request, signal) => {
+        if (host.livePreview) return host.livePreview.render(request.state, { signal, locale: request.locale, page: request.page, keepRevisionId: visiblePreview.current?.id });
+        const generated = await host.analyzer.render(request.state, { signal, locale: request.locale });
+        const page = [request.page, request.state.entrypoint, ...Object.keys(generated)].find(path => path?.endsWith('.html') && Object.hasOwn(generated, path));
+        return { ...buildPreview(generated, page), page };
+      },
+      onSuccess: result => {
+        const previous = displayedPreview.current;
+        const frame = { ...result, revision: ++previewRevision.current };
+        previewResources.current.add(frame);
+        displayedPreview.current = frame; setPreview(frame); setPreviewError('');
+        if (previous !== visiblePreview.current) releasePreview(previous);
+      },
       onError: cause => setPreviewError(cause.message || String(cause)),
+      onBusy: setPreviewBusy,
     });
     previewRenderer.current = renderer;
     return () => { renderer.dispose(); if (previewRenderer.current === renderer) previewRenderer.current = null; };
-  }, [host, canPreview, locale]);
+  }, [host, canPreview, locale, releasePreview, releasePreviews]);
+  latestPreviewRequest.current = state && {
+    state: { ...state, files, translations: { ...state.translations, [locale]: values } },
+    locale, page: resolvedPreviewPage, partial: Boolean(aiDraft?.partial),
+  };
   useEffect(() => {
-    if (!canPreview) return;
-    previewRenderer.current?.enqueue({
-      state: { ...state, files, translations: { ...state.translations, [locale]: values } },
-      locale, partial: Boolean(aiDraft?.partial),
-    });
-  }, [state?.files, state?.translations, state?.entrypoint, files, values, aiDraft?.partial, locale, canPreview, host]);
-  // Rendering returns the whole project. Page navigation stays local, even while
-  // the host is still compiling a newer AI draft or streaming its next response.
-  useEffect(() => {
-    if (!generatedFiles) { setPreview(null); return; }
-    let result;
-    try {
-      const page = [previewPage, state?.entrypoint, ...Object.keys(generatedFiles)].find(path => path?.endsWith('.html') && Object.hasOwn(generatedFiles, path));
-      result = buildPreview(generatedFiles, page);
-      setPreview({ html: result.html, page }); setPreviewError('');
-    } catch (cause) { setPreview(null); setPreviewError(cause.message); }
-    return () => result?.dispose();
-  }, [generatedFiles, previewPage, state?.entrypoint]);
+    if (!canPreview || previewPaused) return;
+    previewRenderer.current?.enqueue(latestPreviewRequest.current);
+  }, [state?.files, state?.translations, state?.entrypoint, files, values, aiDraft?.partial, locale, resolvedPreviewPage, previewPaused, canPreview, host]);
+  const refreshPreview = useCallback(() => {
+    if (latestPreviewRequest.current) previewRenderer.current?.enqueue(latestPreviewRequest.current);
+  }, []);
+  const togglePreviewPaused = useCallback(() => {
+    previewRenderer.current?.clear();
+    if (!previewPaused && displayedPreview.current !== visiblePreview.current) {
+      const pending = displayedPreview.current;
+      displayedPreview.current = visiblePreview.current; setPreview(visiblePreview.current);
+      releasePreview(pending);
+    }
+    setPreviewPaused(!previewPaused);
+  }, [previewPaused, releasePreview]);
+  const previewDisplayed = useCallback(frame => {
+    if (!previewResources.current.has(frame)) return;
+    const previous = visiblePreview.current; visiblePreview.current = frame;
+    if (previous !== frame) releasePreview(previous);
+  }, [releasePreview]);
+  useEffect(() => () => { releasePreviews(); host.livePreview?.dispose?.(); }, [host, releasePreviews]);
   useEffect(() => {
     const keydown = event => {
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== 's') return;
@@ -140,5 +169,6 @@ export function useEditorProject(host, onSnapshot, recovered, externalBusy = fal
     try { const next = await operation(signal => host.project.open({ signal })); if (mounted.current) install(next); } catch (cause) { report(cause); } finally { if (mounted.current) setBusy(false); }
   }
   return { state, current, setState, install, analysis, baseline, locale, setLocale, busy, setBusy, dirty, locked, change, save, flush, reload, operation, report,
-    error, setError, notice, setNotice, conflict, files, values, aiBusy, setAiBusy, aiDraft, setAiDraft, preview, previewError, previewPage, setPreviewPage, showPreview, setShowPreview };
+    error, setError, notice, setNotice, conflict, files, values, aiBusy, setAiBusy, aiDraft, setAiDraft, preview, previewError, previewPage, setPreviewPage, showPreview, setShowPreview,
+    interactivePreview, previewPaused, previewBusy, refreshPreview, togglePreviewPaused, previewDisplayed };
 }

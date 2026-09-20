@@ -55,7 +55,7 @@ try {
   await page.getByRole('button', { name: 'New project', exact: true }).click();
   await page.getByRole('textbox', { name: 'Project name', exact: true }).fill('Browser test');
   await page.getByRole('button', { name: 'Create landing', exact: true }).click();
-  await page.locator('.browser-frame iframe').waitFor();
+  await page.locator('.browser-frame iframe.is-visible').waitFor();
   await page.getByRole('button', { name: 'Collapse editor', exact: true }).click();
   await page.getByRole('tab', { name: 'AI assistant', exact: true }).click();
   await page.getByRole('button', { name: 'AI connection settings', exact: true }).click();
@@ -68,7 +68,7 @@ try {
     await page.getByRole('button', { name: 'Generate changes', exact: true }).click();
     await page.getByLabel('Live file changes', { exact: true }).filter({ hasText: 'First title' }).waitFor();
     assert.equal(await page.getByRole('button', { name: 'Apply changes', exact: true }).count(), 0);
-    await page.locator('.browser-frame iframe').contentFrame().getByRole('heading', { name: 'First title', exact: true }).waitFor();
+    await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'First title', exact: true }).waitFor();
   };
   const inspectSource = async text => {
     const visible = page.locator('.view-lines').filter({ hasText: text });
@@ -92,12 +92,12 @@ try {
   await page.evaluate(() => window.aiTest.release());
   await page.getByText('Changes ready', { exact: true }).waitFor();
   await page.getByText('Deleted styles.css', { exact: true }).waitFor();
-  await page.locator('.browser-frame iframe').contentFrame().getByRole('heading', { name: 'Corrected title', exact: true }).waitFor();
+  await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'Corrected title', exact: true }).waitFor();
   const requests = await page.evaluate(() => window.aiTest.requests);
   assert.equal(requests.length, 5);
   assert.ok(requests[1].messages.some(message => message.role === 'user' && JSON.stringify(message.content).includes('Use Corrected title instead.')));
   await page.getByRole('button', { name: 'Discard', exact: true }).click();
-  await page.locator('.browser-frame iframe').contentFrame().getByRole('heading', { name: 'Make room for something great.', exact: true }).waitFor();
+  await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'Make room for something great.', exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: 'styles.css', exact: true }).count(), 1);
   // Cancelling and provider failure discard speculative source and do not retry.
   await start('cancel');

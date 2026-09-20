@@ -1,7 +1,7 @@
 import { ToolLoopAgent, stepCountIs, tool, parsePartialJson } from 'ai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
 import { z } from 'zod';
-import { DEFAULT_OPENROUTER_MODEL, TEMPLATE_SYSTEM_PROMPT } from './openrouter-ai.js';
+import { DEFAULT_OPENROUTER_MODEL, TEMPLATE_SYSTEM_PROMPT, validateOpenRouterApiKey } from './openrouter-ai.js';
 import { byteSize, isText, LIMITS, safePath, validateProject } from './project.js';
 import { AI_RUN_TIMEOUT_MS, AI_STEP_TIMEOUT_MS, AI_INITIAL_SOURCE_BYTES } from './ai-limits.js';
 import { completedFileInput } from './completed-file-input.js';
@@ -310,7 +310,7 @@ export function createTemplateDraftAgent({ model, onProgress, initialFiles = {},
   } };
 }
 export function createOpenRouterTemplateModel({ apiKey, model, fetchImpl = globalThis.fetch } = {}) {
-  const key = String(apiKey || '').trim(), modelId = String(model || DEFAULT_OPENROUTER_MODEL).trim();
+  const key = validateOpenRouterApiKey(apiKey), modelId = String(model || DEFAULT_OPENROUTER_MODEL).trim();
   if (!key) throw new Error('Add an OpenRouter API key in Settings.');
   const openrouter = createOpenRouter({ apiKey: key, compatibility: 'strict', fetch: fetchImpl, appName: 'Landing Studio by TrafficOps', appUrl: typeof location !== 'undefined' ? location.origin : undefined });
   // Parallel calls are optional. Requiring that hint excludes otherwise capable

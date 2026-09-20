@@ -128,7 +128,7 @@ try {
   assert.ok((await records(page))[0].files['index.tpl'].includes('Your next idea'), 'partial stream never replaces the stored starter');
   await page.evaluate(() => window.libraryAiTest.release());
   await page.getByText('Changes ready', { exact: true }).waitFor();
-  await page.locator('.browser-frame iframe').contentFrame().getByRole('heading', { name: 'AI studio launch', exact: true }).waitFor();
+  await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'AI studio launch', exact: true }).waitFor();
   assert.equal(providerCalls.length, 3);
   await page.getByRole('button', { name: 'Apply changes', exact: true }).click();
   const saved = await waitForSaved(page, 'AI launch', 'AI studio launch'); assert.equal(saved.revision, 3);
@@ -138,7 +138,7 @@ try {
   await page.waitForTimeout(800);
   assert.equal(providerCalls.length, 3, 'reload never restarts a paid generation');
   assert.equal(await page.locator('.ai-prompt textarea').inputValue(), prompt);
-  await page.locator('.browser-frame iframe').contentFrame().getByRole('heading', { name: 'AI studio launch', exact: true }).waitFor();
+  await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'AI studio launch', exact: true }).waitFor();
 
   // Cancelling first-generation streaming keeps the original independent draft.
   await page.getByRole('button', { name: 'Library', exact: true }).first().click();

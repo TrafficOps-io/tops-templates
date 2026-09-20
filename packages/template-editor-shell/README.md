@@ -24,6 +24,13 @@ Optional presentation props: `previewExpandButton`, `initialExpanded`, `showExpo
 These do not change the host contract. The core conformance runner accepts the
 same host factory without requiring React or a DOM.
 
+`host.livePreview` enables interactive JavaScript previews. Updates are coalesced;
+the last working iframe stays mounted and interactive while a replacement loads
+at the same dimensions. Incomplete source/errors leave that working preview in
+place. Users can pause automatic updates, refresh once, or resume. Preview does
+not save or publish the project. Hosts without this optional port keep the static
+renderer. See the core contract for readiness, revision retention and disposal.
+
 AI editing calls the host analyzer for both tool validation and the final draft.
 The text and image connections come only from `host.ai`; settings expose writes
 only when their owner is `user`. `host` ownership offers status, connection testing

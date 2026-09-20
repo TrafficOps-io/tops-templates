@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/EditorShell.jsx",
     "./shell.css": "./src/shell.css",
+    "./AiSettings": "./src/AiSettings.jsx",
     "./AssetPreview": "./src/AssetPreview.jsx",
     "./CodeEditor": "./src/CodeEditor.jsx",
     "./ImageCropDialog": "./src/ImageCropDialog.jsx",

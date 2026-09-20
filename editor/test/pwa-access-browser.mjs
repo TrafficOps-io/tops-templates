@@ -108,7 +108,7 @@ async function createStarter(page, name) {
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
   await dialog.getByRole('textbox', { name: 'Project name', exact: true }).fill(name);
   await dialog.getByRole('button', { name: 'Create landing', exact: true }).click();
-  await page.locator('.browser-frame iframe').waitFor();
+  await page.locator('.browser-frame iframe.is-visible').waitFor();
 }
 
 async function seedPendingWork(page) {

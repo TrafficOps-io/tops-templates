@@ -162,7 +162,7 @@ try {
   await page.getByRole('button', { name: 'Collapse editor', exact: true }).click();
   await page.getByLabel('Page title', { exact: false }).waitFor();
   assert.equal(await page.getByLabel('Page title', { exact: false }).inputValue(), 'Recovered field value');
-  await page.locator('.browser-frame iframe').contentFrame().getByRole('heading', { name: 'Recovered field value', exact: true }).waitFor();
+  await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'Recovered field value', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Save draft', exact: true }).click();
   const saved = await poll(readWorkspace, value => value?.dirty === false && value.detached === true, 'detached recovery commit after Save draft');
   assert.equal(saved.projectId, expected.projectId);

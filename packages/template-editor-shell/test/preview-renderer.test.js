@@ -57,3 +57,25 @@ test('disposing the preview aborts the in-flight request and discards all queued
   complete('stale preview'); await settle(); t.mock.timers.tick(1000);
   assert.deepEqual(callbacks, []);
 });
+
+test('interactive preview suppresses superseded frames and pause discards pending work', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const shown = [], discarded = [], busy = [];
+  let finish;
+  const renderer = createPreviewRenderer({ delay: 10, latestOnly: true,
+    render: request => new Promise(resolve => { finish = () => resolve({ id: request.id, dispose: () => discarded.push(request.id) }); }),
+    onSuccess: frame => shown.push(frame.id), onError: error => { throw error; }, onBusy: value => busy.push(value),
+  });
+  t.after(() => renderer.dispose());
+  renderer.enqueue({ id: 'old' }); t.mock.timers.tick(10);
+  renderer.enqueue({ id: 'latest' }); finish(); await settle();
+  assert.deepEqual(shown, []); assert.deepEqual(discarded, ['old']);
+  t.mock.timers.tick(10); finish(); await settle();
+  assert.deepEqual(shown, ['latest']); assert.equal(busy.at(-1), false);
+  renderer.enqueue({ id: 'in-flight' }); t.mock.timers.tick(10);
+  renderer.enqueue({ id: 'queued' }); renderer.clear(); finish(); await settle();
+  t.mock.timers.tick(100);
+  assert.deepEqual(shown, ['latest']); assert.deepEqual(discarded, ['old', 'in-flight']);
+  renderer.enqueue({ id: 'manual-refresh' }); t.mock.timers.tick(10); finish(); await settle();
+  assert.deepEqual(shown, ['latest', 'manual-refresh']);
+});

@@ -85,5 +85,23 @@ export function createStudioHost({ directory, isDirectoryEnabled = () => true, i
       }, 'validation');
     },
   };
-  return { language, messages, capabilities, dialect: studioDialect, project, analyzer: createStudioAnalyzer(), ...(ai ? { ai } : {}) };
+  const analyzer = createStudioAnalyzer();
+  /** @type {import('@trafficops/template-editor-core').LivePreviewPort} */
+  const livePreview = {
+    render(next, { signal, locale, page }) {
+      return runOperation(signal, async () => {
+        // Plain HTML assets retain their input insertion order in generated
+        // files. The analyzer's page order is the canonical order shown by the
+        // editor (index.html first, then naturally sorted page names).
+        const analysis = await analyzer.analyze(next, { signal });
+        const files = await analyzer.render(next, { signal, locale });
+        const selected = [page, analysis.entrypoint, ...analysis.pages].find(path => path?.endsWith('.html') && Object.hasOwn(files, path));
+        if (!selected) throw new PolicyError('No page is available for preview.');
+        const { buildInteractivePreview } = await import('../preview/interactive-preview.js');
+        const frame = buildInteractivePreview(files, selected);
+        return { html: frame.html, page: selected, readyToken: frame.readyToken, dispose: frame.dispose };
+      }, 'validation');
+    },
+  };
+  return { language, messages, capabilities, dialect: studioDialect, project, analyzer, livePreview, ...(ai ? { ai } : {}) };
 }

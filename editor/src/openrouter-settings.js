@@ -1,4 +1,4 @@
-import { DEFAULT_OPENROUTER_MODEL } from '@trafficops/template-editor-shell/openrouter-ai';
+import { DEFAULT_OPENROUTER_MODEL, validateOpenRouterApiKey } from '@trafficops/template-editor-shell/openrouter-ai';
 
 const DATABASE = 'trafficops-template-studio-ai';
 const VERSION = 1;
@@ -43,7 +43,7 @@ export async function loadOpenRouterSettings() {
 
 export async function saveOpenRouterSettings(value) {
   const settings = normalizeOpenRouterSettings(value);
-  if (!settings.apiKey) throw new Error('Enter an OpenRouter API key.');
+  settings.apiKey = validateOpenRouterApiKey(settings.apiKey);
   const database = await openDatabase();
   if (!database) throw new Error('Local browser storage is unavailable.');
   try {

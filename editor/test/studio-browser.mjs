@@ -18,7 +18,7 @@ try {
  await page.getByRole('button', { name: 'New project', exact: true }).click();
  await page.getByRole('textbox', { name: 'Project name', exact: true }).fill('Browser test');
  await page.getByRole('button', { name: 'Create landing', exact: true }).click();
- await page.locator('.browser-frame iframe').waitFor();
+ await page.locator('.browser-frame iframe.is-visible').waitFor();
  assert.equal(await page.getByRole('tab',{name:'AI assistant',exact:true}).count(),0);
  assert.equal(await page.getByRole('button',{name:'Manage project folders',exact:true}).count(),0);
  await page.addInitScript(() => Object.defineProperty(navigator, 'standalone', { configurable: true, value: true }));

@@ -3,6 +3,18 @@ import { isTemplate, isText, safePath, validateProject } from './project.js';
 export const OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 export const DEFAULT_OPENROUTER_MODEL = 'openrouter/auto';
 
+export function validateOpenRouterApiKey(apiKey) {
+  const key = typeof apiKey === 'string' ? apiKey.trim() : '';
+  if (!key) throw new Error('Add an OpenRouter API key in Settings.');
+  // Credentials must be printable ASCII tokens, not Unicode or pasted labels.
+  // Validate before the SDK constructs Headers, and never echo the secret.
+  if (!/^[\x21-\x7e]+$/.test(key)) {
+    throw new Error('The OpenRouter API key contains invalid characters. Paste the original key from OpenRouter into Settings without spaces or hidden characters.');
+  }
+  return key;
+}
+
+
 const TEMPLATE_SCHEMA = Object.freeze({
   type: 'object',
   properties: {
@@ -97,7 +109,7 @@ function unsupportedParameters(payload, status) {
 }
 
 export async function requestOpenRouter({ apiKey, model = DEFAULT_OPENROUTER_MODEL, messages, schema, schemaName, maxTokens, signal, fetchImpl = globalThis.fetch }) {
-  const key = String(apiKey || '').trim();
+  const key = validateOpenRouterApiKey(apiKey);
   const selectedModel = String(model || '').trim();
   if (!key) throw new Error('Add an OpenRouter API key first.');
   if (!selectedModel) throw new Error('Choose an OpenRouter model.');

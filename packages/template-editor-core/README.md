@@ -10,6 +10,22 @@ errors with codes `conflict`, `validation`, `policy`, `transport` or `abort`.
 Capabilities remain fixed for a host session; project `availability` can narrow
 inline preview, external preview and AI access. Missing optional ports have no key.
 
+An optional `livePreview.render(state, { signal, locale, page, keepRevisionId })`
+returns a `PreviewFrame` containing `html` or `url`, its selected `page`, and an
+optional revision `id`. It receives unsaved state. The separate `preview` port
+continues to manage external/share previews. Without `livePreview`, the shell
+uses its static, scriptless renderer.
+
+The shell runs live frames with `sandbox="allow-scripts allow-forms"`, without
+same-origin access, and keeps the displayed frame until its successor loads.
+`keepRevisionId` identifies the frame actually on screen, which a remote host
+must retain while loading the next revision. A frame's optional `dispose()` runs
+after replacement or abandonment; the port's `dispose()` closes the session.
+An optional `readyToken` makes display wait for a message from that exact iframe:
+`{ type: 'trafficops-preview-ready', token: readyToken }`. This signal grants no
+host privileges. Hosts remain responsible for content CSP, resource delivery,
+access control and bounded storage; the iframe sandbox is not a network firewall.
+
 `validateDialectDescriptor(descriptor, knownIds)` validates the host metadata using
 a caller-owned registry. An empty `allowedEntrypoints` whitelist means no known
 entrypoint is currently available, not a selected page. The project state owns

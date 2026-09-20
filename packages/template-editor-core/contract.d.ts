@@ -58,6 +58,12 @@ export interface AnalyzerPort {
   render(state: ProjectState, options: LocaleOptions): Promise<ProjectFiles>;
 }
 export interface SharedPreview { id: string; url: string; expiresAt?: string }
+/** A host-owned interactive frame. It never runs with the editor's origin. */
+export interface PreviewFrame { html?: string; url?: string; id?: string; page: string; readyToken?: string; dispose?(): void }
+export interface LivePreviewPort {
+  render(state: ProjectState, options: LocaleOptions & { page?: string; keepRevisionId?: string }): Promise<PreviewFrame>;
+  dispose?(): void | Promise<void>;
+}
 export interface PreviewPort {
   create(state: ProjectState, options: LocaleOptions & { shared?: boolean }): Promise<SharedPreview>;
   revoke(preview: SharedPreview, options?: OperationOptions): Promise<void>;
@@ -81,7 +87,7 @@ export interface Capabilities {
 export interface EditorHost {
   language: string; messages: Record<string, string>; capabilities: Readonly<Capabilities>;
   dialect: DialectDescriptor; project: ProjectPort; analyzer: AnalyzerPort;
-  preview?: PreviewPort; lifecycle?: LifecyclePort; ai?: AiPort;
+  preview?: PreviewPort; livePreview?: LivePreviewPort; lifecycle?: LifecyclePort; ai?: AiPort;
   dispose?(): void | Promise<void>;
 }
 export type HostFactory = () => EditorHost | Promise<EditorHost>;
