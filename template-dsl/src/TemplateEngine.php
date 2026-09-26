@@ -34,7 +34,8 @@ final class TemplateEngine
             $this->valueError($path, 'This setting is not a rich text field.');
         }
         $budget = self::MAX_VALUES;
-        $value = $this->normalizeField($field, $value, $path, false, $budget);
+        $warnings = [];
+        $value = $this->normalizeField($field, $value, $path, false, $budget, $warnings);
 
         return $this->richText->render($field['type'], $value);
     }
@@ -165,9 +166,14 @@ final class TemplateEngine
                 $this->invalid('previewData must be an object containing template settings.');
             }
             $budget = self::MAX_VALUES;
+            $warnings = [];
             try {
                 // Validate directly: validateValues() would re-validate this definition recursively.
-                $preview['previewData'] = $this->normalizeValues($this->rootFields(['sections' => $sections]), $values, 'previewData', true, $budget);
+                $preview['previewData'] = $this->normalizeValues($this->rootFields(['sections' => $sections]), $values, 'previewData', true, $budget, $warnings);
+                // Preview data is part of the definition, so an unknown key is an authoring error.
+                foreach ($warnings as $path => $warning) {
+                    $this->invalid("{$path}: {$warning}");
+                }
             } catch (ValidationException $exception) {
                 $messages = [];
                 foreach ($exception->errors() as $path => $errors) {
@@ -262,12 +268,19 @@ final class TemplateEngine
         return $field;
     }
 
-    public function validateValues(array $definition, array $values): array
+    /**
+     * Keys that no field declares are dropped and reported in $warnings (path => message);
+     * type violations and missing required values still throw.
+     *
+     * @param  array<string, string>|null  $warnings
+     */
+    public function validateValues(array $definition, array $values, ?array &$warnings = null): array
     {
         $definition = $this->validateDefinition($definition);
         $budget = self::MAX_VALUES;
+        $warnings = [];
 
-        return $this->normalizeValues($this->rootFields($definition), $values, 'values', true, $budget);
+        return $this->normalizeValues($this->rootFields($definition), $values, 'values', true, $budget, $warnings);
     }
 
     /** Context is explicitly supplied application data, never a request or service container. */
@@ -277,7 +290,8 @@ final class TemplateEngine
         $runtime = $this->dialect->runtime();
         $context = $runtime->validateContext($context);
         $budget = self::MAX_VALUES;
-        $values = $this->normalizeValues($this->rootFields($definition), $values, 'values', true, $budget);
+        $warnings = [];
+        $values = $this->normalizeValues($this->rootFields($definition), $values, 'values', true, $budget, $warnings);
         [$nodes, $partials, $mainSource, $partialSources] = $this->compile($definition);
         $output = '';
         $operations = 200000;
@@ -412,7 +426,8 @@ final class TemplateEngine
             if (array_key_exists('default', $field)) {
                 try {
                     $budget = self::MAX_VALUES;
-                    $field['default'] = $this->normalizeField($field, $field['default'], "{$fieldPath}.default", false, $budget);
+                    $warnings = [];
+                    $field['default'] = $this->normalizeField($field, $field['default'], "{$fieldPath}.default", false, $budget, $warnings);
                 } catch (ValidationException $exception) {
                     $this->invalid('Invalid default: '.implode(' ', array_merge(...array_values($exception->errors()))));
                 }
@@ -480,12 +495,13 @@ final class TemplateEngine
         return $items;
     }
 
-    private function normalizeValues(array $fields, array $values, string $path, bool $required, int &$budget): array
+    private function normalizeValues(array $fields, array $values, string $path, bool $required, int &$budget, array &$warnings): array
     {
         $known = array_column($fields, 'name');
         foreach ($values as $key => $_) {
             if (! in_array($key, $known, true)) {
-                $this->valueError("{$path}.{$key}", 'This setting is not defined in the template.');
+                // A key without a field (for example one the template retired) is dropped, not fatal.
+                $warnings["{$path}.{$key}"] = 'This setting is not defined in the template.';
             }
         }
         $normalized = [];
@@ -495,13 +511,13 @@ final class TemplateEngine
             }
             $name = $field['name'];
             $value = array_key_exists($name, $values) ? $values[$name] : $this->defaultValue($field, $budget);
-            $normalized[$name] = $this->normalizeField($field, $value, "{$path}.{$name}", $required, $budget);
+            $normalized[$name] = $this->normalizeField($field, $value, "{$path}.{$name}", $required, $budget, $warnings);
         }
 
         return $normalized;
     }
 
-    private function normalizeField(array $field, mixed $value, string $path, bool $required, int &$budget): mixed
+    private function normalizeField(array $field, mixed $value, string $path, bool $required, int &$budget, array &$warnings): mixed
     {
         $type = $field['type'];
         if ($type === 'group') {
@@ -509,7 +525,7 @@ final class TemplateEngine
                 $this->valueError($path, 'Block settings must be an object.');
             }
 
-            return $this->normalizeValues($field['fields'], $value, $path, $required, $budget);
+            return $this->normalizeValues($field['fields'], $value, $path, $required, $budget, $warnings);
         }
         if ($type === 'repeater') {
             if (! is_array($value) || ! array_is_list($value)
@@ -523,7 +539,7 @@ final class TemplateEngine
                 if (--$budget < 0 || ! is_array($item) || ($item !== [] && array_is_list($item))) {
                     $this->valueError("{$path}.{$index}", 'Each item must be an object within the settings limit.');
                 }
-                $item = $this->normalizeValues($field['fields'], $item, "{$path}.{$index}", $required, $budget);
+                $item = $this->normalizeValues($field['fields'], $item, "{$path}.{$index}", $required, $budget, $warnings);
             }
             unset($item);
 

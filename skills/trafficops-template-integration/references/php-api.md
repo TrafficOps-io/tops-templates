@@ -30,7 +30,7 @@ $engine = app(TemplateEngine::class);
 $definition = $engine->validateDefinition(
     $parser->parse($source, filename: 'index.tpl.html'),
 );
-$values = $engine->validateValues($definition, $submitted);
+$values = $engine->validateValues($definition, $submitted, $warnings); // $warnings: dropped unknown keys
 
 // Apply the host application's document-level HTML/CSS and asset policy
 // before publication. The DSL is not a complete HTML sanitizer.

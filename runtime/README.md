@@ -28,7 +28,7 @@ All APIs are synchronous. Errors are `TemplateError` instances with a readable m
 | `parseTemplate(source, options?)` | Parse one UTF-8 source string. `options.filename` defaults to `index.tpl`. `options.resolveInclude(path, fromFilename)` must synchronously return an authorized source string. |
 | `parseProject(files)` | Accept `Record<string, string \| Uint8Array>`. Return `{definition, pages, files}`, where `pages` is an array of parsed definitions and `definition` is the entry page. `index.tpl`/`index.tpl.html` take precedence, then lexical order. |
 | `getDefaults(definition)` | Build bounded editable values, including default groups and minimum repeater rows. Required fields may initially be empty. |
-| `validateValues(definition, values)` | Validate JSON values and return normalized values with missing defaults filled. Unknown fields are rejected. |
+| `validateValues(definition, values, options?)` | Validate JSON values and return normalized values with missing defaults filled. Keys that no field declares are dropped; pass `options.warnings` (an array) to collect them as `{path, message}`. Type violations and missing required values throw. |
 | `renderTemplate(definition, values?, context?)` | Render a definition returned by these parsing APIs. Returns HTML. Definitions carry an internal parsed program; cloning them through JSON is unsupported. |
 | `generateProject(files, values?, context?)` | Render every page, retain non-template assets without changing their bytes, and return a new file map. |
 

@@ -213,7 +213,7 @@ function fallback(field, budget = {value:0}) {
   // An unset optional field is empty: no implicit color, minimum number or first option (matches PHP).
   return '';
 }
-export function getDefaults(definition) { return normalizeValues(definition.fields, {}, '', {value:0}, true); }
+export function getDefaults(definition) { return normalizeValues(definition.fields, {}, '', {value:0}, true, []); }
 function safeUrl(value, action = false) {
   if (!value) return !action;
   if (/[\x00-\x20\x7f\\]/.test(value) || value.startsWith('//')) return false;
@@ -221,19 +221,23 @@ function safeUrl(value, action = false) {
   if (action) return value.startsWith('/') && !value.startsWith('//');
   return !/^[^/?#]*:/.test(value) && !value.startsWith('//');
 }
-function normalizeValues(fields, data, path = '', budget = {value:0}, allowMissingRequired = false) {
+function normalizeValues(fields, data, path = '', budget = {value:0}, allowMissingRequired = false, warnings = []) {
   if (!isObject(data)) fail(`${path || 'Data'} must be an object`);
-  for (const key of Object.keys(data)) if (FORBIDDEN.has(key) || !fields.some((field) => field.name === key)) fail(`Unknown field: ${path}${key}`);
+  for (const key of Object.keys(data)) {
+    if (FORBIDDEN.has(key)) fail(`Unsafe value key: ${path}${key}`);
+    // A key without a field (for example one the template retired) is dropped, not fatal (matches PHP).
+    if (!fields.some((field) => field.name === key)) warnings.push({path:`${path}${key}`, message:'This setting is not defined in the template.'});
+  }
   return Object.fromEntries(fields.map((field) => {
     if (++budget.value > 10000) fail('Too many setting values');
     const name = `${path}${field.name}`;
     let value = own(data, field.name) ? data[field.name] : fallback(field);
     if (value === null && !field.required && !['group','repeater'].includes(field.type)) value = fallback(field);
     if (!allowMissingRequired && field.required && (value === null || value === undefined || typeof value === 'string' && !value.trim() || Array.isArray(value) && !value.length)) fail(`${name} is required`);
-    if (field.type === 'group') value = normalizeValues(field.fields, value, `${name}.`, budget, allowMissingRequired);
+    if (field.type === 'group') value = normalizeValues(field.fields, value, `${name}.`, budget, allowMissingRequired, warnings);
     else if (field.type === 'repeater') {
       if (!Array.isArray(value) || value.length < field.min_items || value.length > field.max_items) fail(`${name} needs ${field.min_items}–${field.max_items} items`);
-      value = value.map((item, index) => normalizeValues(field.fields, item, `${name}[${index}].`, budget, allowMissingRequired));
+      value = value.map((item, index) => normalizeValues(field.fields, item, `${name}[${index}].`, budget, allowMissingRequired, warnings));
     } else if (['number','range'].includes(field.type)) {
       if (value === '' && !field.required) return [field.name, ''];
       if (typeof value !== 'number' || !Number.isFinite(value) || field.min !== undefined && value < field.min || field.max !== undefined && value > field.max) fail(`${name} is outside its numeric bounds`);
@@ -255,7 +259,8 @@ function normalizeValues(fields, data, path = '', budget = {value:0}, allowMissi
     return [field.name, value];
   }));
 }
-export function validateValues(definition, data = {}) { return normalizeValues(definition.fields, data); }
+/** Unknown keys are dropped; pass `{warnings: []}` to collect them as `{path, message}`. Type violations throw. */
+export function validateValues(definition, data = {}, {warnings = []} = {}) { return normalizeValues(definition.fields, data, '', {value:0}, false, warnings); }
 
 function parseBody(body) {
   // Lower line directives into a token stream. Every lookup remains a node, never evaluated code.
@@ -370,7 +375,12 @@ function build(collected, shared = collected) {
   const nodes = parseBody(collected.layout); checkProgram(nodes, rootScope(fields), blocks);
   definition.blocks = Object.fromEntries(Object.entries(blocks).filter(([,block]) => block.aiInstructions !== undefined).map(([name, block]) => [name, {aiInstructions:block.aiInstructions}]));
   if (meta.previewUrl) { if (!/^https?:\/\//i.test(meta.previewUrl) || !safeUrl(meta.previewUrl)) fail('previewUrl must be an HTTP(S) URL'); definition.previewUrl = meta.previewUrl; }
-  if (meta.previewData !== undefined) { let preview; try { preview = JSON.parse(meta.previewData); } catch { fail('previewData must be valid JSON'); } definition.previewData = validateValues(definition, preview); }
+  if (meta.previewData !== undefined) {
+    let preview; try { preview = JSON.parse(meta.previewData); } catch { fail('previewData must be valid JSON'); }
+    // Preview data is part of the definition, so an unknown key there is an authoring error.
+    const warnings = []; definition.previewData = validateValues(definition, preview, {warnings});
+    if (warnings.length) fail(`previewData.${warnings[0].path}: ${warnings[0].message}`);
+  }
   programs.set(definition, {nodes, blocks}); return definition;
 }
 export function parseTemplate(source, {filename = 'index.tpl', resolveInclude} = {}) { safePath(filename); return build(collect(source, filename, resolveInclude)); }

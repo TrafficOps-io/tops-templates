@@ -36,7 +36,7 @@ $html = $engine->render($definition, $values, [
 ]);
 ```
 
-`validateValues()` applies defaults, normalizes submitted data, and rejects unknown fields. `render()` validates the definition and values again, so stored or externally supplied structures do not bypass the contract.
+`validateValues()` applies defaults and normalizes submitted data. Keys that no field declares (for example a field the template has since retired) are dropped and reported through the optional by-reference third argument, `validateValues($definition, $values, $warnings)`, as a `path => message` map; type violations and missing required values still throw a `ValidationException`. `render()` validates the definition and values again, so stored or externally supplied structures do not bypass the contract.
 
 ## Multiple pages
 
@@ -99,7 +99,7 @@ $validated = $engine->validateValues(
 - `defaults()` builds initial values for all fields;
 - `fieldAtPath()` returns the normalized field at a path;
 - `previewRichText()` renders one `Markdown` or `Wysiwyg` value for preview;
-- `validateValues()` returns a normalized tree ready for storage.
+- `validateValues()` returns a normalized tree ready for storage; unknown keys are stripped and listed in the optional `$warnings` argument.
 
 ## Storing definitions
 

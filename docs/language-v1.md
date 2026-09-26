@@ -87,6 +87,8 @@ The parameter form is `@param name Type`, followed by zero or more options:
 
 An optional field with no value and no declared default is empty: it renders as empty text and is stored as `""`. There is no implicit `#000000` color, minimum number or first `Select` option. A `Boolean` is `false`, a group recurses into its fields, and a repeater is an empty list unless `min_items` requires rows, in which case each row is filled the same way. A declared default (`= "value"`) applies whenever the value is missing.
 
+A values document may carry keys that no field declares, for example after a template retires a field. Such keys are dropped with a warning; they never fail validation. A value of the wrong type or a missing required value is still an error.
+
 Built-in author types are:
 
 | Author type | Normalized type |

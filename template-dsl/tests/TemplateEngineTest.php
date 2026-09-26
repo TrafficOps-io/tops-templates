@@ -357,14 +357,46 @@ class TemplateEngineTest extends TestCase
         $this->assertSame(['variant' => 'hero'], $definition['sections'][0]['fields'][0]['applicationMetadata']);
     }
 
-    public function test_unknown_settings_and_nested_invalid_values_have_precise_errors(): void
+    public function test_nested_invalid_values_have_precise_errors(): void
     {
         $definition = $this->definition([
             $this->field('comments', 'repeater', ['fields' => [$this->field('email', 'email')], 'max_items' => 1]),
         ]);
-        $this->assertValidationKey('values.unknown', fn () => $this->engine()->validateValues($definition, ['unknown' => 'data']));
         $this->assertValidationKey('values.comments.0.email', fn () => $this->engine()->validateValues($definition, ['comments' => [['email' => 'bad']]]));
         $this->assertValidationKey('values.comments', fn () => $this->engine()->validateValues($definition, ['comments' => [[], []]]));
+    }
+
+    public function test_unknown_value_keys_are_dropped_with_a_warning_while_type_violations_still_fail(): void
+    {
+        $definition = $this->definition([
+            $this->field('title', 'text'),
+            $this->field('card', 'group', ['fields' => [$this->field('tint', 'color')]]),
+            $this->field('comments', 'repeater', ['fields' => [$this->field('email', 'email')], 'max_items' => 2]),
+        ], '{{title}}');
+        $values = [
+            'title' => 'Kept', 'retired' => 'dropped',
+            'card' => ['tint' => '#fff', 'old' => 1],
+            'comments' => [['email' => 'a@example.com'], ['email' => 'b@example.com', 'legacy' => true]],
+        ];
+
+        $normalized = $this->engine()->validateValues($definition, $values, $warnings);
+        $this->assertSame([
+            'title' => 'Kept',
+            'card' => ['tint' => '#fff'],
+            'comments' => [['email' => 'a@example.com'], ['email' => 'b@example.com']],
+        ], $normalized);
+        $this->assertSame([
+            'values.retired' => 'This setting is not defined in the template.',
+            'values.card.old' => 'This setting is not defined in the template.',
+            'values.comments.1.legacy' => 'This setting is not defined in the template.',
+        ], $warnings);
+        $this->assertSame(['title' => 'Kept'], $this->engine()->validateValues($this->definition([$this->field('title', 'text')]), ['title' => 'Kept'], $warnings) + []);
+        $this->assertSame([], $warnings);
+        $this->assertSame('Kept', $this->engine()->render($definition, $values));
+
+        $this->assertValidationKey('values.comments.1.email', fn () => $this->engine()->validateValues($definition, [...$values, 'comments' => [['email' => 'a@example.com'], ['email' => 'bad', 'legacy' => true]]]));
+        // Preview data belongs to the definition, so an unknown key there remains an authoring error.
+        $this->assertValidationKey('template', fn () => $this->engine()->validateDefinition([...$definition, 'previewData' => ['retired' => 'x']]));
     }
 
     public function test_generated_output_and_default_expansion_are_bounded(): void

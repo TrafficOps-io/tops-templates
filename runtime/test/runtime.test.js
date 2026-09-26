@@ -108,10 +108,39 @@ test('types, fields, values and bounds are validated with actionable errors', ()
   assert.throws(() => parseTemplate('@param a String\n@layout\n@each i in a\nX\n@endeach\n@endlayout'), /requires a repeater/);
   const definition = parseTemplate(template);
   assert.throws(() => validateValues(definition, {}), /cards\[0\].title is required/);
-  assert.throws(() => validateValues(definition, {unlisted:'x'}), /Unknown field/);
+  assert.throws(() => validateValues(definition, JSON.parse('{"cards":[{"title":"x"}],"__proto__":{"polluted":true}}')), /Unsafe/);
+  assert.throws(() => validateValues(definition, {cards:[{title:'x'}], constructor:'x'}), /Unsafe/);
   assert.throws(() => validateValues(definition, {cards:[]}), /needs 1–3 items/);
   assert.throws(() => validateValues(definition, {cards:[{title:'x'}], destination:'javascript:alert(1)'}), /HTTP\(S\)/);
   assert.throws(() => validateValues(definition, {cards:[{title:'x'}], image:'../secret.png'}), /Unsafe project path/);
+});
+
+test('unknown value keys are dropped with a warning while type violations still fail', () => {
+  const definition = parseTemplate(`@type Comment
+@param email Email
+@endtype
+@type Card
+@param tint Color
+@endtype
+@param title String
+@param card Card
+@param comments Comment[] max_items=2
+@layout
+{{title}}
+@endlayout`);
+  const values = {title:'Kept', retired:'dropped', card:{tint:'#fff', old:1}, comments:[{email:'a@example.com'}, {email:'b@example.com', legacy:true}]};
+  const warnings = [];
+  assert.deepEqual(validateValues(definition, values, {warnings}), {title:'Kept', card:{tint:'#fff'}, comments:[{email:'a@example.com'}, {email:'b@example.com'}]});
+  assert.deepEqual(warnings, [
+    {path:'retired', message:'This setting is not defined in the template.'},
+    {path:'card.old', message:'This setting is not defined in the template.'},
+    {path:'comments[1].legacy', message:'This setting is not defined in the template.'},
+  ]);
+  assert.deepEqual(validateValues(definition, values), {title:'Kept', card:{tint:'#fff'}, comments:[{email:'a@example.com'}, {email:'b@example.com'}]});
+  assert.equal(renderTemplate(definition, values).trim(), 'Kept');
+  assert.throws(() => validateValues(definition, {...values, comments:[{email:'a@example.com'}, {email:'bad', legacy:true}]}), /comments\[1\].email/);
+  // Preview data belongs to the definition, so an unknown key there remains an authoring error.
+  assert.throws(() => parseTemplate('@template "P" previewData=\'{"retired":"x"}\'\n@param title String\n@layout\nX\n@endlayout'), /retired/);
 });
 
 test('rejects recursive, unknown and incorrectly typed block calls', () => {
