@@ -586,8 +586,8 @@ final class TemplateEngine
                 $this->valueError($path, 'This setting is required.');
             }
 
-            // Keep Markdown source editable; store only sanitized HTML for WYSIWYG.
-            return $type === 'wysiwyg' ? $html : $value;
+            // Rich text is stored exactly as authored; the renderer sanitizes it on output.
+            return $value;
         }
         if ($type === 'select' && ! array_key_exists($value, $field['options'])) {
             $this->valueError($path, 'Choose one of the available options.');

@@ -4,7 +4,7 @@
 // Offsets are UTF-16, matching VS Code's TextDocument.offsetAt().
 const BUILTIN_TYPES = Object.freeze({
   String: 'Single-line text input.', Text: 'Plain-text textarea.', Color: 'Color picker.',
-  Wysiwyg: 'Visual rich-text editor with formatting, links and images. Stores sanitized HTML. Render formatted content with {{& path}} inside an HTML body container; {{path}} escapes the stored string.',
+  Wysiwyg: 'Visual rich-text editor with formatting, links and images. Stores the authored HTML unchanged. Render sanitized HTML with {{& path}} inside an HTML body container; {{path}} escapes the stored string.',
   Markdown: 'Markdown source editor with images and server-rendered preview. Stores Markdown source. Render sanitized HTML with {{& path}} inside an HTML body container; {{path}} escapes the stored string.',
   Number: 'Numeric input.', Range: 'Numeric slider.', Boolean: 'Checkbox.',
   Select: 'Select input; declare choices using options="value:Label|other:Label".',

@@ -41,15 +41,16 @@ TPL);
         $this->assertStringContainsString('<p><strong>Root</strong></p>', $html);
     }
 
-    public function test_rich_html_is_sanitized_and_markdown_source_is_preserved(): void
+    public function test_rich_text_values_are_stored_as_authored_and_sanitized_only_when_rendered(): void
     {
         $engine = app(TemplateEngine::class);
         $definition = $this->definition('Wysiwyg');
         $value = '<p onclick="alert(1)" style="position:fixed">Hello <strong>world</strong></p><script>alert(1)</script><iframe src="https://evil.test"></iframe><a href="javascript:alert(1)">Link</a><img src="data:image/svg+xml,bad" onerror="alert(1)">';
-        $normalized = $engine->validateValues($definition, ['body' => $value]);
-        $this->assertStringContainsString('<strong>world</strong>', $normalized['body']);
+        $this->assertSame($value, $engine->validateValues($definition, ['body' => $value])['body']);
+        $html = $engine->render($definition, ['body' => $value]);
+        $this->assertStringContainsString('<strong>world</strong>', $html);
         foreach (['onclick', 'onerror', 'style=', '<script', '<iframe', 'javascript:', 'data:'] as $unsafe) {
-            $this->assertStringNotContainsString($unsafe, $normalized['body']);
+            $this->assertStringNotContainsString($unsafe, $html);
         }
         $markdown = "## Заголовок\n\n**Bold** and ![Alt](https://example.com/image.png)\n\n<script>alert(1)</script>";
         $this->assertSame($markdown, $engine->validateValues($this->definition('Markdown'), ['body' => $markdown])['body']);

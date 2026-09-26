@@ -165,6 +165,8 @@ The compiled definition uses a deliberately small Mustache-like expression set:
 
 Expressions are data lookups, not general code. Object or list settings cannot be interpolated as scalars, and formatted output is restricted to rich-text field types. Partials exist in JSON definitions; source-level reuse normally uses typed blocks and includes.
 
+`Wysiwyg` and `Markdown` values are stored exactly as the author entered them. Validation only checks them; sanitization happens when they are rendered, so the same stored value renders identically in every implementation.
+
 The common engine never rescans settings for directives, Mustache expressions or safe-runtime tokens. An application-owned post-render runtime may deliberately define another phase; for example, the documented trusted `fast-landings-v1` profile permits request tokens in stored string settings. Such behavior belongs to that dialect's threat model, not language version 1 or the safe default.
 
 ## Default safe runtime
