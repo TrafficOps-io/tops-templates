@@ -39,6 +39,8 @@
             "endeach",
             "if",
             "endif",
+            "unless",
+            "endunless",
             "render",
             "include"
         ],

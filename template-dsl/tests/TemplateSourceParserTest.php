@@ -229,6 +229,49 @@ TPL);
         $this->assertStringNotContainsString('{{', $html);
     }
 
+    public function test_unless_renders_when_a_field_is_empty_or_false_and_keeps_the_enclosing_scope(): void
+    {
+        $definition = app(TemplateEngine::class)->validateDefinition($this->parse(<<<'TPL'
+@type Item
+@param title String
+@endtype
+@param title String = "Root"
+@param note String
+@param enabled Boolean
+@param items Item[]
+@layout
+@unless note
+<p class="note">No note for {{ title }}</p>
+@endunless
+@unless enabled
+<p class="off">Disabled</p>
+@endunless
+@unless items
+<p class="empty">No items for {{ title }}</p>
+@endunless
+@each item in items
+@unless item.title
+<p class="untitled">Untitled under {{ title }}</p>
+@endunless
+@endeach
+@endlayout
+TPL));
+        $engine = app(TemplateEngine::class);
+
+        $html = $engine->render($definition, ['items' => []]);
+        $this->assertStringContainsString('<p class="note">No note for Root</p>', $html);
+        $this->assertStringContainsString('<p class="off">Disabled</p>', $html);
+        $this->assertStringContainsString('<p class="empty">No items for Root</p>', $html);
+
+        $html = $engine->render($definition, ['note' => '0', 'enabled' => '1', 'items' => [['title' => ''], ['title' => 'Named']]]);
+        $this->assertStringContainsString('No note for Root', $html, 'the string "0" is empty, as in PHP');
+        $this->assertStringNotContainsString('Disabled', $html);
+        $this->assertStringNotContainsString('No items', $html);
+        $this->assertSame(1, substr_count($html, '<p class="untitled">Untitled under Root</p>'));
+
+        $this->assertSourceInvalid("@param title String\n@layout\n@unless title\nX\n@endlayout", '@endunless');
+    }
+
     public function test_builtin_defaults_and_select_options_have_form_compatible_types(): void
     {
         $definition = $this->parse(<<<'TPL'

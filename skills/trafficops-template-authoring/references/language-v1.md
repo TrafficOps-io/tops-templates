@@ -144,9 +144,9 @@ Blocks are typed authoring macros expanded while the source is parsed. They are 
 
 Block calls are type-checked. Unknown, recursive and excessively deep calls are rejected. `aiInstructions` is the only block option; it is retained as definition metadata when present.
 
-### `@layout`, `@if` and `@each`
+### `@layout`, `@if`, `@unless` and `@each`
 
-HTML belongs inside one `@layout … @endlayout` block per page. `@if path … @endif` emits a truthy section. `@each alias in path: … @endeach` iterates a repeater of an author-defined type. Paths use dot notation and are resolved lexically; block arguments cannot escape their scope.
+HTML belongs inside one `@layout … @endlayout` block per page. `@if path … @endif` emits a truthy section; `@if` over a list is rejected, use `@each`. `@unless path … @endunless` renders when a field is empty or false (PHP truthiness: `""`, `"0"`, `0`, `false` and empty lists are falsey) and keeps the enclosing scope, including for empty lists, which allows lossless migration of legacy inverse sections. `@each alias in path: … @endeach` iterates a repeater of an author-defined type. Paths use dot notation and are resolved lexically; block arguments cannot escape their scope. Adding a directive such as `@unless` stays within language version 1.
 
 CSS at-rules commonly found at the start of a line, including `@media`, `@supports`, `@font-face` and `@keyframes`, are treated as markup inside layout or block bodies.
 
