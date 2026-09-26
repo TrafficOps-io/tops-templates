@@ -446,11 +446,9 @@ final class TemplateEngine
             return $field['default'];
         }
 
+        // An unset optional field is empty: no implicit color, minimum number or first option.
         return match ($field['type']) {
             'checkbox' => false,
-            'number', 'range' => $field['min'] ?? min(0, $field['max'] ?? 0),
-            'color' => '#000000',
-            'select' => (string) array_key_first($field['options']),
             'group' => $this->defaultValues($field['fields'], $budget),
             'repeater' => $this->defaultItems($field, $budget),
             default => '',
@@ -589,10 +587,10 @@ final class TemplateEngine
             // Rich text is stored exactly as authored; the renderer sanitizes it on output.
             return $value;
         }
-        if ($type === 'select' && ! array_key_exists($value, $field['options'])) {
-            $this->valueError($path, 'Choose one of the available options.');
-        }
         if ($value !== '') {
+            if ($type === 'select' && ! array_key_exists($value, $field['options'])) {
+                $this->valueError($path, 'Choose one of the available options.');
+            }
             if ($type === 'color' && ! preg_match('/^#(?:[a-fA-F0-9]{3}|[a-fA-F0-9]{6}|[a-fA-F0-9]{8})$/D', $value)) {
                 $this->valueError($path, 'Enter a hexadecimal color such as #336699.');
             }

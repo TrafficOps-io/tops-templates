@@ -85,6 +85,8 @@ The parameter form is `@param name Type`, followed by zero or more options:
 - `min_items` and `max_items` constrain a custom `Type[]` repeater;
 - `aspect_ratio="16:9"` or `sizes="1200x630|1080x1080"` constrains `Image`; the two forms are mutually exclusive.
 
+An optional field with no value and no declared default is empty: it renders as empty text and is stored as `""`. There is no implicit `#000000` color, minimum number or first `Select` option. A `Boolean` is `false`, a group recurses into its fields, and a repeater is an empty list unless `min_items` requires rows, in which case each row is filled the same way. A declared default (`= "value"`) applies whenever the value is missing.
+
 Built-in author types are:
 
 | Author type | Normalized type |

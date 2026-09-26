@@ -210,9 +210,7 @@ function fallback(field, budget = {value:0}) {
   if (field.type === 'group') return Object.fromEntries(field.fields.map((child) => [child.name, fallback(child,budget)]));
   if (field.type === 'repeater') return Array.from({length:field.min_items}, () => Object.fromEntries(field.fields.map((child) => [child.name, fallback(child,budget)])));
   if (field.type === 'checkbox') return false;
-  if (field.type === 'color') return '#000000';
-  if (['number','range'].includes(field.type)) return field.min ?? Math.min(0, field.max ?? 0);
-  if (field.type === 'select') return Object.keys(field.options)[0] ?? '';
+  // An unset optional field is empty: no implicit color, minimum number or first option (matches PHP).
   return '';
 }
 export function getDefaults(definition) { return normalizeValues(definition.fields, {}, '', {value:0}, true); }
@@ -237,6 +235,7 @@ function normalizeValues(fields, data, path = '', budget = {value:0}, allowMissi
       if (!Array.isArray(value) || value.length < field.min_items || value.length > field.max_items) fail(`${name} needs ${field.min_items}–${field.max_items} items`);
       value = value.map((item, index) => normalizeValues(field.fields, item, `${name}[${index}].`, budget, allowMissingRequired));
     } else if (['number','range'].includes(field.type)) {
+      if (value === '' && !field.required) return [field.name, ''];
       if (typeof value !== 'number' || !Number.isFinite(value) || field.min !== undefined && value < field.min || field.max !== undefined && value > field.max) fail(`${name} is outside its numeric bounds`);
       if (field.step !== undefined && Math.abs((value - (field.min ?? 0)) / field.step - Math.round((value - (field.min ?? 0)) / field.step)) > 1e-8) fail(`${name} must follow step ${field.step}`);
     } else if (field.type === 'checkbox') { if (typeof value !== 'boolean') fail(`${name} must be a boolean`); }
@@ -251,7 +250,7 @@ function normalizeValues(fields, data, path = '', budget = {value:0}, allowMissi
       if (value && field.type === 'image') { if (/^https?:\/\//i.test(value)) { if (!safeUrl(value)) fail(`${name} must be a safe image URL`); } else safePath(value.split(/[?#]/)[0]); }
       if (value && field.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) fail(`${name} must be an email address`);
       if (value && field.type === 'color' && !/^#(?:[\da-f]{3}|[\da-f]{6}|[\da-f]{8})$/i.test(value)) fail(`${name} must be a hex color`);
-      if (field.type === 'select' && !own(field.options, value)) fail(`${name} must be a listed option`);
+      if (value && field.type === 'select' && !own(field.options, value)) fail(`${name} must be a listed option`);
     }
     return [field.name, value];
   }));

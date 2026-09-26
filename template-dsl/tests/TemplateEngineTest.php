@@ -186,7 +186,7 @@ class TemplateEngineTest extends TestCase
         ]));
 
         $this->assertSame([
-            'color' => '#aabbcc', 'size' => 14, 'layout' => 'wide', 'enabled' => false,
+            'color' => '#aabbcc', 'size' => 14, 'layout' => '', 'enabled' => false,
             'comments' => [['body' => 'Comment']],
         ], $this->engine()->defaults($definition));
         $values = $this->engine()->validateValues($definition, ['size' => '20.5', 'enabled' => '1']);
@@ -195,6 +195,39 @@ class TemplateEngineTest extends TestCase
         $this->assertSame('textarea', $this->engine()->fieldAtPath($definition, 'comments.0.body')['type']);
         $this->assertNull($this->engine()->fieldAtPath($definition, 'comments.0.missing'));
         $this->assertNull($this->engine()->fieldAtPath($definition, '../../body'));
+    }
+
+    public function test_unset_optional_fields_default_to_empty_rather_than_a_type_fallback(): void
+    {
+        $definition = $this->engine()->validateDefinition($this->definition([
+            $this->field('accent', 'color'),
+            $this->field('size', 'number', ['min' => 10, 'max' => 20]),
+            $this->field('opacity', 'range', ['min' => 0, 'max' => 1, 'step' => 0.1]),
+            $this->field('layout', 'select', ['options' => ['wide' => 'Wide', 'narrow' => 'Narrow']]),
+            $this->field('link', 'url'),
+            $this->field('logo', 'image'),
+            $this->field('contact', 'email'),
+            $this->field('enabled', 'checkbox'),
+            $this->field('card', 'group', ['fields' => [$this->field('tint', 'color')]]),
+            $this->field('items', 'repeater', ['fields' => [$this->field('tint', 'color')]]),
+            $this->field('rows', 'repeater', ['min_items' => 2, 'fields' => [$this->field('tint', 'color')]]),
+            $this->field('declared', 'color', ['default' => '#123456']),
+            $this->field('chosen', 'select', ['options' => ['a' => 'A', 'b' => 'B'], 'default' => 'b']),
+        ], '[{{accent}}|{{size}}|{{opacity}}|{{layout}}|{{link}}|{{logo}}|{{contact}}|{{enabled}}|{{#card}}{{tint}}{{/card}}|{{declared}}|{{chosen}}]'));
+
+        $expected = [
+            'accent' => '', 'size' => '', 'opacity' => '', 'layout' => '', 'link' => '', 'logo' => '', 'contact' => '', 'enabled' => false,
+            'card' => ['tint' => ''], 'items' => [], 'rows' => [['tint' => ''], ['tint' => '']],
+            'declared' => '#123456', 'chosen' => 'b',
+        ];
+        $this->assertSame($expected, $this->engine()->defaults($definition));
+        $this->assertSame($expected, $this->engine()->validateValues($definition, []));
+        $this->assertSame('[|||||||||#123456|b]', $this->engine()->render($definition, []));
+        $this->assertSame('', $this->engine()->validateValues($definition, ['layout' => ''])['layout']);
+
+        $required = $this->definition([$this->field('layout', 'select', ['options' => ['wide' => 'Wide'], 'required' => true])]);
+        $this->assertValidationKey('values.layout', fn () => $this->engine()->validateValues($required, []));
+        $this->assertValidationKey('values.layout', fn () => $this->engine()->validateValues($required, ['layout' => '']));
     }
 
     #[DataProvider('invalidValueProvider')]

@@ -195,12 +195,42 @@ test('include-only entries retain output names; output paths cannot collide by c
   assert.throws(() => generateProject({'index.tpl':'@layout\nHello\n@endlayout','INDEX.tpl':'@layout\nHello\n@endlayout'}),/collision/);
 });
 
-test('negative numeric defaults, color defaults, required whitespace and falsey zero match PHP', () => {
+test('unset optional numbers and colors stay empty, required whitespace and falsey zero match PHP', () => {
   const definition = parseTemplate('@param number Number max=-1\n@param color Color\n@param name String required\n@layout\n@if name\n{{number}} {{color}}\n@endif\n@endlayout');
-  assert.equal(getDefaults(definition).number,-1);
-  assert.equal(getDefaults(definition).color,'#000000');
+  assert.equal(getDefaults(definition).number,'');
+  assert.equal(getDefaults(definition).color,'');
   assert.throws(() => validateValues(definition,{name:'   '}),/required/);
   assert.equal(renderTemplate(definition,{name:'0'}),'');
+});
+
+test('unset optional fields default to empty rather than a type fallback; declared defaults and min_items rows survive', () => {
+  const definition = parseTemplate(`@type Row
+@param tint Color
+@endtype
+@param accent Color
+@param size Number min=10 max=20
+@param opacity Range min=0 max=1 step=0.1
+@param layout Select options="wide:Wide|narrow:Narrow"
+@param link Url
+@param logo Image
+@param contact Email
+@param enabled Boolean
+@param card Row
+@param items Row[]
+@param rows Row[] min_items=2
+@param declared Color = "#123456"
+@param chosen Select = "b" options="a:A|b:B"
+@layout
+[{{accent}}|{{size}}|{{opacity}}|{{layout}}|{{link}}|{{logo}}|{{contact}}|{{enabled}}|{{#card}}{{tint}}{{/card}}|{{declared}}|{{chosen}}]
+@endlayout`);
+  const expected = {accent:'', size:'', opacity:'', layout:'', link:'', logo:'', contact:'', enabled:false, card:{tint:''}, items:[], rows:[{tint:''},{tint:''}], declared:'#123456', chosen:'b'};
+  assert.deepEqual(getDefaults(definition), expected);
+  assert.deepEqual(validateValues(definition, {}), expected);
+  assert.equal(renderTemplate(definition, {}).trim(), '[|||||||||#123456|b]');
+  assert.equal(validateValues(definition, {layout:''}).layout, '');
+  const required = parseTemplate('@param layout Select required options="wide:Wide"\n@layout\nX\n@endlayout');
+  assert.throws(() => validateValues(required, {}), /required/);
+  assert.throws(() => validateValues(required, {layout:''}), /required/);
 });
 
 test('default generation rejects multiplicative repeaters before allocating their full tree', () => {
