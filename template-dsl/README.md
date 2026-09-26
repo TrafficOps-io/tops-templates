@@ -59,7 +59,7 @@ The source language supports `@template`, `@previewData`, `@section`, `@param`, 
 
 The parser produces a version 1 definition containing normalized settings, HTML, optional pages and partials, block annotations, preview metadata and author-type annotations. The runtime validator is authoritative; the bundled [JSON Schema](resources/schema/template-definition-v1.schema.json) is a structural interoperability aid.
 
-See [Language v1](docs/language-v1.md) for syntax and rendering semantics.
+See [Language v1](https://github.com/TrafficOps-io/tops-templates/blob/main/docs/language-v1.md) for syntax and rendering semantics.
 
 ## Dialects
 
@@ -79,7 +79,7 @@ $this->app->singleton(
 
 The parser and engine must use the same host-selected dialect. Selecting a more permissive dialect is a deployment privilege decision, never template metadata. The bundled [dialect profiles](resources/dialects) describe capabilities for tooling and compatibility tests; they are not executable configuration. `fast-landings-v1` documents an application-owned trusted dialect and is not implemented by this package.
 
-See [Dialect integration](docs/dialects.md) and the [threat model](docs/threat-model.md) before implementing a dialect.
+See [Dialect integration](https://github.com/TrafficOps-io/tops-templates/blob/main/docs/dialects.md) and the [threat model](https://github.com/TrafficOps-io/tops-templates/blob/main/docs/threat-model.md) before implementing a dialect.
 
 ## Security boundary
 

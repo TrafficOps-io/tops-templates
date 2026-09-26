@@ -52,4 +52,6 @@ In **Settings → Pages → Build and deployment**, select **GitHub Actions** as
 - guides: `docs/guide/*.md`;
 - full language specification: `docs/language-v1.md`;
 - dialect API: `docs/dialects.md`;
+- threat model: `docs/threat-model.md`;
+- `template-dsl/docs/*.md` are pointers to the three files above, kept so that links inside the Composer package resolve; `docs/` is the only source of truth;
 - deployment workflow: `.github/workflows/deploy-docs.yml`.
