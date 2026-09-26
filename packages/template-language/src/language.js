@@ -15,7 +15,8 @@ const DIALECTS = Object.freeze({
   SAFE_HTML_V1: 'safe-html-v1',
   FAST_LANDINGS_V1: 'fast-landings-v1',
 });
-const DEFAULT_DIALECT = DIALECTS.FAST_LANDINGS_V1;
+// An unnamed or unknown dialect means the safe profile; only a host may opt into the trusted one.
+const DEFAULT_DIALECT = DIALECTS.SAFE_HTML_V1;
 const RUNTIME_SOURCES = Object.freeze(['query', 'headers', 'body']);
 const SAFE_RUNTIME_SOURCES = Object.freeze(['query', 'locale', 'actions']);
 const DIALECT_PROFILES = Object.freeze({
@@ -88,11 +89,21 @@ const RUNTIME_PATH = '[A-Za-z0-9_][A-Za-z0-9_-]*(?:\\.[A-Za-z0-9_][A-Za-z0-9_-]*
 const RUNTIME_PARAM = new RegExp(`^\\s*@param\\s+(${RUNTIME_PATH})(?=\\s|$)(?:\\s+(${NAME}))?`);
 
 function normalizeDialect(value) {
-  return value === DIALECTS.SAFE_HTML_V1 ? value : DEFAULT_DIALECT;
+  return typeof value === 'string' && Object.hasOwn(DIALECT_PROFILES, value) ? value : DEFAULT_DIALECT;
+}
+
+function requestedDialect(options) {
+  return typeof options === 'string' ? options : options?.dialect;
 }
 
 function dialectFrom(options) {
-  return normalizeDialect(typeof options === 'string' ? options : options?.dialect);
+  return normalizeDialect(requestedDialect(options));
+}
+
+/** A dialect id the host passed but no profile knows; undefined and null mean "not selected". */
+function unknownDialect(options) {
+  const requested = requestedDialect(options);
+  return requested !== undefined && requested !== null && normalizeDialect(requested) !== requested ? requested : null;
 }
 
 function profileFor(value) {
@@ -194,6 +205,10 @@ function parseDocument(uri, text, options = {}) {
   const dialect = dialectFrom(options);
   const profile = profileFor(dialect);
   const document = { uri, text, dialect, lines: linesOf(text), includes: [], types: [], params: [], blocks: [], sections: [], scopes: [], references: [], previewBlocks: [], validationBlocks: [], runtimeParams: [], phpSpans: phpSpans(text), metadata: {}, diagnostics: [] };
+  const unknown = unknownDialect(options);
+  if (unknown !== null) {
+    document.diagnostics.push({ start: 0, end: document.lines[0]?.text.length || 0, message: `Unknown dialect ${JSON.stringify(String(unknown))}; ${DEFAULT_DIALECT} applies. Hosts select ${Object.keys(DIALECT_PROFILES).join(' or ')}.` });
+  }
   let type = null;
   let section = null;
   let owner = null;
@@ -420,7 +435,8 @@ function buildProject(documents, options = {}) {
   const dialect = dialectFrom(options);
   const project = { dialect, documents: new Map(), types: new Map(), params: new Map(), blocks: new Map(), customTypes: new Set(customTypes.filter(type => /^[A-Z][A-Za-z0-9_]*$/.test(type))) };
   for (const input of documents) {
-    const document = parseDocument(input.uri, input.text, { dialect });
+    // Pass the requested id through so each document reports an unknown dialect.
+    const document = parseDocument(input.uri, input.text, { dialect: requestedDialect(options) ?? dialect });
     project.documents.set(document.uri, document);
     for (const type of document.types) if (!project.types.has(type.name)) project.types.set(type.name, type);
     for (const param of document.params) if (!project.params.has(param.name)) project.params.set(param.name, param);

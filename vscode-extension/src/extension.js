@@ -8,9 +8,13 @@ const { formatDocument } = require('@trafficops/template-language/formatter');
 const LANGUAGE_ID = 'fast-landings-tpl';
 const selector = { language: LANGUAGE_ID };
 
+// The configured id as written; parseDocument falls back to safe-html-v1 and reports an unknown id.
+function requestedDialect(document) {
+  return vscode.workspace.getConfiguration('fastLandingsTemplates', document.uri).get('dialect', language.DEFAULT_DIALECT);
+}
+
 function dialectFor(document) {
-  const configured = vscode.workspace.getConfiguration('fastLandingsTemplates', document.uri).get('dialect', language.DEFAULT_DIALECT);
-  return language.normalizeDialect(configured);
+  return language.normalizeDialect(requestedDialect(document));
 }
 
 function activate(context) {
@@ -21,7 +25,7 @@ function activate(context) {
   context.subscriptions.push(previewDiagnostics);
   const validatePreview = document => {
     if (document.languageId !== LANGUAGE_ID) return;
-    const parsed = language.parseDocument(document.uri.toString(), document.getText(), { dialect: dialectFor(document) });
+    const parsed = language.parseDocument(document.uri.toString(), document.getText(), { dialect: requestedDialect(document) });
     previewDiagnostics.set(document.uri, parsed.diagnostics.map(issue => {
       const diagnostic = new vscode.Diagnostic(new vscode.Range(document.positionAt(issue.start), document.positionAt(issue.end)), issue.message, vscode.DiagnosticSeverity.Error);
       diagnostic.source = 'TrafficOps Templates';

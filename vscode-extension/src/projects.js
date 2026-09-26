@@ -50,19 +50,24 @@ class ProjectLoader {
         return this.vscode.Uri.joinPath(root, relative.replace(/\/$/, ''));
     }
 
+    /** The configured id as written; the analyzer reports an unknown id and falls back to safe-html-v1. */
+    _requestedDialect(document, configuration = this.vscode.workspace.getConfiguration('fastLandingsTemplates', document.uri)) {
+        return configuration.get('dialect', this.language.DEFAULT_DIALECT || 'safe-html-v1');
+    }
+
     _dialect(document, configuration = this.vscode.workspace.getConfiguration('fastLandingsTemplates', document.uri)) {
-        const value = configuration.get('dialect', this.language.DEFAULT_DIALECT || 'fast-landings-v1');
+        const value = this._requestedDialect(document, configuration);
         return this.language.normalizeDialect ? this.language.normalizeDialect(value) : value;
     }
 
-    _context(document, token, dialect = this.language.DEFAULT_DIALECT || 'fast-landings-v1') {
+    _context(document, token, dialect = this.language.DEFAULT_DIALECT || 'safe-html-v1', requested = dialect) {
         const open = new Map();
         for (const item of this.vscode.workspace.textDocuments || []) {
             if (!item.isClosed) open.set(key(item.uri), item);
         }
         // The document passed by a provider can be newer than workspace.textDocuments.
         open.set(key(document.uri), document);
-        return { token, dialect, open, sources: new Map(), parsed: new Map(), stats: new Map(), bytes: 0, lines: 0 };
+        return { token, dialect, requested, open, sources: new Map(), parsed: new Map(), stats: new Map(), bytes: 0, lines: 0 };
     }
 
     async _stat(uri, context) {
@@ -136,7 +141,7 @@ class ProjectLoader {
     _parse(source, context) {
         const uriKey = key(source.uri);
         if (!context.parsed.has(uriKey)) {
-            context.parsed.set(uriKey, this.language.parseDocument(uriKey, source.text, { dialect: context.dialect }));
+            context.parsed.set(uriKey, this.language.parseDocument(uriKey, source.text, { dialect: context.requested }));
         }
         return context.parsed.get(uriKey);
     }
@@ -204,15 +209,16 @@ class ProjectLoader {
 
     async load(document, cancellationToken) {
         const configuration = this.vscode.workspace.getConfiguration('fastLandingsTemplates', document.uri);
+        const requested = this._requestedDialect(document, configuration);
         const dialect = this._dialect(document, configuration);
-        const context = this._context(document, cancellationToken, dialect);
+        const context = this._context(document, cancellationToken, dialect, requested);
         const graph = await this._selectGraph(document, context);
         const configuredTypes = configuration.get('customTypes', []);
         const customTypes = Array.isArray(configuredTypes) ? configuredTypes : [];
         const sources = this._cancelled(context) ? [] : Array.from(graph.documents.values(), source => ({
             uri: key(source.uri), text: source.text,
         }));
-        return { ...graph, dialect, project: this.language.buildProject(sources, { customTypes, dialect }) };
+        return { ...graph, dialect, project: this.language.buildProject(sources, { customTypes, dialect: requested }) };
     }
 
     async completeIncludes(document, prefix, cancellationToken) {
