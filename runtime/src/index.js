@@ -1,5 +1,5 @@
 import {encodeSegments} from './html.js';
-import {renderRichText, isRichTextEmpty} from './rich-text.js';
+import {renderRichText, isRichTextEmpty, richTextImageSources} from './rich-text.js';
 /** Browser-safe interpreter for the documented JavaScript subset of Template DSL v1. */
 const TYPES = Object.freeze({String: 'text', Text: 'textarea', Wysiwyg: 'wysiwyg', Markdown: 'markdown', Color: 'color', Number: 'number', Range: 'range', Boolean: 'checkbox', Image: 'image', Url: 'url', Email: 'email', Select: 'select'});
 const FORBIDDEN = new Set(['__proto__', 'prototype', 'constructor']);
@@ -7,7 +7,8 @@ const IDENT = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
 const CSS = new Set(['media', 'supports', 'font-face', 'keyframes', '-webkit-keyframes', 'import', 'charset', 'layer', 'container', 'property', 'page', 'namespace', 'scope', 'starting-style']);
 const encoder = new TextEncoder();
 const programs = new WeakMap();
-export const LIMITS = Object.freeze({sourceBytes: 2 * 1024 * 1024, projectBytes: 32 * 1024 * 1024, files: 500, pages: 100, fields: 200, depth: 6, includeDepth: 12, items: 50, operations: 100000, outputBytes: 8 * 1024 * 1024});
+// Numeric limits follow the PHP reference implementation (ADR-0001). outputBytes bounds one page and all rendered pages of a project.
+export const LIMITS = Object.freeze({sourceBytes: 2 * 1024 * 1024, projectBytes: 32 * 1024 * 1024, files: 500, pages: 100, fields: 200, depth: 6, includeDepth: 10, items: 50, operations: 100000, outputBytes: 8 * 1024 * 1024, textBytes: 10000, longTextBytes: 100000});
 export class TemplateError extends Error { constructor(message) { super(message); this.name = 'TemplateError'; } }
 const fail = (message) => { throw new TemplateError(message); };
 const bytes = (value) => typeof value === 'string' ? encoder.encode(value).byteLength : value.byteLength;
@@ -67,7 +68,7 @@ function expand(source, filename, resolver, stack = [], budget = {bytes: 0, line
   const rows = source.replace(/\r\n?/g, '\n').split('\n');
   budget.bytes += bytes(source); budget.lines += rows.length;
   if (budget.bytes > LIMITS.sourceBytes || budget.lines > 20000) fail('Expanded source exceeds its budget');
-  if (stack.includes(filename) || stack.length >= LIMITS.includeDepth) fail(`Include cycle or depth limit at ${filename}`);
+  if (stack.includes(filename) || stack.length > LIMITS.includeDepth) fail(`Include cycle or depth limit at ${filename}`);
   const output = [], origins = [];
   for (const [index, row] of rows.entries()) {
     const origin = {file:filename, line:index + 1};
@@ -214,6 +215,44 @@ function fallback(field, budget = {value:0}) {
   return '';
 }
 export function getDefaults(definition) { return normalizeValues(definition.fields, {}, '', {value:0}, true, []); }
+
+// Value coercion and validation mirror TemplateEngine::normalizeField in PHP; where JavaScript
+// cannot reproduce a PHP rule exactly it is stricter, never looser.
+const PHP_NUMERIC = /^[ \t\n\r\v\f]*[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?[ \t\n\r\v\f]*$/;
+const CONTROL_CHARS = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/;
+const PHP_BLANK = /^[ \t\n\r\x0B]*$/;
+const EMAIL_LOCAL = /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*$/;
+const DNS_LABEL = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
+/** PHP truthiness: "" and "0" are the only falsey strings; empty lists and groups are falsey. */
+export function phpTruthy(value) {
+  if (Array.isArray(value)) return value.length > 0;
+  if (isObject(value)) return Object.keys(value).length > 0;
+  return typeof value === 'string' ? value !== '' && value !== '0' : Boolean(value);
+}
+const rawurldecode = (value) => value.replace(/%([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+function safeValueUrl(value, allowRelative) {
+  if (bytes(value) > 2048) return false;
+  // Decode repeatedly so encoded controls, schemes and traversal cannot bypass validation (PHP decodes up to five times).
+  let decoded = value;
+  for (let i = 0; i < 5; i++) { const next = rawurldecode(decoded); if (next === decoded) break; decoded = next; }
+  if (/[\x00-\x20\x7f\\]/.test(decoded) || decoded.startsWith('//') || decoded.includes('%')) return false;
+  if (/^https?:\/\//i.test(value)) {
+    // At least as strict as PHP's FILTER_VALIDATE_URL: printable ASCII, a DNS or IP-literal host, no credentials.
+    if (/[^\x21-\x7e]/.test(value)) return false;
+    let url; try { url = new URL(value); } catch { return false; }
+    if (url.username || url.password || !url.hostname) return false;
+    return /^\[[0-9A-Fa-f:.]+\]$/.test(url.hostname) || url.hostname.split('.').every((label) => DNS_LABEL.test(label));
+  }
+  if (!allowRelative || decoded.startsWith('/') || decoded.includes(':') || decoded.includes('?') || decoded.includes('#')) return false;
+  return decoded.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..');
+}
+function safeEmail(value) {
+  // A subset of PHP's FILTER_VALIDATE_EMAIL: dot-atom local part and a dotted DNS domain; quoted local parts and IP literals are rejected.
+  const at = value.lastIndexOf('@');
+  if (at < 1 || value.length > 254) return false;
+  const local = value.slice(0, at), labels = value.slice(at + 1).split('.');
+  return local.length <= 64 && EMAIL_LOCAL.test(local) && labels.length >= 2 && labels.every((label) => DNS_LABEL.test(label));
+}
 function safeUrl(value, action = false) {
   if (!value) return !action;
   if (/[\x00-\x20\x7f\\]/.test(value) || value.startsWith('//')) return false;
@@ -232,27 +271,38 @@ function normalizeValues(fields, data, path = '', budget = {value:0}, allowMissi
     if (++budget.value > 10000) fail('Too many setting values');
     const name = `${path}${field.name}`;
     let value = own(data, field.name) ? data[field.name] : fallback(field);
-    if (value === null && !field.required && !['group','repeater'].includes(field.type)) value = fallback(field);
-    if (!allowMissingRequired && field.required && (value === null || value === undefined || typeof value === 'string' && !value.trim() || Array.isArray(value) && !value.length)) fail(`${name} is required`);
     if (field.type === 'group') value = normalizeValues(field.fields, value, `${name}.`, budget, allowMissingRequired, warnings);
     else if (field.type === 'repeater') {
       if (!Array.isArray(value) || value.length < field.min_items || value.length > field.max_items) fail(`${name} needs ${field.min_items}–${field.max_items} items`);
+      if (!allowMissingRequired && field.required && !value.length) fail(`${name} is required`);
       value = value.map((item, index) => normalizeValues(field.fields, item, `${name}[${index}].`, budget, allowMissingRequired, warnings));
-    } else if (['number','range'].includes(field.type)) {
-      if (value === '' && !field.required) return [field.name, ''];
-      if (typeof value !== 'number' || !Number.isFinite(value) || field.min !== undefined && value < field.min || field.max !== undefined && value > field.max) fail(`${name} is outside its numeric bounds`);
-      if (field.step !== undefined && Math.abs((value - (field.min ?? 0)) / field.step - Math.round((value - (field.min ?? 0)) / field.step)) > 1e-8) fail(`${name} must follow step ${field.step}`);
-    } else if (field.type === 'checkbox') { if (typeof value !== 'boolean') fail(`${name} must be a boolean`); }
-    else {
-      if (typeof value !== 'string' || bytes(value) > 1024 * 1024) fail(`${name} must be text of at most 1 MiB`);
-      if (['markdown','wysiwyg'].includes(field.type)) {
-        if (bytes(value) > 100000) fail(`${name} rich text exceeds 100,000 bytes`);
-        if (field.type === 'markdown' && value.split('\n').some((line) => (line.match(/[\[\]*_~`>]/g) || []).length > 1000)) fail(`${name} exceeds the Markdown delimiter budget`);
-        if (!allowMissingRequired && field.required && isRichTextEmpty(renderRichText(field.type,value))) fail(`${name} is required`);
+    } else if (field.type === 'checkbox') {
+      // PHP accepts true/false, 0/1 and "0"/"1" only; null is not a boolean.
+      if (![true, false, 0, 1, '0', '1'].includes(value)) fail(`${name} must be a boolean`);
+      value = Boolean(Number(value));
+    } else {
+      if (value === null) value = '';
+      if (!allowMissingRequired && field.required && typeof value === 'string' && PHP_BLANK.test(value)) fail(`${name} is required`);
+      if (['number','range'].includes(field.type)) {
+        if (value === '') return [field.name, ''];
+        const number = typeof value === 'number' ? value : typeof value === 'string' && PHP_NUMERIC.test(value) ? Number(value.trim()) : NaN;
+        if (!Number.isFinite(number)) fail(`${name} must be a finite number`);
+        if (field.min !== undefined && number < field.min || field.max !== undefined && number > field.max) fail(`${name} is outside its numeric bounds`);
+        if (field.step !== undefined) { const steps = (number - (field.min ?? 0)) / field.step; if (!Number.isFinite(steps) || Math.abs(steps - Math.round(steps)) > 0.000001) fail(`${name} must follow step ${field.step}`); }
+        return [field.name, number];
       }
-      if (value && field.type === 'url' && !safeUrl(value)) fail(`${name} must be an HTTP(S) URL or relative path`);
-      if (value && field.type === 'image') { if (/^https?:\/\//i.test(value)) { if (!safeUrl(value)) fail(`${name} must be a safe image URL`); } else safePath(value.split(/[?#]/)[0]); }
-      if (value && field.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) fail(`${name} must be an email address`);
+      if (field.type === 'select' && typeof value === 'number' && Number.isFinite(value)) value = String(value);
+      const limit = ['textarea','wysiwyg','markdown'].includes(field.type) ? LIMITS.longTextBytes : LIMITS.textBytes;
+      if (typeof value !== 'string' || !value.isWellFormed() || bytes(value) > limit || CONTROL_CHARS.test(value)) fail(`${name} must be valid text of at most ${limit} bytes`);
+      if (['markdown','wysiwyg'].includes(field.type)) {
+        if (field.type === 'markdown' && value.split('\n').some((line) => (line.match(/[\[\]*_~`>]/g) || []).length > 1000)) fail(`${name} exceeds the Markdown delimiter budget`);
+        const html = renderRichText(field.type, value);
+        for (const source of richTextImageSources(html)) if (!safeValueUrl(source, true)) fail(`${name} must use HTTP(S) image URLs or safe relative image paths`);
+        if (!allowMissingRequired && field.required && isRichTextEmpty(html)) fail(`${name} is required`);
+      }
+      if (value && field.type === 'url' && !safeValueUrl(value, false)) fail(`${name} must be an HTTP(S) URL`);
+      if (value && field.type === 'image') { if (!safeValueUrl(value, true)) fail(`${name} must be an HTTP(S) URL or a safe relative image path`); if (!/^https?:\/\//i.test(value)) safePath(value); }
+      if (value && field.type === 'email' && !safeEmail(value)) fail(`${name} must be an email address`);
       if (value && field.type === 'color' && !/^#(?:[\da-f]{3}|[\da-f]{6}|[\da-f]{8})$/i.test(value)) fail(`${name} must be a hex color`);
       if (value && field.type === 'select' && !own(field.options, value)) fail(`${name} must be a listed option`);
     }
@@ -359,6 +409,7 @@ function checkProgram(nodes, scope, blocks, stack = [], budget = {value:0}) {
         if (node.rich && !['markdown','wysiwyg'].includes(field.type)) fail('Formatted output requires a Markdown or Wysiwyg field');
       } else {
         if (node.mode === 'each' && field.type !== 'repeater') fail(`@each requires a repeater: ${node.path}`);
+        if (node.mode === 'if' && field.type === 'repeater') fail(`Use @each for lists: ${node.path}`);
         const enters = node.mode === 'each' || node.mode === 'section' && ['group','repeater'].includes(field.type);
         checkProgram(node.children, enters ? childScope(scope, field, {}, node.alias) : scope, blocks, stack, budget);
       }
@@ -443,7 +494,7 @@ function renderSegments(nodes, scope, blocks, runtime, budget, output) {
       const child = {schema:{}, data:{}, bindings, root:null, parent:null, block:true}; child.root = child;
       renderSegments(block.nodes, child, blocks, runtime, budget, output);
     } else {
-      const field = lookup(node.path, scope, true), value = lookup(node.path, scope), truthy = Array.isArray(value) ? !!value.length : isObject(value) ? !!Object.keys(value).length : !!value && value !== '0';
+      const field = lookup(node.path, scope, true), value = lookup(node.path, scope), truthy = phpTruthy(value);
       if (node.mode === 'inverse') { if (!truthy) renderSegments(node.children, scope, blocks, runtime, budget, output); }
       else if (node.mode === 'each' || node.mode === 'section' && field.type === 'repeater') { for (const item of value) renderSegments(node.children, childScope(scope, field, item, node.alias), blocks, runtime, budget, output); }
       else if (truthy) renderSegments(node.children, node.mode === 'section' && field.type === 'group' ? childScope(scope, field, value) : scope, blocks, runtime, budget, output);
@@ -471,7 +522,13 @@ export function renderTemplate(definition, data = {}, context = {}, { draft = fa
 export function generateProject(files, data = {}, context = {}, options = {}) {
   const project = parseProject(files), output = {};
   for (const [path,value] of Object.entries(files)) if (!/\.tpl(?:\.html)?$/i.test(path)) output[path] = value;
-  for (const definition of project.pages) output[definition.entrypoint] = renderTemplate(definition, data, context, options);
+  let rendered = 0;
+  for (const definition of project.pages) {
+    const html = renderTemplate(definition, data, context, options);
+    // PHP renderPages() bounds all rendered pages together by the same 8 MiB ceiling as one page.
+    if ((rendered += bytes(html)) > LIMITS.outputBytes) fail('Combined rendered pages exceed 8 MiB');
+    output[definition.entrypoint] = html;
+  }
   if (Object.values(output).reduce((total,value) => total + bytes(value),0) > LIMITS.projectBytes) fail('Generated project exceeds 32 MiB');
   return output;
 }

@@ -1,0 +1,56 @@
+{
+  "description": "Include depth follows PHP: a chain of 10 nested includes is accepted, 11 is rejected; include cycles are rejected.",
+  "cases": [
+    {
+      "name": "A chain of 10 nested includes is accepted",
+      "source": "@include \"a1.tpl\"\n@layout\n{{x}}\n@endlayout",
+      "includes": {
+        "a1.tpl": "@include \"a2.tpl\"",
+        "a2.tpl": "@include \"a3.tpl\"",
+        "a3.tpl": "@include \"a4.tpl\"",
+        "a4.tpl": "@include \"a5.tpl\"",
+        "a5.tpl": "@include \"a6.tpl\"",
+        "a6.tpl": "@include \"a7.tpl\"",
+        "a7.tpl": "@include \"a8.tpl\"",
+        "a8.tpl": "@include \"a9.tpl\"",
+        "a9.tpl": "@include \"a10.tpl\"",
+        "a10.tpl": "@param x String = \"deep\""
+      },
+      "expect": {
+        "ok": true,
+        "html": "deep"
+      }
+    },
+    {
+      "name": "A chain of 11 nested includes is rejected",
+      "source": "@include \"a1.tpl\"\n@layout\n{{x}}\n@endlayout",
+      "includes": {
+        "a1.tpl": "@include \"a2.tpl\"",
+        "a2.tpl": "@include \"a3.tpl\"",
+        "a3.tpl": "@include \"a4.tpl\"",
+        "a4.tpl": "@include \"a5.tpl\"",
+        "a5.tpl": "@include \"a6.tpl\"",
+        "a6.tpl": "@include \"a7.tpl\"",
+        "a7.tpl": "@include \"a8.tpl\"",
+        "a8.tpl": "@include \"a9.tpl\"",
+        "a9.tpl": "@include \"a10.tpl\"",
+        "a10.tpl": "@include \"a11.tpl\"",
+        "a11.tpl": "@param x String = \"deep\""
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "An include cycle is rejected",
+      "source": "@include \"a.tpl\"\n@layout\nX\n@endlayout",
+      "includes": {
+        "a.tpl": "@include \"b.tpl\"",
+        "b.tpl": "@include \"a.tpl\""
+      },
+      "expect": {
+        "ok": false
+      }
+    }
+  ]
+}

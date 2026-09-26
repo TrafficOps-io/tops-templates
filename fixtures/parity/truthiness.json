@@ -1,0 +1,190 @@
+{
+  "description": "Conditionals use PHP truthiness: \"\" and \"0\" are the only falsey strings, 0 is falsey, empty lists are falsey, a group with fields is truthy even when every field is empty. @if over a list is rejected; use @each.",
+  "cases": [
+    {
+      "name": "Empty string is falsey",
+      "source": "@type Item\n@param title String\n@endtype\n@param text String\n@param count Number\n@param flag Boolean\n@param items Item[]\n@param card Item\n@layout\n@if text\nT\n@endif\n@unless text\nt\n@endunless\n@if count\nC\n@endif\n@unless count\nc\n@endunless\n@if flag\nF\n@endif\n@unless flag\nf\n@endunless\n@unless items\ni\n@endunless\n@each item in items\n[{{item.title}}]\n@endeach\n@if card\nG\n@endif\n@unless card\ng\n@endunless\n@if card\n({{card.title}})\n@endif\n@endlayout",
+      "values": {
+        "text": ""
+      },
+      "expect": {
+        "ok": true,
+        "html": "t c f i G ()"
+      }
+    },
+    {
+      "name": "String \"0\" is falsey",
+      "source": "@type Item\n@param title String\n@endtype\n@param text String\n@param count Number\n@param flag Boolean\n@param items Item[]\n@param card Item\n@layout\n@if text\nT\n@endif\n@unless text\nt\n@endunless\n@if count\nC\n@endif\n@unless count\nc\n@endunless\n@if flag\nF\n@endif\n@unless flag\nf\n@endunless\n@unless items\ni\n@endunless\n@each item in items\n[{{item.title}}]\n@endeach\n@if card\nG\n@endif\n@unless card\ng\n@endunless\n@if card\n({{card.title}})\n@endif\n@endlayout",
+      "values": {
+        "text": "0"
+      },
+      "expect": {
+        "ok": true,
+        "html": "t c f i G ()"
+      }
+    },
+    {
+      "name": "String \"0.0\" is truthy",
+      "source": "@type Item\n@param title String\n@endtype\n@param text String\n@param count Number\n@param flag Boolean\n@param items Item[]\n@param card Item\n@layout\n@if text\nT\n@endif\n@unless text\nt\n@endunless\n@if count\nC\n@endif\n@unless count\nc\n@endunless\n@if flag\nF\n@endif\n@unless flag\nf\n@endunless\n@unless items\ni\n@endunless\n@each item in items\n[{{item.title}}]\n@endeach\n@if card\nG\n@endif\n@unless card\ng\n@endunless\n@if card\n({{card.title}})\n@endif\n@endlayout",
+      "values": {
+        "text": "0.0"
+      },
+      "expect": {
+        "ok": true,
+        "html": "T c f i G ()"
+      }
+    },
+    {
+      "name": "String \"false\" is truthy",
+      "source": "@type Item\n@param title String\n@endtype\n@param text String\n@param count Number\n@param flag Boolean\n@param items Item[]\n@param card Item\n@layout\n@if text\nT\n@endif\n@unless text\nt\n@endunless\n@if count\nC\n@endif\n@unless count\nc\n@endunless\n@if flag\nF\n@endif\n@unless flag\nf\n@endunless\n@unless items\ni\n@endunless\n@each item in items\n[{{item.title}}]\n@endeach\n@if card\nG\n@endif\n@unless card\ng\n@endunless\n@if card\n({{card.title}})\n@endif\n@endlayout",
+      "values": {
+        "text": "false"
+      },
+      "expect": {
+        "ok": true,
+        "html": "T c f i G ()"
+      }
+    },
+    {
+      "name": "Whitespace is truthy",
+      "source": "@type Item\n@param title String\n@endtype\n@param text String\n@param count Number\n@param flag Boolean\n@param items Item[]\n@param card Item\n@layout\n@if text\nT\n@endif\n@unless text\nt\n@endunless\n@if count\nC\n@endif\n@unless count\nc\n@endunless\n@if flag\nF\n@endif\n@unless flag\nf\n@endunless\n@unless items\ni\n@endunless\n@each item in items\n[{{item.title}}]\n@endeach\n@if card\nG\n@endif\n@unless card\ng\n@endunless\n@if card\n({{card.title}})\n@endif\n@endlayout",
+      "values": {
+        "text": " "
+      },
+      "expect": {
+        "ok": true,
+        "html": "T c f i G ()"
+      }
+    },
+    {
+      "name": "Number 0 is falsey",
+      "source": "@type Item\n@param title String\n@endtype\n@param text String\n@param count Number\n@param flag Boolean\n@param items Item[]\n@param card Item\n@layout\n@if text\nT\n@endif\n@unless text\nt\n@endunless\n@if count\nC\n@endif\n@unless count\nc\n@endunless\n@if flag\nF\n@endif\n@unless flag\nf\n@endunless\n@unless items\ni\n@endunless\n@each item in items\n[{{item.title}}]\n@endeach\n@if card\nG\n@endif\n@unless card\ng\n@endunless\n@if card\n({{card.title}})\n@endif\n@endlayout",
+      "values": {
+        "count": 0
+      },
+      "expect": {
+        "ok": true,
+        "html": "t c f i G ()"
+      }
+    },
+    {
+      "name": "Numeric string \"0\" for a Number is falsey",
+      "source": "@type Item\n@param title String\n@endtype\n@param text String\n@param count Number\n@param flag Boolean\n@param items Item[]\n@param card Item\n@layout\n@if text\nT\n@endif\n@unless text\nt\n@endunless\n@if count\nC\n@endif\n@unless count\nc\n@endunless\n@if flag\nF\n@endif\n@unless flag\nf\n@endunless\n@unless items\ni\n@endunless\n@each item in items\n[{{item.title}}]\n@endeach\n@if card\nG\n@endif\n@unless card\ng\n@endunless\n@if card\n({{card.title}})\n@endif\n@endlayout",
+      "values": {
+        "count": "0"
+      },
+      "expect": {
+        "ok": true,
+        "html": "t c f i G ()"
+      }
+    },
+    {
+      "name": "Number 0.5 is truthy",
+      "source": "@type Item\n@param title String\n@endtype\n@param text String\n@param count Number\n@param flag Boolean\n@param items Item[]\n@param card Item\n@layout\n@if text\nT\n@endif\n@unless text\nt\n@endunless\n@if count\nC\n@endif\n@unless count\nc\n@endunless\n@if flag\nF\n@endif\n@unless flag\nf\n@endunless\n@unless items\ni\n@endunless\n@each item in items\n[{{item.title}}]\n@endeach\n@if card\nG\n@endif\n@unless card\ng\n@endunless\n@if card\n({{card.title}})\n@endif\n@endlayout",
+      "values": {
+        "count": 0.5
+      },
+      "expect": {
+        "ok": true,
+        "html": "t C f i G ()"
+      }
+    },
+    {
+      "name": "Negative numbers are truthy",
+      "source": "@type Item\n@param title String\n@endtype\n@param text String\n@param count Number\n@param flag Boolean\n@param items Item[]\n@param card Item\n@layout\n@if text\nT\n@endif\n@unless text\nt\n@endunless\n@if count\nC\n@endif\n@unless count\nc\n@endunless\n@if flag\nF\n@endif\n@unless flag\nf\n@endunless\n@unless items\ni\n@endunless\n@each item in items\n[{{item.title}}]\n@endeach\n@if card\nG\n@endif\n@unless card\ng\n@endunless\n@if card\n({{card.title}})\n@endif\n@endlayout",
+      "values": {
+        "count": -1
+      },
+      "expect": {
+        "ok": true,
+        "html": "t C f i G ()"
+      }
+    },
+    {
+      "name": "Boolean true is truthy",
+      "source": "@type Item\n@param title String\n@endtype\n@param text String\n@param count Number\n@param flag Boolean\n@param items Item[]\n@param card Item\n@layout\n@if text\nT\n@endif\n@unless text\nt\n@endunless\n@if count\nC\n@endif\n@unless count\nc\n@endunless\n@if flag\nF\n@endif\n@unless flag\nf\n@endunless\n@unless items\ni\n@endunless\n@each item in items\n[{{item.title}}]\n@endeach\n@if card\nG\n@endif\n@unless card\ng\n@endunless\n@if card\n({{card.title}})\n@endif\n@endlayout",
+      "values": {
+        "flag": true
+      },
+      "expect": {
+        "ok": true,
+        "html": "t c F i G ()"
+      }
+    },
+    {
+      "name": "Boolean \"1\" is truthy",
+      "source": "@type Item\n@param title String\n@endtype\n@param text String\n@param count Number\n@param flag Boolean\n@param items Item[]\n@param card Item\n@layout\n@if text\nT\n@endif\n@unless text\nt\n@endunless\n@if count\nC\n@endif\n@unless count\nc\n@endunless\n@if flag\nF\n@endif\n@unless flag\nf\n@endunless\n@unless items\ni\n@endunless\n@each item in items\n[{{item.title}}]\n@endeach\n@if card\nG\n@endif\n@unless card\ng\n@endunless\n@if card\n({{card.title}})\n@endif\n@endlayout",
+      "values": {
+        "flag": "1"
+      },
+      "expect": {
+        "ok": true,
+        "html": "t c F i G ()"
+      }
+    },
+    {
+      "name": "Empty repeater is falsey",
+      "source": "@type Item\n@param title String\n@endtype\n@param text String\n@param count Number\n@param flag Boolean\n@param items Item[]\n@param card Item\n@layout\n@if text\nT\n@endif\n@unless text\nt\n@endunless\n@if count\nC\n@endif\n@unless count\nc\n@endunless\n@if flag\nF\n@endif\n@unless flag\nf\n@endunless\n@unless items\ni\n@endunless\n@each item in items\n[{{item.title}}]\n@endeach\n@if card\nG\n@endif\n@unless card\ng\n@endunless\n@if card\n({{card.title}})\n@endif\n@endlayout",
+      "values": {
+        "items": []
+      },
+      "expect": {
+        "ok": true,
+        "html": "t c f i G ()"
+      }
+    },
+    {
+      "name": "Repeater with rows is truthy and iterates",
+      "source": "@type Item\n@param title String\n@endtype\n@param text String\n@param count Number\n@param flag Boolean\n@param items Item[]\n@param card Item\n@layout\n@if text\nT\n@endif\n@unless text\nt\n@endunless\n@if count\nC\n@endif\n@unless count\nc\n@endunless\n@if flag\nF\n@endif\n@unless flag\nf\n@endunless\n@unless items\ni\n@endunless\n@each item in items\n[{{item.title}}]\n@endeach\n@if card\nG\n@endif\n@unless card\ng\n@endunless\n@if card\n({{card.title}})\n@endif\n@endlayout",
+      "values": {
+        "items": [
+          {
+            "title": "A"
+          },
+          {
+            "title": ""
+          }
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "html": "t c f [A] [] G ()"
+      }
+    },
+    {
+      "name": "Group with fields is truthy even when every field is empty",
+      "source": "@type Item\n@param title String\n@endtype\n@param text String\n@param count Number\n@param flag Boolean\n@param items Item[]\n@param card Item\n@layout\n@if text\nT\n@endif\n@unless text\nt\n@endunless\n@if count\nC\n@endif\n@unless count\nc\n@endunless\n@if flag\nF\n@endif\n@unless flag\nf\n@endunless\n@unless items\ni\n@endunless\n@each item in items\n[{{item.title}}]\n@endeach\n@if card\nG\n@endif\n@unless card\ng\n@endunless\n@if card\n({{card.title}})\n@endif\n@endlayout",
+      "values": {
+        "card": {
+          "title": ""
+        }
+      },
+      "expect": {
+        "ok": true,
+        "html": "t c f i G ()"
+      }
+    },
+    {
+      "name": "Group with a value renders its field",
+      "source": "@type Item\n@param title String\n@endtype\n@param text String\n@param count Number\n@param flag Boolean\n@param items Item[]\n@param card Item\n@layout\n@if text\nT\n@endif\n@unless text\nt\n@endunless\n@if count\nC\n@endif\n@unless count\nc\n@endunless\n@if flag\nF\n@endif\n@unless flag\nf\n@endunless\n@unless items\ni\n@endunless\n@each item in items\n[{{item.title}}]\n@endeach\n@if card\nG\n@endif\n@unless card\ng\n@endunless\n@if card\n({{card.title}})\n@endif\n@endlayout",
+      "values": {
+        "card": {
+          "title": "B"
+        }
+      },
+      "expect": {
+        "ok": true,
+        "html": "t c f i G (B)"
+      }
+    },
+    {
+      "name": "@if over a list is rejected; @each iterates lists",
+      "source": "@type Item\n@param title String\n@endtype\n@param items Item[]\n@layout\n@if items\nX\n@endif\n@endlayout",
+      "values": {},
+      "expect": {
+        "ok": false,
+        "reason": "PHP: Use @each for lists."
+      }
+    }
+  ]
+}

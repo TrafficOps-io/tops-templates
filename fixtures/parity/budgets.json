@@ -1,0 +1,691 @@
+{
+  "description": "Rendered output is capped at 8 MiB for one page and for all rendered pages of a project together, as in PHP renderPages().",
+  "cases": [
+    {
+      "name": "Two pages of 4,200,000 bytes each render individually but exceed the 8 MiB combined budget",
+      "source": "@type Row\n@param body Text\n@endtype\n@param rows Row[]\n@layout\n@each row in rows\n{{row.body}}\n@endeach\n@endlayout",
+      "pages": {
+        "about.tpl": "@layout\n@each row in rows\n{{row.body}}\n@endeach\n@endlayout"
+      },
+      "values": {
+        "rows": [
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          }
+        ]
+      },
+      "expect": {
+        "ok": false,
+        "reason": "8,400,000 > 8,388,608 bytes"
+      }
+    },
+    {
+      "name": "Two pages of 4,000,000 bytes each stay within the combined budget",
+      "source": "@type Row\n@param body Text\n@endtype\n@param rows Row[]\n@layout\n@each row in rows\n{{row.body}}\n@endeach\n@endlayout",
+      "pages": {
+        "about.tpl": "@layout\n@each row in rows\n{{row.body}}\n@endeach\n@endlayout"
+      },
+      "values": {
+        "rows": [
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          },
+          {
+            "body": {
+              "$repeat": [
+                "a",
+                100000
+              ]
+            }
+          }
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "reason": "2 x 4,000,040 bytes stay below 8,388,608"
+      }
+    }
+  ]
+}

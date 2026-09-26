@@ -2,7 +2,7 @@
 
 Shared browser and Node.js implementation used by the editor and `@trafficops/cli`. This is a private workspace package; the CLI bundles its source into its public npm artifact. It never evaluates JavaScript from a template, contacts a server, or uploads images.
 
-The authoritative language contract and PHP engine live in [`../template-dsl`](../template-dsl/). The JavaScript implementation supports the source language described below and deliberately rejects unsupported output contexts. It is not a reader for serialized PHP JSON definitions.
+The authoritative language contract and PHP engine live in [`../template-dsl`](../template-dsl/). Per [ADR-0001](../docs/adr/0001-php-is-the-reference-implementation.md) the PHP package is the reference: this runtime produces the same output or rejects more, never less, and its numeric limits are the PHP values. The shared cases in [`../fixtures/parity`](../fixtures/parity/) run against both implementations (`test/parity-fixtures.test.js` and `template-dsl/tests/ParityFixturesTest.php`). It is not a reader for serialized PHP JSON definitions.
 
 ```js
 import {
@@ -42,15 +42,32 @@ Definitions expose `version`, `name`, `description`, `sections`, `fields`, `html
 | All built-in author types | Supported. Image settings are safe relative project paths. No image upload or crop operation is performed. |
 | `@type`, groups and custom `Type[]` repeaters | Supported with bounded defaults, nesting, cardinality and validation. |
 | `@block`, `@render` | Supported with typed arguments, lexical scope and recursion checks. |
-| `@layout`, `@if`, `@each` | Supported. A string `"0"` is falsey, as in PHP. |
-| `@include` | Supported; paths are relative to the including file, cannot traverse upward and must end in `.tpl` or `.tpl.html`. |
+| `@layout`, `@if`, `@unless`, `@each` | Supported with PHP truthiness: `""` and `"0"` are the only falsey strings, `0` and empty lists are falsey, a group with fields is truthy. `@if` over a list is rejected; use `@each`. |
+| `@include` | Supported; paths are relative to the including file, cannot traverse upward and must end in `.tpl` or `.tpl.html`. At most 10 nested include levels, as in PHP. |
 | `{{path}}`, sections, inverse sections, parent/root paths | Supported. Scalar values are escaped and never rescanned. |
 | `{{& path}}` | Supported only for Markdown/Wysiwyg fields, sanitized with the PHP engine's tag/attribute allowlist. |
 | `{query.name}`, `{locale}`, `{actions.name}` | Supported with explicit bounded context, safe HTML placement and encoded URL components. Unknown request-token families are rejected. |
 | Named JSON partials / `{{>partial}}` | Not supported; source authors should use typed blocks and includes. |
 | Application field aliases and custom dialects | Not supported. Use the PHP engine for host-specific behavior. |
 
-The portable input contract uses actual JSON numbers and booleans. It intentionally rejects numeric strings and `0`/`1` boolean coercions accepted by some PHP integrations. Missing defaults, required values, numeric constraints, select values and repeater bounds are validated. `Image` values must be relative file paths. Rich text uses Marked with GFM disabled and raw Markdown HTML stripped, followed by `sanitize-html`; CommonMark edge cases and sanitizer serialization can differ from PHP. Do not depend on byte-identical HTML formatting across implementations.
+## Value contract
+
+Values are validated exactly as the PHP engine validates them:
+
+| Rule | Behavior (PHP and JavaScript) |
+| --- | --- |
+| Unset optional field | Empty (`""`); `Boolean` is `false`, a repeater is `[]` unless `min_items` requires rows. A declared default applies. |
+| Unknown keys | Dropped with a warning (`validateValues(..., {warnings})`); never an error. Type violations and missing required values throw. |
+| `Boolean` | Accepts `true`/`false`, `0`/`1` and `"0"`/`"1"`; anything else, including `null`, is rejected. |
+| `Number`, `Range` | Accepts JSON numbers and PHP numeric strings (`"20.5"`, `" 20"`, `"1e1"`, `"5."`); stores a number. `min`/`max`/`step` apply with PHP's step tolerance. An optional field accepts `""` or `null` as empty. |
+| `Select` | Accepts an option key or a number whose string form is a key; `""` is valid for an optional field. |
+| Text types | Strings only; `null` becomes `""`. At most 10,000 bytes (`String`, `Color`, `Url`, `Image`, `Email`, `Select`) or 100,000 bytes (`Text`, `Wysiwyg`, `Markdown`) of UTF-8; tab, LF and CR are allowed, other control characters are rejected. A required field rejects PHP-blank whitespace. |
+| `Url` | Absolute HTTP(S) URL up to 2048 bytes without credentials; relative paths are rejected. Percent-encoding is decoded up to five times and must not leave controls, spaces, `//` or `%`. |
+| `Image` | Same HTTP(S) rule, or a relative path without a leading slash, `:`, `?`, `#`, empty, `.` or `..` segments. Query strings and fragments are rejected. |
+| `Email` | Dot-atom local part and a dotted DNS domain (`a@b.c` passes, `user@localhost` does not). |
+| Rich text | Stored as authored; sanitized at render. Every image source must satisfy the `Image` rule. |
+
+Where JavaScript cannot reproduce a PHP rule exactly it is stricter: `Image` paths additionally go through `safePath` (no `%`, hidden segments or executable extensions, at most 255 bytes); `Email` rejects quoted local parts and IP-literal domains; `Url` requires printable ASCII and DNS-shaped host labels; lone surrogates are rejected. Rich text uses Marked with GFM disabled and raw Markdown HTML stripped, followed by `sanitize-html`; CommonMark edge cases and sanitizer serialization can differ from PHP. Do not depend on byte-identical HTML formatting across implementations.
 
 Page discovery occurs after include expansion. Included files are fragments, even if they supply a complete layout; their including entry determines the output name. Source `.tpl` and `.tpl.html` suffixes become `.html`. Shared declarations across pages must agree. Duplicate paths ignoring case and file/directory output collisions are rejected. Hidden paths, absolute paths, traversal, backslashes and URL-like paths are disallowed.
 
@@ -62,6 +79,6 @@ Templates themselves are author-controlled HTML; static scripts or external asse
 
 `context` accepts only `{query: {...}, locale: 'en-GB', actions: {...}}`. Actions must be HTTPS or a safe absolute local path and fill an entire quoted `href`, `action` or `formaction`. Query/locale values in URLs need an author-controlled host or path prefix. Empty/missing runtime values render as empty text.
 
-Limits include 2 MiB expanded source, 20,000 expanded lines, 12 include levels, 100 pages, 200 fields, six custom-type nesting levels, 50 repeater items, 10,000 normalized/default values, 100,000 render operations, 8 MiB HTML per page, 500 files and 32 MiB per imported/generated project. Rich text is limited to 100,000 bytes, sanitized nesting to 32, and Markdown delimiters to 1,000 per line.
+Limits follow the PHP reference: 2 MiB expanded source, 20,000 expanded lines, 10 include levels, 100 pages, 200 fields, six custom-type nesting levels, 50 repeater items, 10,000 normalized/default values, 100,000 render operations, and 8 MiB of rendered HTML both per page and for all pages of a project together. Additionally, a project accepts at most 500 files and 32 MiB of input or output including assets. Rich text is limited to 100,000 bytes, sanitized nesting to 32, and Markdown delimiters to 1,000 per line.
 
 Run `npm test --workspace=@trafficops/template-runtime` from the root. PHP differential fixtures run when the root Composer autoloader and PHP are available; CI also runs them explicitly after installing Composer dependencies.

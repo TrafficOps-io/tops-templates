@@ -1,0 +1,138 @@
+{
+  "description": "Text limits and characters follow PHP: 10,000 bytes for single-line types, 100,000 bytes for Text/Wysiwyg/Markdown; tab and newline are allowed, other control characters are rejected.",
+  "cases": [
+    {
+      "name": "String accepts exactly 10,000 bytes",
+      "source": "@param name String\n@param body Text\n@param rich Markdown\n@layout\n[{{name}}|{{body}}|{{& rich}}]\n@endlayout",
+      "values": {
+        "name": {
+          "$repeat": [
+            "a",
+            10000
+          ]
+        }
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "String rejects 10,001 bytes",
+      "source": "@param name String\n@param body Text\n@param rich Markdown\n@layout\n[{{name}}|{{body}}|{{& rich}}]\n@endlayout",
+      "values": {
+        "name": {
+          "$repeat": [
+            "a",
+            10001
+          ]
+        }
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Byte length counts UTF-8 bytes, not characters",
+      "source": "@param name String\n@param body Text\n@param rich Markdown\n@layout\n[{{name}}|{{body}}|{{& rich}}]\n@endlayout",
+      "values": {
+        "name": {
+          "$repeat": [
+            "é",
+            5001
+          ]
+        }
+      },
+      "expect": {
+        "ok": false,
+        "reason": "5001 two-byte characters exceed 10,000 bytes"
+      }
+    },
+    {
+      "name": "Text accepts exactly 100,000 bytes",
+      "source": "@param name String\n@param body Text\n@param rich Markdown\n@layout\n[{{name}}|{{body}}|{{& rich}}]\n@endlayout",
+      "values": {
+        "body": {
+          "$repeat": [
+            "b",
+            100000
+          ]
+        }
+      },
+      "expect": {
+        "ok": true
+      }
+    },
+    {
+      "name": "Text rejects 100,001 bytes",
+      "source": "@param name String\n@param body Text\n@param rich Markdown\n@layout\n[{{name}}|{{body}}|{{& rich}}]\n@endlayout",
+      "values": {
+        "body": {
+          "$repeat": [
+            "b",
+            100001
+          ]
+        }
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Markdown rejects 100,001 bytes",
+      "source": "@param name String\n@param body Text\n@param rich Markdown\n@layout\n[{{name}}|{{body}}|{{& rich}}]\n@endlayout",
+      "values": {
+        "rich": {
+          "$repeat": [
+            "c",
+            100001
+          ]
+        }
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Tabs and newlines are allowed in text",
+      "source": "@param name String\n@param body Text\n@param rich Markdown\n@layout\n[{{name}}|{{body}}|{{& rich}}]\n@endlayout",
+      "values": {
+        "name": "tab\there",
+        "body": "line\nbreak"
+      },
+      "expect": {
+        "ok": true,
+        "html": "[tab\there|line\nbreak|]"
+      }
+    },
+    {
+      "name": "DEL is rejected",
+      "source": "@param name String\n@param body Text\n@param rich Markdown\n@layout\n[{{name}}|{{body}}|{{& rich}}]\n@endlayout",
+      "values": {
+        "name": "del"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Other C0 control characters are rejected",
+      "source": "@param name String\n@param body Text\n@param rich Markdown\n@layout\n[{{name}}|{{body}}|{{& rich}}]\n@endlayout",
+      "values": {
+        "body": "bell\u0007"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Escape character is rejected",
+      "source": "@param name String\n@param body Text\n@param rich Markdown\n@layout\n[{{name}}|{{body}}|{{& rich}}]\n@endlayout",
+      "values": {
+        "name": "esc\u001b[0m"
+      },
+      "expect": {
+        "ok": false
+      }
+    }
+  ]
+}

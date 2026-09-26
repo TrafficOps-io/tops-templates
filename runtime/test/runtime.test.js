@@ -112,7 +112,9 @@ test('types, fields, values and bounds are validated with actionable errors', ()
   assert.throws(() => validateValues(definition, {cards:[{title:'x'}], constructor:'x'}), /Unsafe/);
   assert.throws(() => validateValues(definition, {cards:[]}), /needs 1–3 items/);
   assert.throws(() => validateValues(definition, {cards:[{title:'x'}], destination:'javascript:alert(1)'}), /HTTP\(S\)/);
-  assert.throws(() => validateValues(definition, {cards:[{title:'x'}], image:'../secret.png'}), /Unsafe project path/);
+  assert.throws(() => validateValues(definition, {cards:[{title:'x'}], image:'../secret.png'}), /safe relative image path/);
+  assert.throws(() => validateValues(definition, {cards:[{title:'x'}], image:'assets/hero.svg?v=2'}), /safe relative image path/);
+  assert.throws(() => validateValues(definition, {cards:[{title:'x'}], destination:'relative/page.html'}), /HTTP\(S\) URL/);
 });
 
 test('unknown value keys are dropped with a warning while type violations still fail', () => {
