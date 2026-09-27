@@ -42,4 +42,4 @@ The following are host-application responsibilities unless the package violates 
 - choosing whether authors may use a trusted executable dialect;
 - executing, sandboxing or deploying output produced by such a dialect.
 
-Read [the threat model](docs/threat-model.md) for the complete boundary.
+Read [the threat model](../docs/threat-model.md) for the complete boundary.
