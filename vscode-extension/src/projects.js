@@ -50,14 +50,8 @@ class ProjectLoader {
         return this.vscode.Uri.joinPath(root, relative.replace(/\/$/, ''));
     }
 
-    /** The configured id as written; the analyzer reports an unknown id and falls back to safe-html-v1. */
-    _requestedDialect(document, configuration = this.vscode.workspace.getConfiguration('fastLandingsTemplates', document.uri)) {
-        return configuration.get('dialect', this.language.DEFAULT_DIALECT || 'safe-html-v1');
-    }
-
     _dialect(document, configuration = this.vscode.workspace.getConfiguration('fastLandingsTemplates', document.uri)) {
-        const value = this._requestedDialect(document, configuration);
-        return this.language.normalizeDialect ? this.language.normalizeDialect(value) : value;
+        return this.language.normalizeDialect(this.language.requestedDialect(configuration));
     }
 
     _context(document, token, dialect = this.language.DEFAULT_DIALECT || 'safe-html-v1', requested = dialect) {
@@ -209,7 +203,8 @@ class ProjectLoader {
 
     async load(document, cancellationToken) {
         const configuration = this.vscode.workspace.getConfiguration('fastLandingsTemplates', document.uri);
-        const requested = this._requestedDialect(document, configuration);
+        // The configured id as written; the analyzer reports an unknown id and falls back to safe-html-v1.
+        const requested = this.language.requestedDialect(configuration);
         const dialect = this._dialect(document, configuration);
         const context = this._context(document, cancellationToken, dialect, requested);
         const graph = await this._selectGraph(document, context);

@@ -92,8 +92,13 @@ function normalizeDialect(value) {
   return typeof value === 'string' && Object.hasOwn(DIALECT_PROFILES, value) ? value : DEFAULT_DIALECT;
 }
 
+/**
+ * The dialect id a host asked for, as written: from a string, an options object ({ dialect }) or an
+ * editor configuration with get('dialect'). undefined means "not selected"; normalizeDialect() resolves it.
+ */
 function requestedDialect(options) {
-  return typeof options === 'string' ? options : options?.dialect;
+  if (typeof options === 'string') return options;
+  return typeof options?.get === 'function' ? options.get('dialect') : options?.dialect;
 }
 
 function dialectFrom(options) {
@@ -856,5 +861,5 @@ function getSymbols(project, uri) {
 
 module.exports = {
   BUILTIN_TYPES, DIALECTS, DEFAULT_DIALECT, DIALECT_PROFILES, RUNTIME_SOURCES, SAFE_RUNTIME_SOURCES, RUNTIME_TYPES, COMMON_HEADERS,
-  normalizeDialect, phpSpans, parseDocument, buildProject, getRuntimeMacros, getCompletions, getDefinition, getHover, getSignatureHelp, getSymbols,
+  normalizeDialect, requestedDialect, phpSpans, parseDocument, buildProject, getRuntimeMacros, getCompletions, getDefinition, getHover, getSignatureHelp, getSymbols,
 };

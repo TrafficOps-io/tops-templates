@@ -9,9 +9,7 @@ const LANGUAGE_ID = 'fast-landings-tpl';
 const selector = { language: LANGUAGE_ID };
 
 // The configured id as written; parseDocument falls back to safe-html-v1 and reports an unknown id.
-function requestedDialect(document) {
-  return vscode.workspace.getConfiguration('fastLandingsTemplates', document.uri).get('dialect', language.DEFAULT_DIALECT);
-}
+const requestedDialect = document => language.requestedDialect(vscode.workspace.getConfiguration('fastLandingsTemplates', document.uri));
 
 function dialectFor(document) {
   return language.normalizeDialect(requestedDialect(document));

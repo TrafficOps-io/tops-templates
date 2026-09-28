@@ -8,7 +8,7 @@ const CSS = new Set(['media', 'supports', 'font-face', 'keyframes', '-webkit-key
 const encoder = new TextEncoder();
 const programs = new WeakMap();
 // Numeric limits follow the PHP reference implementation (ADR-0001). outputBytes bounds one page and all rendered pages of a project.
-export const LIMITS = Object.freeze({sourceBytes: 2 * 1024 * 1024, projectBytes: 32 * 1024 * 1024, files: 500, pages: 100, fields: 200, depth: 6, includeDepth: 10, items: 50, operations: 100000, outputBytes: 8 * 1024 * 1024, textBytes: 10000, longTextBytes: 100000});
+export const LIMITS = Object.freeze({sourceBytes: 2 * 1024 * 1024, projectBytes: 32 * 1024 * 1024, files: 500, pages: 100, fields: 200, depth: 6, includeDepth: 10, items: 50, operations: 100000, outputBytes: 8 * 1024 * 1024, textBytes: 10000, longTextBytes: 100000, urlBytes: 2048, urlDecodePasses: 5, emailLength: 254, emailLocalLength: 64});
 export class TemplateError extends Error { constructor(message) { super(message); this.name = 'TemplateError'; } }
 const fail = (message) => { throw new TemplateError(message); };
 const bytes = (value) => typeof value === 'string' ? encoder.encode(value).byteLength : value.byteLength;
@@ -224,23 +224,30 @@ const PHP_BLANK = /^[ \t\n\r\x0B]*$/;
 const EMAIL_LOCAL = /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*$/;
 const DNS_LABEL = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
 /** PHP truthiness: "" and "0" are the only falsey strings; empty lists and groups are falsey. */
-export function phpTruthy(value) {
+function phpTruthy(value) {
   if (Array.isArray(value)) return value.length > 0;
   if (isObject(value)) return Object.keys(value).length > 0;
   return typeof value === 'string' ? value !== '' && value !== '0' : Boolean(value);
 }
 const rawurldecode = (value) => value.replace(/%([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+// Shared by value validation and rendered URL attributes: controls, spaces, backslashes and protocol-relative URLs.
+const unsafeUrlText = (value) => /[\x00-\x20\x7f\\]/.test(value) || value.startsWith('//');
+const isHttpUrl = (value) => /^https?:\/\//i.test(value);
+/** A parsed absolute HTTP(S) URL without credentials, or null. */
+function httpUrl(value) {
+  let url; try { url = new URL(value); } catch { return null; }
+  return url.username || url.password ? null : url;
+}
 function safeValueUrl(value, allowRelative) {
-  if (bytes(value) > 2048) return false;
-  // Decode repeatedly so encoded controls, schemes and traversal cannot bypass validation (PHP decodes up to five times).
+  if (bytes(value) > LIMITS.urlBytes) return false;
+  // Decode repeatedly so encoded controls, schemes and traversal cannot bypass validation (as PHP does).
   let decoded = value;
-  for (let i = 0; i < 5; i++) { const next = rawurldecode(decoded); if (next === decoded) break; decoded = next; }
-  if (/[\x00-\x20\x7f\\]/.test(decoded) || decoded.startsWith('//') || decoded.includes('%')) return false;
-  if (/^https?:\/\//i.test(value)) {
+  for (let i = 0; i < LIMITS.urlDecodePasses; i++) { const next = rawurldecode(decoded); if (next === decoded) break; decoded = next; }
+  if (unsafeUrlText(decoded) || decoded.includes('%')) return false;
+  if (isHttpUrl(value)) {
     // At least as strict as PHP's FILTER_VALIDATE_URL: printable ASCII, a DNS or IP-literal host, no credentials.
-    if (/[^\x21-\x7e]/.test(value)) return false;
-    let url; try { url = new URL(value); } catch { return false; }
-    if (url.username || url.password || !url.hostname) return false;
+    const url = /[^\x21-\x7e]/.test(value) ? null : httpUrl(value);
+    if (!url?.hostname) return false;
     return /^\[[0-9A-Fa-f:.]+\]$/.test(url.hostname) || url.hostname.split('.').every((label) => DNS_LABEL.test(label));
   }
   if (!allowRelative || decoded.startsWith('/') || decoded.includes(':') || decoded.includes('?') || decoded.includes('#')) return false;
@@ -249,14 +256,14 @@ function safeValueUrl(value, allowRelative) {
 function safeEmail(value) {
   // A subset of PHP's FILTER_VALIDATE_EMAIL: dot-atom local part and a dotted DNS domain; quoted local parts and IP literals are rejected.
   const at = value.lastIndexOf('@');
-  if (at < 1 || value.length > 254) return false;
+  if (at < 1 || value.length > LIMITS.emailLength) return false;
   const local = value.slice(0, at), labels = value.slice(at + 1).split('.');
-  return local.length <= 64 && EMAIL_LOCAL.test(local) && labels.length >= 2 && labels.every((label) => DNS_LABEL.test(label));
+  return local.length <= LIMITS.emailLocalLength && EMAIL_LOCAL.test(local) && labels.length >= 2 && labels.every((label) => DNS_LABEL.test(label));
 }
 function safeUrl(value, action = false) {
   if (!value) return !action;
-  if (/[\x00-\x20\x7f\\]/.test(value) || value.startsWith('//')) return false;
-  if (/^https?:\/\//i.test(value)) { try { const url = new URL(value); return (!action || url.protocol === 'https:') && !url.username && !url.password; } catch { return false; } }
+  if (unsafeUrlText(value)) return false;
+  if (isHttpUrl(value)) { const url = httpUrl(value); return !!url && (!action || url.protocol === 'https:'); }
   if (action) return value.startsWith('/') && !value.startsWith('//');
   return !/^[^/?#]*:/.test(value) && !value.startsWith('//');
 }

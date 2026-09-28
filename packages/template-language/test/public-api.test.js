@@ -49,3 +49,11 @@ test('an unknown dialect is a host-configuration warning reported once per docum
   const safeOnly = language.parseDocument('index.tpl', '<?php echo 1; ?>', { dialect: 'legacy-v0' }).diagnostics;
   assert.equal(safeOnly.find(issue => /PHP source is unavailable/.test(issue.message)).severity, undefined, 'template errors keep the default error severity');
 });
+
+test('requestedDialect reads the id as written from a string, options or an editor configuration', () => {
+  assert.equal(language.requestedDialect('fast-landings-v1'), 'fast-landings-v1');
+  assert.equal(language.requestedDialect({ dialect: 'legacy-v0' }), 'legacy-v0');
+  assert.equal(language.requestedDialect({ get: name => (name === 'dialect' ? 'safe-html-v1' : undefined) }), 'safe-html-v1');
+  assert.equal(language.requestedDialect(undefined), undefined);
+  assert.equal(language.normalizeDialect(language.requestedDialect({ get: () => undefined })), 'safe-html-v1');
+});
