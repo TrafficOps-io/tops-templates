@@ -55,7 +55,7 @@ Low-level compiler and safety helpers are exposed for package and dialect integr
 
 ## Language and definition
 
-The source language supports `@template`, `@previewData`, `@section`, `@param`, `@type`, typed `@block`/`@render`, `@layout`, `@each`, `@if`, `@unless` and `@include`. Built-in author types cover text, formatted text, numeric, boolean, image, URL, email, select, group and repeater settings.
+The source language supports `@template`, `@previewData`, `@section`, `@param`, `@type`, typed `@block`/`@render`, `@layout`, `@each`, `@if`, `@unless` and `@include`. Built-in author types cover text, formatted text, numeric, boolean, image, URL, email, select, group and repeater fields.
 
 The parser produces a version 1 definition containing normalized settings, HTML, optional pages and partials, block annotations, preview metadata and author-type annotations. The runtime validator is authoritative; the bundled [JSON Schema](resources/schema/template-definition-v1.schema.json) is a structural interoperability aid.
 

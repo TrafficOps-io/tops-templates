@@ -197,7 +197,7 @@ A submitted form can be checked in `success.tpl.php`:
 
 Request types are `String`, `Number`, `Integer` and `Boolean`. `required` demands a value; `min` and `max` bound the string length in Unicode characters or the numeric value. `length` sets an exact string length; the historical spelling `lenght` is accepted as an alias. In a string `mask`, each dot matches one digit and every other character must match literally. Header names are case-insensitive. The optional local `fallback` redirects an invalid request before the page renders; without it the server answers `422 Invalid request.`.
 
-Fields inside `@validation` belong to the HTTP request: they do not create landing settings. Rules and completions apply to their own page and its explicitly included files; neighbouring pages do not inherit them. Tokens are also allowed inside landing values, for example `Thanks, {body.name}!`; such a string is substituted when a visitor requests the page.
+Fields inside `@validation` belong to the HTTP request: they do not create landing fields. Rules and completions apply to their own page and its explicitly included files; neighbouring pages do not inherit them. Tokens are also allowed inside a landing's values, for example `Thanks, {body.name}!`; such a string is substituted when a visitor requests the page.
 
 Completion after `{` offers the sources, and after a dot the declared fields, nested paths, common headers and `*`. Go to Definition, hover with type and rules, Outline and folding of `@validation` are supported. Snippets: `tpl-validation` and `tpl-macro`. Examples live in `examples/runtime/`.
 
@@ -224,7 +224,7 @@ For format on save, add to your VS Code settings:
 }
 ```
 
-`@param` and the other TPL declarations stay on one line: a line break would change their meaning to the compiler. Quoted values, interpolations and the contents of `pre`/`textarea` are preserved. If a fragment is still incomplete and cannot be parsed, the formatter keeps its original text.
+`@param` and the other TPL declarations stay on one line: a line break would change their meaning to the compiler. Quoted values, interpolations and the contents of `pre`/`textarea` are preserved. If a passage is still incomplete and cannot be parsed, the formatter keeps its original text.
 
 For an element whose text formatting is special, for example `white-space` set through an external CSS class, put `<!-- prettier-ignore -->` before the opening tag and its contents are left as they are. `pre`, `textarea` and elements with an explicit inline `white-space: pre`, `pre-wrap`, `pre-line` or `break-spaces` are protected automatically.
 
@@ -232,7 +232,7 @@ Prettier and the required HTML/CSS/JavaScript parsers ship inside the VSIX. Neit
 
 ## Included files
 
-`@include "blocks/comment.tpl"` is always resolved relative to the template package root, also from nested fragments. The root is the nearest `template.html`, `template.txt`, `template.tpl`, `index.tpl` or `index.tpl.html` (and `index.tpl.php`, `template.tpl.php` in the trusted dialect) that includes the current file. The search is limited to the open workspace; a file outside the workspace uses its own folder.
+`@include "blocks/comment.tpl"` is always resolved relative to the template package root, also from nested includes. The root is the nearest `template.html`, `template.txt`, `template.tpl`, `index.tpl` or `index.tpl.html` (and `index.tpl.php`, `template.tpl.php` in the trusted dialect) that includes the current file. The search is limited to the open workspace; a file outside the workspace uses its own folder.
 
 Declarations of a neighbouring template that is not connected through `@include` do not leak into completions. A missing or unfinished include does not block editing of the other files. Sources are read as text and never executed.
 

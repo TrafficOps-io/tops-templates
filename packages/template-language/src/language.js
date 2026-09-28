@@ -15,7 +15,7 @@ const DIALECTS = Object.freeze({
   SAFE_HTML_V1: 'safe-html-v1',
   FAST_LANDINGS_V1: 'fast-landings-v1',
 });
-// An unnamed or unknown dialect means the safe profile; only a host may opt into the trusted one.
+// An unnamed or unknown dialect means the safe dialect; only a host may opt into the trusted one.
 const DEFAULT_DIALECT = DIALECTS.SAFE_HTML_V1;
 const RUNTIME_SOURCES = Object.freeze(['query', 'headers', 'body']);
 const SAFE_RUNTIME_SOURCES = Object.freeze(['query', 'locale', 'actions']);
@@ -100,7 +100,7 @@ function dialectFrom(options) {
   return normalizeDialect(requestedDialect(options));
 }
 
-/** A dialect id the host passed but no profile knows; undefined and null mean "not selected". */
+/** A dialect id the host passed that names no known dialect; undefined and null mean "not selected". */
 function unknownDialect(options) {
   const requested = requestedDialect(options);
   return requested !== undefined && requested !== null && normalizeDialect(requested) !== requested ? requested : null;
