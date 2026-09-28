@@ -27,7 +27,7 @@ function activate(context) {
     if (document.languageId !== LANGUAGE_ID) return;
     const parsed = language.parseDocument(document.uri.toString(), document.getText(), { dialect: requestedDialect(document) });
     previewDiagnostics.set(document.uri, parsed.diagnostics.map(issue => {
-      const diagnostic = new vscode.Diagnostic(new vscode.Range(document.positionAt(issue.start), document.positionAt(issue.end)), issue.message, vscode.DiagnosticSeverity.Error);
+      const diagnostic = new vscode.Diagnostic(new vscode.Range(document.positionAt(issue.start), document.positionAt(issue.end)), issue.message, issue.severity === 'warning' ? vscode.DiagnosticSeverity.Warning : vscode.DiagnosticSeverity.Error);
       diagnostic.source = 'TrafficOps Templates';
       return diagnostic;
     }));

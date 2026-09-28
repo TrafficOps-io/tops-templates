@@ -79,7 +79,7 @@ Directives sit on their own lines. Language version 1 has `@if … @endif` and `
 
 ## Dialects
 
-The host application or the workspace selects the dialect through `fastLandingsTemplates.dialect`. Template text can never raise its own capabilities or switch the dialect. The default, and the fallback for an unknown identifier, is `safe-html-v1`; an unknown identifier is reported as a diagnostic on the first line of each document. `fast-landings-v1` is only for an external application that ships a trusted executable dialect.
+The host application or the workspace selects the dialect through `fastLandingsTemplates.dialect`. Template text can never raise its own capabilities or switch the dialect. The default, and the fallback for an unknown identifier, is `safe-html-v1`; an unknown identifier is reported as a warning on the first line of each document. `fast-landings-v1` is only for an external application that ships a trusted executable dialect.
 
 - `safe-html-v1` is the non-executable shared dialect. Only the runtime tokens `{query.name}`, `{locale}` and `{actions.name}` are available. `@validation`, `headers`, `body`, wildcard tokens, PHP and `.tpl.php` sources are diagnosed as unavailable.
 - `fast-landings-v1` is the trusted Fast Landings dialect: PHP blocks, `@validation` and `{query…}`, `{headers…}`, `{body…}` including nested paths and `*`.

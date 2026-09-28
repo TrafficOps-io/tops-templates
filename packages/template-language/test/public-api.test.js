@@ -38,3 +38,14 @@ test('an unknown or missing dialect id falls back to safe-html-v1 and is reporte
   assert.deepEqual(document.diagnostics.map(issue => issue.message), ['Unknown dialect "legacy-v0"; safe-html-v1 applies. Hosts select safe-html-v1 or fast-landings-v1.']);
   assert.deepEqual(language.parseDocument('index.tpl', '@layout\n<p>{locale}</p>\n@endlayout').diagnostics, []);
 });
+
+test('an unknown dialect is a host-configuration warning reported once per document, not a template error', () => {
+  const project = language.buildProject([{ uri: 'a.tpl', text: '@layout\nA\n@endlayout' }, { uri: 'b.tpl', text: '@layout\nB\n@endlayout' }], { dialect: 'legacy-v0' });
+  for (const uri of ['a.tpl', 'b.tpl']) {
+    const unknown = project.documents.get(uri).diagnostics.filter(issue => /Unknown dialect/.test(issue.message));
+    assert.equal(unknown.length, 1, uri);
+    assert.equal(unknown[0].severity, 'warning');
+  }
+  const safeOnly = language.parseDocument('index.tpl', '<?php echo 1; ?>', { dialect: 'legacy-v0' }).diagnostics;
+  assert.equal(safeOnly.find(issue => /PHP source is unavailable/.test(issue.message)).severity, undefined, 'template errors keep the default error severity');
+});

@@ -205,9 +205,10 @@ function parseDocument(uri, text, options = {}) {
   const dialect = dialectFrom(options);
   const profile = profileFor(dialect);
   const document = { uri, text, dialect, lines: linesOf(text), includes: [], types: [], params: [], blocks: [], sections: [], scopes: [], references: [], previewBlocks: [], validationBlocks: [], runtimeParams: [], phpSpans: phpSpans(text), metadata: {}, diagnostics: [] };
+  // A host-configuration problem, not a template error: a warning, once per document. Other diagnostics omit severity (error).
   const unknown = unknownDialect(options);
   if (unknown !== null) {
-    document.diagnostics.push({ start: 0, end: document.lines[0]?.text.length || 0, message: `Unknown dialect ${JSON.stringify(String(unknown))}; ${DEFAULT_DIALECT} applies. Hosts select ${Object.keys(DIALECT_PROFILES).join(' or ')}.` });
+    document.diagnostics.push({ start: 0, end: document.lines[0]?.text.length || 0, message: `Unknown dialect ${JSON.stringify(String(unknown))}; ${DEFAULT_DIALECT} applies. Hosts select ${Object.keys(DIALECT_PROFILES).join(' or ')}.`, severity: 'warning' });
   }
   let type = null;
   let section = null;
