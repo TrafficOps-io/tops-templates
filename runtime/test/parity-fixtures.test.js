@@ -32,7 +32,8 @@ function run(fixture) {
 for (const file of readdirSync(directory).filter((name) => name.endsWith('.json')).sort()) {
   const suite = JSON.parse(readFileSync(directory + file, 'utf8'));
   for (const fixture of suite.cases) {
-    test(`${file.replace(/\.json$/, '')}: ${fixture.name}`, () => {
+    const skip = fixture.residual ? `Known residual divergence (${fixture.residual}); see fixtures/parity/README.md.` : false;
+    test(`${file.replace(/\.json$/, '')}: ${fixture.name}`, {skip}, () => {
       const expect = fixture.expect;
       if (!expect.ok) { assert.throws(() => run(fixture), undefined, 'Expected the case to be rejected'); return; }
       const actual = run(fixture);

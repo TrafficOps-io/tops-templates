@@ -67,6 +67,29 @@ Values are validated exactly as the PHP engine validates them:
 | `Email` | Dot-atom local part and a dotted DNS domain (`a@b.c` passes, `user@localhost` does not). |
 | Rich text | Stored as authored; sanitized at render. Every image source must satisfy the `Image` rule. |
 
+### Converged with PHP
+
+These former divergences now behave as in the PHP reference and are pinned by the parity fixtures:
+
+1. `Boolean`/`Number` coercion of `"1"`, `"0"` and numeric strings;
+2. text limits of 10,000 and 100,000 bytes;
+3. `Url` rejects relative paths;
+4. image paths reject `?` and `#` instead of stripping them;
+5. PHP truthiness (`"0"` falsey, a group with fields truthy);
+6. include depth 10;
+7. 8 MiB rendered output per page and for all pages together;
+8. an unset optional `Number` stays `""`;
+9. `@if` over a list is rejected ("Use @each for lists.").
+
+### Known residual divergences
+
+Two differences cannot be removed on the JavaScript side because JSON parsing and number formatting erase information PHP keeps. The parity fixtures mark them with `"residual"` and both runners skip them with a message, so they stay visible:
+
+| Residual id | PHP | JavaScript | Why it remains |
+| --- | --- | --- | --- |
+| `json-float-boolean` | A JSON `1.0` or `0.0` for a `Boolean` is a float and is rejected. | Accepted as `true`/`false`. | `JSON.parse` returns the same number for `1` and `1.0`, so the runtime cannot tell them apart. This is the one known case where JavaScript is looser; hosts that need the PHP rule must validate with PHP. |
+| `float-formatting` | Numeric strings such as `"1e1"` or `"5."` normalize to floats (`10.0`, stored as `10.0`), and extreme values render in PHP notation (`1.0E+25`). | Normalize to `10`/`5` and render as `1e+25`. | JavaScript has a single number type and its own shortest round-trip formatting; the rendered HTML matches for ordinary values. |
+
 Where JavaScript cannot reproduce a PHP rule exactly it is stricter: `Image` paths additionally go through `safePath` (no `%`, hidden segments or executable extensions, at most 255 bytes); `Email` rejects quoted local parts and IP-literal domains; `Url` requires printable ASCII and DNS-shaped host labels; lone surrogates are rejected. Rich text uses Marked with GFM disabled and raw Markdown HTML stripped, followed by `sanitize-html`; CommonMark edge cases and sanitizer serialization can differ from PHP. Do not depend on byte-identical HTML formatting across implementations.
 
 Page discovery occurs after include expansion. Included files are fragments, even if they supply a complete layout; their including entry determines the output name. Source `.tpl` and `.tpl.html` suffixes become `.html`. Shared declarations across pages must agree. Duplicate paths ignoring case and file/directory output collisions are rejected. Hidden paths, absolute paths, traversal, backslashes and URL-like paths are disallowed.
