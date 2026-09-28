@@ -134,9 +134,9 @@ test('unknown value keys are dropped with a warning while type violations still 
   const warnings = [];
   assert.deepEqual(validateValues(definition, values, {warnings}), {title:'Kept', card:{tint:'#fff'}, comments:[{email:'a@example.com'}, {email:'b@example.com'}]});
   assert.deepEqual(warnings, [
-    {path:'retired', message:'This setting is not defined in the template.'},
-    {path:'card.old', message:'This setting is not defined in the template.'},
-    {path:'comments[1].legacy', message:'This setting is not defined in the template.'},
+    {path:'retired', message:'This field is not defined in the template.'},
+    {path:'card.old', message:'This field is not defined in the template.'},
+    {path:'comments.1.legacy', message:'This field is not defined in the template.'},
   ]);
   assert.deepEqual(validateValues(definition, values), {title:'Kept', card:{tint:'#fff'}, comments:[{email:'a@example.com'}, {email:'b@example.com'}]});
   assert.equal(renderTemplate(definition, values).trim(), 'Kept');

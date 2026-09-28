@@ -265,7 +265,8 @@ function normalizeValues(fields, data, path = '', budget = {value:0}, allowMissi
   for (const key of Object.keys(data)) {
     if (FORBIDDEN.has(key)) fail(`Unsafe value key: ${path}${key}`);
     // A key without a field (for example one the template retired) is dropped, not fatal (matches PHP).
-    if (!fields.some((field) => field.name === key)) warnings.push({path:`${path}${key}`, message:'This setting is not defined in the template.'});
+    // Warning paths are dotted and relative to the values root (comments.1.legacy), as in PHP.
+    if (!fields.some((field) => field.name === key)) warnings.push({path:`${path}${key}`.replace(/\[(\d+)\]/g, '.$1'), message:'This field is not defined in the template.'});
   }
   return Object.fromEntries(fields.map((field) => {
     if (++budget.value > 10000) fail('Too many setting values');

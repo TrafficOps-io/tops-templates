@@ -83,7 +83,7 @@ class ParityFixturesTest extends TestCase
         return [
             'defaults' => $engine->defaults($definition),
             'values' => $normalized,
-            'warnings' => array_map(fn (string $path) => substr($path, strlen('values.')), array_keys($warnings)),
+            'warnings' => array_keys($warnings),
             'html' => $pages['index.html'],
             'pages' => $pages,
         ];

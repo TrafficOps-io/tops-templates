@@ -172,7 +172,7 @@ final class TemplateEngine
                 $preview['previewData'] = $this->normalizeValues($this->rootFields(['sections' => $sections]), $values, 'previewData', true, $budget, $warnings);
                 // Preview data is part of the definition, so an unknown key is an authoring error.
                 foreach ($warnings as $path => $warning) {
-                    $this->invalid("{$path}: {$warning}");
+                    $this->invalid("previewData.{$path}: {$warning}");
                 }
             } catch (ValidationException $exception) {
                 $messages = [];
@@ -501,7 +501,8 @@ final class TemplateEngine
         foreach ($values as $key => $_) {
             if (! in_array($key, $known, true)) {
                 // A key without a field (for example one the template retired) is dropped, not fatal.
-                $warnings["{$path}.{$key}"] = 'This setting is not defined in the template.';
+                // Warning paths are dotted and relative to the values root: comments.1.legacy.
+                $warnings[substr(strstr("{$path}.{$key}", '.'), 1)] = 'This field is not defined in the template.';
             }
         }
         $normalized = [];

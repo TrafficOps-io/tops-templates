@@ -18,7 +18,6 @@ function expand(value) {
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, expand(item)]));
 }
 const normalize = (html) => html.replace(/\r\n?/g, '\n').replace(/>\s+</g, '><').replace(/\s+/g, ' ').trim();
-const canonicalPath = (path) => path.replace(/\[(\d+)\]/g, '.$1');
 
 function run(fixture) {
   const files = {'index.tpl': fixture.source, ...(fixture.pages ?? {}), ...(fixture.includes ?? {})};
@@ -27,7 +26,7 @@ function run(fixture) {
   const warnings = [];
   const normalized = validateValues(project.definition, values, {warnings});
   const pages = generateProject(files, values, fixture.context ?? {});
-  return {defaults: getDefaults(project.definition), values: normalized, warnings: warnings.map((warning) => canonicalPath(warning.path)), html: pages[project.definition.entrypoint], pages};
+  return {defaults: getDefaults(project.definition), values: normalized, warnings: warnings.map((warning) => warning.path), html: pages[project.definition.entrypoint], pages};
 }
 
 for (const file of readdirSync(directory).filter((name) => name.endsWith('.json')).sort()) {

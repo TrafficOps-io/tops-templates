@@ -386,9 +386,9 @@ class TemplateEngineTest extends TestCase
             'comments' => [['email' => 'a@example.com'], ['email' => 'b@example.com']],
         ], $normalized);
         $this->assertSame([
-            'values.retired' => 'This setting is not defined in the template.',
-            'values.card.old' => 'This setting is not defined in the template.',
-            'values.comments.1.legacy' => 'This setting is not defined in the template.',
+            'retired' => 'This field is not defined in the template.',
+            'card.old' => 'This field is not defined in the template.',
+            'comments.1.legacy' => 'This field is not defined in the template.',
         ], $warnings);
         $this->assertSame(['title' => 'Kept'], $this->engine()->validateValues($this->definition([$this->field('title', 'text')]), ['title' => 'Kept'], $warnings) + []);
         $this->assertSame([], $warnings);

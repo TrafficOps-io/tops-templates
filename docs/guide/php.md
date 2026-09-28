@@ -36,7 +36,7 @@ $html = $engine->render($definition, $values, [
 ]);
 ```
 
-`validateValues()` applies defaults and normalizes submitted data. Keys that no field declares (for example a field the template has since retired) are dropped and reported through the optional by-reference third argument, `validateValues($definition, $values, $warnings)`, as a `path => message` map; type violations and missing required values still throw a `ValidationException`. `render()` validates the definition and values again, so stored or externally supplied structures do not bypass the contract.
+`validateValues()` applies defaults and normalizes submitted data. Keys that no field declares (for example a field the template has since retired) are dropped and reported through the optional by-reference third argument, `validateValues($definition, $values, $warnings)`, as a `path => message` map. A warning path is dotted and relative to the values root, with repeater rows as numeric segments: `['comments.1.legacy' => 'This field is not defined in the template.']`. The portable runtime reports the same paths; type violations and missing required values still throw a `ValidationException`. `render()` validates the definition and values again, so stored or externally supplied structures do not bypass the contract.
 
 ## Multiple pages
 

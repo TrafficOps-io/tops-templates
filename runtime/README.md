@@ -28,7 +28,7 @@ All APIs are synchronous. Errors are `TemplateError` instances with a readable m
 | `parseTemplate(source, options?)` | Parse one UTF-8 source string. `options.filename` defaults to `index.tpl`. `options.resolveInclude(path, fromFilename)` must synchronously return an authorized source string. |
 | `parseProject(files)` | Accept `Record<string, string \| Uint8Array>`. Return `{definition, pages, files}`, where `pages` is an array of parsed definitions and `definition` is the entry page. `index.tpl`/`index.tpl.html` take precedence, then lexical order. |
 | `getDefaults(definition)` | Build bounded editable values, including default groups and minimum repeater rows. Required fields may initially be empty. |
-| `validateValues(definition, values, options?)` | Validate JSON values and return normalized values with missing defaults filled. Keys that no field declares are dropped; pass `options.warnings` (an array) to collect them as `{path, message}`. Type violations and missing required values throw. |
+| `validateValues(definition, values, options?)` | Validate JSON values and return normalized values with missing defaults filled. Keys that no field declares are dropped; pass `options.warnings` (an array) to collect them as `{path, message}`, where `path` is dotted and relative to the values root with repeater rows as numeric segments (`comments.1.legacy`), the same grammar as the PHP `$warnings` keys. Type violations and missing required values throw. |
 | `renderTemplate(definition, values?, context?)` | Render a definition returned by these parsing APIs. Returns HTML. Definitions carry an internal parsed program; cloning them through JSON is unsupported. |
 | `generateProject(files, values?, context?)` | Render every page, retain non-template assets without changing their bytes, and return a new file map. |
 
@@ -57,7 +57,7 @@ Values are validated exactly as the PHP engine validates them:
 | Rule | Behavior (PHP and JavaScript) |
 | --- | --- |
 | Unset optional field | Empty (`""`); `Boolean` is `false`, a repeater is `[]` unless `min_items` requires rows. A declared default applies. |
-| Unknown keys | Dropped with a warning (`validateValues(..., {warnings})`); never an error. Type violations and missing required values throw. |
+| Unknown keys | Dropped with a warning (`validateValues(..., {warnings})`, paths such as `comments.1.legacy`); never an error. Type violations and missing required values throw. |
 | `Boolean` | Accepts `true`/`false`, `0`/`1` and `"0"`/`"1"`; anything else, including `null`, is rejected. |
 | `Number`, `Range` | Accepts JSON numbers and PHP numeric strings (`"20.5"`, `" 20"`, `"1e1"`, `"5."`); stores a number. `min`/`max`/`step` apply with PHP's step tolerance. An optional field accepts `""` or `null` as empty. |
 | `Select` | Accepts an option key or a number whose string form is a key; `""` is valid for an optional field. |
