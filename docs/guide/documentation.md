@@ -54,4 +54,5 @@ In **Settings → Pages → Build and deployment**, select **GitHub Actions** as
 - dialect API: `docs/dialects.md`;
 - threat model: `docs/threat-model.md`;
 - `template-dsl/docs/*.md` are pointers to the three files above, kept so that links inside the Composer package resolve; `docs/` is the only source of truth;
+- `skills/trafficops-template-authoring/references/language-v1.md` is a generated copy of `docs/language-v1.md`, because skills are installed standalone: the text is identical and only relative `../` links become absolute GitHub URLs. `PackageMetadataTest::test_skill_language_reference_is_an_exact_copy_of_the_documentation` fails when the two drift; edit `docs/language-v1.md` and regenerate the copy;
 - deployment workflow: `.github/workflows/deploy-docs.yml`.
