@@ -7,6 +7,8 @@
 
 A template language and a local-first toolkit for building static pages: a PHP package, a terminal generator, a browser editor, a VS Code extension and installable agent skills. All tools live in this monorepo under the MIT license.
 
+Language version 1 supports `@template`, `@previewData`, `@section`, `@param`, `@type`, typed `@block`/`@render`, `@layout`, `@each`, `@if`, `@unless` and `@include`. See the [language reference](docs/language-v1.md).
+
 | Directory | Purpose | Distribution |
 | --- | --- | --- |
 | `template-dsl/` | Authoritative PHP DSL, typed fields and safe HTML renderer | `trafficops/template-dsl` on Packagist |
