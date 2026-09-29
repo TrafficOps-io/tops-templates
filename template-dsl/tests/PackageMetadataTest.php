@@ -121,6 +121,24 @@ TPL)),
         $this->assertFalse($validator->validate($invalid, $schema)->isValid());
     }
 
+    public function test_skill_language_reference_is_an_exact_copy_of_the_documentation(): void
+    {
+        $root = dirname(__DIR__, 2);
+        $source = file_get_contents("{$root}/docs/language-v1.md");
+        $copy = file_get_contents("{$root}/skills/trafficops-template-authoring/references/language-v1.md");
+        $this->assertIsString($source);
+        $this->assertIsString($copy);
+        // Skills are installed standalone, so the copy links to the repository instead of relative paths.
+        $expected = str_replace('](../', '](https://github.com/trafficops-io/tops-templates/tree/main/', $source);
+        $normalize = static fn (string $text): string => trim((string) preg_replace('/\s+/', ' ', $text));
+
+        $this->assertSame(
+            $normalize($expected),
+            $normalize($copy),
+            'Copy docs/language-v1.md to skills/trafficops-template-authoring/references/language-v1.md, rewriting "](../" links to https://github.com/trafficops-io/tops-templates/tree/main/.',
+        );
+    }
+
     private function json(string $path): array
     {
         $contents = file_get_contents(dirname(__DIR__).'/'.$path);

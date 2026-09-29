@@ -12,33 +12,33 @@ Every page source must contain exactly one `@layout` block. Settings, author-def
 @template "Campaign page" version=1 description="A small example"
 
 @section content "Content"
-@param headline String required label="Headline"
-@param body Markdown label="Body"
-@param target Url label="Destination"
+  @param headline String required label="Headline"
+  @param body Markdown label="Body"
+  @param target Url label="Destination"
 @endsection
 
 @type Card
-@param title String required
-@param copy Text
+  @param title String required
+  @param copy Text
 @endtype
 
 @param cards Card[] min_items=1 max_items=6
 
 @block card(item: Card) aiInstructions="Render one card"
-<article>
+  <article>
     <h2>{{item.title}}</h2>
     <p>{{item.copy}}</p>
-</article>
+  </article>
 @endblock
 
 @layout
-<main>
+  <main>
     <h1>{{headline}}</h1>
     <div>{{& body}}</div>
     @each card in cards:
-        @render card(card)
+      @render card(card)
     @endeach
-</main>
+  </main>
 @endlayout
 ```
 
@@ -57,7 +57,7 @@ The declaration is optional; defaults are version 1 and the name `Imported templ
 
 ```tpl
 @previewData
-{"headline":"Preview"}
+{ "headline": "Preview" }
 @endpreviewData
 ```
 
@@ -69,7 +69,7 @@ Sections group editor fields:
 
 ```tpl
 @section identity "Identity"
-@param brand String label="Brand" required
+  @param brand String label="Brand" required
 @endsection
 ```
 
@@ -84,6 +84,10 @@ The parameter form is `@param name Type`, followed by zero or more options:
 - `min`, `max` and `step` constrain `Number` and `Range`;
 - `min_items` and `max_items` constrain a custom `Type[]` repeater;
 - `aspect_ratio="16:9"` or `sizes="1200x630|1080x1080"` constrains `Image`; the two forms are mutually exclusive.
+
+An optional field with no value and no declared default is empty: it renders as empty text and is stored as `""`. There is no implicit `#000000` color, minimum number or first `Select` option. A `Boolean` is `false`, a group recurses into its fields, and a repeater is an empty list unless `min_items` requires rows, in which case each row is filled the same way. A declared default (`= "value"`) applies whenever the value is missing.
+
+A values document may carry keys that no field declares, for example after a template retires a field. Such keys are dropped with a warning; they never fail validation. A value of the wrong type or a missing required value is still an error.
 
 Built-in author types are:
 
@@ -112,8 +116,8 @@ An author-defined type groups parameters. Appending `[]` at a use site creates a
 
 ```tpl
 @type Link
-@param label String required
-@param url Url required
+  @param label String required
+  @param url Url required
 @endtype
 
 @param footer Link
@@ -128,21 +132,21 @@ Blocks are typed authoring macros expanded while the source is parsed. They are 
 
 ```tpl
 @block link(item: Link)
-<a href="{{item.url}}">{{item.label}}</a>
+  <a href="{{item.url}}">{{item.label}}</a>
 @endblock
 
 @layout
-@each item in navigation:
+  @each item in navigation:
     @render link(item)
-@endeach
+  @endeach
 @endlayout
 ```
 
 Block calls are type-checked. Unknown, recursive and excessively deep calls are rejected. `aiInstructions` is the only block option; it is retained as definition metadata when present.
 
-### `@layout`, `@if` and `@each`
+### `@layout`, `@if`, `@unless` and `@each`
 
-HTML belongs inside one `@layout … @endlayout` block per page. `@if path … @endif` emits a truthy section. `@each alias in path: … @endeach` iterates a repeater of an author-defined type. Paths use dot notation and are resolved lexically; block arguments cannot escape their scope.
+HTML belongs inside one `@layout … @endlayout` block per page. `@if path … @endif` emits a truthy section; `@if` over a list is rejected, use `@each`. `@unless path … @endunless` renders when a field is empty or false (PHP truthiness: `""`, `"0"`, `0`, `false` and empty lists are falsey) and keeps the enclosing scope, including for empty lists, which allows lossless migration of legacy inverse sections. `@each alias in path: … @endeach` iterates a repeater of an author-defined type. Paths use dot notation and are resolved lexically; block arguments cannot escape their scope. Adding a directive such as `@unless` stays within language version 1.
 
 CSS at-rules commonly found at the start of a line, including `@media`, `@supports`, `@font-face` and `@keyframes`, are treated as markup inside layout or block bodies.
 
@@ -164,6 +168,8 @@ The compiled definition uses a deliberately small Mustache-like expression set:
 - `../name` selects a parent scope and `@root.name` selects the root scope.
 
 Expressions are data lookups, not general code. Object or list settings cannot be interpolated as scalars, and formatted output is restricted to rich-text field types. Partials exist in JSON definitions; source-level reuse normally uses typed blocks and includes.
+
+`Wysiwyg` and `Markdown` values are stored exactly as the author entered them. Validation only checks them; sanitization happens when they are rendered, so the same stored value renders identically in every implementation.
 
 The common engine never rescans settings for directives, Mustache expressions or safe-runtime tokens. An application-owned post-render runtime may deliberately define another phase; for example, the documented trusted `fast-landings-v1` profile permits request tokens in stored string settings. Such behavior belongs to that dialect's threat model, not language version 1 or the safe default.
 

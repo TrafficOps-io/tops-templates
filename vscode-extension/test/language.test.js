@@ -7,6 +7,8 @@ const path = require('node:path');
 const { DIALECTS, DEFAULT_DIALECT, DIALECT_PROFILES, normalizeDialect, parseDocument, buildProject, getCompletions, getDefinition, getHover, getSignatureHelp, getSymbols } = require('@trafficops/template-language');
 
 const URI = 'file:///templates/template.tpl';
+// Trusted-only features (@validation, PHP, headers/body macros) need the host to select the dialect explicitly.
+const trusted = { dialect: DIALECTS.FAST_LANDINGS_V1 };
 const declarations = `@type Avatar
 @param src Image help="A reader avatar"
 @endtype
@@ -286,7 +288,7 @@ test('image crop options complete inside records and exclude conflicting or alre
 test('request validation declarations stay out of editable globals and companion page scopes', () => {
   const index = '@validation query fallback="/error"\n@param subid String required\n@param pixel String lenght=10 required\n@endvalidation\n@param title String';
   const success = '@validation body fallback="submit-error"\n@param name String min=4 required\n@param phone String mask="+380 ... ... ..." required\n@param user.first-name String\n@endvalidation';
-  const project = buildProject([{ uri: URI, text: index }, { uri: 'file:///templates/success.tpl.php', text: success }]);
+  const project = buildProject([{ uri: URI, text: index }, { uri: 'file:///templates/success.tpl.php', text: success }], trusted);
   const { getRuntimeMacros } = require('@trafficops/template-language');
   assert.deepEqual([...project.params.keys()], ['title']);
   const document = project.documents.get(URI);
@@ -297,7 +299,7 @@ test('request validation declarations stay out of editable globals and companion
   assert.equal(document.runtimeParams[0].options.required, 'true');
   assert.deepEqual(getRuntimeMacros(project, URI).map(item => item.name), ['query.subid', 'query.pixel']);
   assert.equal(getRuntimeMacros(project).length, 5);
-  const result = complete(`${index}\n<p>{body.§}</p>`, [{ uri: 'file:///templates/success.tpl.php', text: success }]);
+  const result = complete(`${index}\n<p>{body.§}</p>`, [{ uri: 'file:///templates/success.tpl.php', text: success }], trusted);
   assert.deepEqual(labels(result), ['*']);
   const symbols = getSymbols(project, URI);
   assert.equal(symbols[0].kind, 'validation');
@@ -305,38 +307,40 @@ test('request validation declarations stay out of editable globals and companion
 });
 
 test('request validation fallback is optional and dotted paths match the server grammar', () => {
-  const valid = parseDocument(URI, '@validation query\n@param campaign.id String required\n@endvalidation');
+  const valid = parseDocument(URI, '@validation query\n@param campaign.id String required\n@endvalidation', trusted);
   assert.equal(valid.diagnostics.length, 0);
   assert.equal(valid.validationBlocks[0].fallback, undefined);
   assert.deepEqual(valid.runtimeParams.map(param => param.name), ['campaign.id']);
 
-  const invalidPath = parseDocument(URI, '@validation query\n@param campaign.-id String\n@endvalidation');
+  const invalidPath = parseDocument(URI, '@validation query\n@param campaign.-id String\n@endvalidation', trusted);
   assert.match(invalidPath.diagnostics.map(item => item.message).join('\n'), /Declare a request parameter name and type/);
   assert.equal(invalidPath.runtimeParams.length, 0);
 
-  const encodedRedirect = parseDocument(URI, '@validation query fallback="%252f%252fevil.example"\n@param campaign String\n@endvalidation');
+  const encodedRedirect = parseDocument(URI, '@validation query fallback="%252f%252fevil.example"\n@param campaign String\n@endvalidation', trusted);
   assert.match(encodedRedirect.diagnostics.map(item => item.message).join('\n'), /fallback must be a local path/);
 });
 
 test('runtime completion covers sources, nested paths, headers and complete-source wildcards', () => {
   const runtime = '@validation body fallback="/error"\n@param user.first-name String min=4\n@param phone String\n@endvalidation\n';
-  assert.deepEqual(labels(complete('<p>{§}</p>')), ['query', 'headers', 'body']);
-  assert.deepEqual(labels(complete('<p>{bo§}</p>')), ['body']);
-  assert.deepEqual(labels(complete(`${runtime}<p>{body.§}</p>`)), ['*', 'user', 'phone']);
-  const nested = complete(`${runtime}<p>{body.user.fir§st-name}</p>`);
+  assert.deepEqual(labels(complete('<p>{§}</p>', [], trusted)), ['query', 'headers', 'body']);
+  assert.deepEqual(labels(complete('<p>{bo§}</p>', [], trusted)), ['body']);
+  assert.deepEqual(labels(complete(`${runtime}<p>{body.§}</p>`, [], trusted)), ['*', 'user', 'phone']);
+  const nested = complete(`${runtime}<p>{body.user.fir§st-name}</p>`, [], trusted);
   assert.deepEqual(labels(nested), ['first-name']);
   assert.equal(nested.text.slice(nested.items[0].range.start, nested.items[0].range.end), 'first-name');
-  assert.ok(labels(complete('<p>{headers.user-§agent}</p>')).includes('user-agent'));
-  assert.deepEqual(labels(complete('<p>{{body.§}}</p>')), []);
-  assert.deepEqual(labels(complete('<p>{unknown.§}</p>')), []);
-  assert.deepEqual(labels(complete(`${runtime}@param thanks String = "Thanks {body.user.§}!"`)), ['first-name']);
-  assert.deepEqual(labels(complete('@previewData\n{"text":"{body.§}"}\n@endpreviewData')), []);
+  assert.ok(labels(complete('<p>{headers.user-§agent}</p>', [], trusted)).includes('user-agent'));
+  assert.deepEqual(labels(complete('<p>{{body.§}}</p>', [], trusted)), []);
+  assert.deepEqual(labels(complete('<p>{unknown.§}</p>', [], trusted)), []);
+  assert.deepEqual(labels(complete(`${runtime}@param thanks String = "Thanks {body.user.§}!"`, [], trusted)), ['first-name']);
+  assert.deepEqual(labels(complete('@previewData\n{"text":"{body.§}"}\n@endpreviewData', [], trusted)), []);
 });
 
 test('safe-html-v1 exposes only host-supplied safe runtime macros', () => {
   const options = { dialect: DIALECTS.SAFE_HTML_V1 };
-  assert.equal(DEFAULT_DIALECT, DIALECTS.FAST_LANDINGS_V1);
-  assert.equal(normalizeDialect('unknown'), DIALECTS.FAST_LANDINGS_V1);
+  assert.equal(DEFAULT_DIALECT, DIALECTS.SAFE_HTML_V1);
+  assert.equal(normalizeDialect('unknown'), DIALECTS.SAFE_HTML_V1);
+  assert.equal(normalizeDialect(undefined), DIALECTS.SAFE_HTML_V1);
+  assert.equal(normalizeDialect(DIALECTS.FAST_LANDINGS_V1), DIALECTS.FAST_LANDINGS_V1);
   assert.deepEqual(labels(complete('<p>{§}</p>', [], options)), ['query', 'locale', 'actions']);
   assert.deepEqual(labels(complete('<p>{query.§}</p>', [], options)), ['name']);
   assert.deepEqual(labels(complete('<a href="{actions.§}">Next</a>', [], options)), ['name']);
@@ -369,6 +373,24 @@ test('editor dialect capabilities stay aligned with the shared machine-readable 
   assert.equal(fast.execution.phpSource, DIALECT_PROFILES[fast.id].php);
 });
 
+test('a missing or unknown dialect falls back to safe-html-v1 and an unknown id is diagnosed', () => {
+  const missing = parseDocument(URI, '@layout\n<p>{headers.host}</p>\n@endlayout');
+  assert.equal(missing.dialect, DIALECTS.SAFE_HTML_V1);
+  assert.ok(missing.diagnostics.some(issue => issue.message.startsWith('safe-html-v1 runtime macros')));
+  assert.ok(!missing.diagnostics.some(issue => /Unknown dialect/.test(issue.message)));
+
+  const unknown = parseDocument(URI, '@layout\n<p>{headers.host}</p>\n@endlayout', { dialect: 'fast-landings-v9' });
+  assert.equal(unknown.dialect, DIALECTS.SAFE_HTML_V1);
+  assert.match(unknown.diagnostics[0].message, /Unknown dialect "fast-landings-v9"; safe-html-v1 applies/);
+  assert.deepEqual([unknown.diagnostics[0].start, unknown.diagnostics[0].end], [0, '@layout'.length]);
+  assert.ok(unknown.diagnostics.some(issue => issue.message.startsWith('safe-html-v1 runtime macros')));
+
+  const project = buildProject([{ uri: URI, text: '@layout\nX\n@endlayout' }], { dialect: 'nonsense' });
+  assert.equal(project.dialect, DIALECTS.SAFE_HTML_V1);
+  assert.match(project.documents.get(URI).diagnostics[0].message, /Unknown dialect/);
+  assert.equal(buildProject([{ uri: URI, text: '@layout\nX\n@endlayout' }], { dialect: DIALECTS.FAST_LANDINGS_V1 }).dialect, DIALECTS.FAST_LANDINGS_V1);
+});
+
 test('safe-html-v1 diagnoses trusted-only syntax and cannot be changed by source', () => {
   const source = `@template "Safe" dialect="fast-landings-v1"
 @validation body fallback="/error"
@@ -397,33 +419,33 @@ test('safe-html-v1 diagnoses trusted-only syntax and cannot be changed by source
 });
 
 test('validation completion restricts types and options and includes declarations from reachable includes', () => {
-  assert.deepEqual(labels(complete('@validation §')), ['query', 'headers', 'body']);
-  assert.deepEqual(labels(complete('@validation headers §')), ['fallback']);
+  assert.deepEqual(labels(complete('@validation §', [], trusted)), ['query', 'headers', 'body']);
+  assert.deepEqual(labels(complete('@validation headers §', [], trusted)), ['fallback']);
   const prefix = '@validation body fallback="/error"\n';
-  assert.deepEqual(labels(complete(`${prefix}@param user.first-name §`)), ['String', 'Number', 'Integer', 'Boolean']);
-  assert.deepEqual(labels(complete(`${prefix}@param name String §`)), ['required', 'min', 'max', 'length', 'mask']);
-  assert.deepEqual(labels(complete(`${prefix}@param count Integer §`)), ['required', 'min', 'max']);
-  assert.deepEqual(labels(complete(`${prefix}@param enabled Boolean §`)), ['required']);
-  assert.ok(!labels(complete(`${prefix}@param name String required lenght=4 §`)).includes('length'));
-  assert.ok(!labels(complete(`${prefix}@param name String required §`)).includes('required'));
-  assert.deepEqual(labels(complete(`${prefix}@§`)), ['@endvalidation', '@param']);
-  assert.deepEqual(labels(complete(`${prefix}@param name String required=f§`)), ['true', 'false']);
-  const included = complete('@include "rules.tpl"\n<p>{body.§}</p>', [{ uri: 'file:///templates/rules.tpl', text: `${prefix}@param name String\n@endvalidation` }]);
+  assert.deepEqual(labels(complete(`${prefix}@param user.first-name §`, [], trusted)), ['String', 'Number', 'Integer', 'Boolean']);
+  assert.deepEqual(labels(complete(`${prefix}@param name String §`, [], trusted)), ['required', 'min', 'max', 'length', 'mask']);
+  assert.deepEqual(labels(complete(`${prefix}@param count Integer §`, [], trusted)), ['required', 'min', 'max']);
+  assert.deepEqual(labels(complete(`${prefix}@param enabled Boolean §`, [], trusted)), ['required']);
+  assert.ok(!labels(complete(`${prefix}@param name String required lenght=4 §`, [], trusted)).includes('length'));
+  assert.ok(!labels(complete(`${prefix}@param name String required §`, [], trusted)).includes('required'));
+  assert.deepEqual(labels(complete(`${prefix}@§`, [], trusted)), ['@endvalidation', '@param']);
+  assert.deepEqual(labels(complete(`${prefix}@param name String required=f§`, [], trusted)), ['true', 'false']);
+  const included = complete('@include "rules.tpl"\n<p>{body.§}</p>', [{ uri: 'file:///templates/rules.tpl', text: `${prefix}@param name String\n@endvalidation` }], trusted);
   assert.ok(labels(included).includes('name'));
 });
 
 test('runtime macros have case-insensitive header definitions and validation hovers', () => {
   const source = '@validation headers fallback="/error"\n@param X-Request-ID String required length=10\n@endvalidation\n<p>{headers.x-request-§id}</p>';
-  const result = fixture(source);
+  const result = fixture(source, [], trusted);
   const definition = getDefinition(result.project, URI, result.offset);
   assert.equal(result.text.slice(definition.start, definition.end), 'X-Request-ID');
   const hover = getHover(result.project, URI, result.offset);
   assert.match(hover.contents, /headers.x-request-id: String/);
   assert.match(hover.contents, /required=true/);
   assert.match(hover.contents, /length=10/);
-  const integer = fixture('@validation query fallback="/error"\n@param count Int§eger\n@endvalidation');
+  const integer = fixture('@validation query fallback="/error"\n@param count Int§eger\n@endvalidation', [], trusted);
   assert.match(getHover(integer.project, URI, integer.offset).contents, /Integer request value/);
-  assert.match(parseDocument(URI, '@validation cookies fallback="/error"\n@param count Color mask="..."').diagnostics.map(item => item.message).join('\n'), /query, headers or body/);
+  assert.match(parseDocument(URI, '@validation cookies fallback="/error"\n@param count Color mask="..."', trusted).diagnostics.map(item => item.message).join('\n'), /query, headers or body/);
 });
 
 test('PHP strings, comments and heredocs remain opaque to declarations and runtime completions', () => {
@@ -437,13 +459,13 @@ $text = <<<'CONTENT'
 {body.fake}
 CONTENT;
 ?>`;
-  const parsed = parseDocument(URI, `${php}\n@validation query fallback="/error"\n@param real String\n@endvalidation`);
+  const parsed = parseDocument(URI, `${php}\n@validation query fallback="/error"\n@param real String\n@endvalidation`, trusted);
   assert.equal(parsed.runtimeParams.length, 1);
   assert.equal(parsed.runtimeParams[0].name, 'real');
   assert.equal(parsed.phpSpans.length, 1);
-  assert.deepEqual(labels(complete('<?php\n$value = "{body.§}";\n?>')), []);
-  assert.deepEqual(labels(complete('<?php\n@§')), []);
-  const hover = fixture('<?php\n@param fa§ke String\n?>');
+  assert.deepEqual(labels(complete('<?php\n$value = "{body.§}";\n?>', [], trusted)), []);
+  assert.deepEqual(labels(complete('<?php\n@§', [], trusted)), []);
+  const hover = fixture('<?php\n@param fa§ke String\n?>', [], trusted);
   assert.equal(getHover(hover.project, URI, hover.offset), null);
 });
 
@@ -451,16 +473,16 @@ test('included fragments inherit one owning page without merging distinct page s
   const { getRuntimeMacros } = require('@trafficops/template-language');
   const index = { uri: 'file:///templates/index.tpl.php', text: '@validation query fallback="/error"\n@param subid String\n@endvalidation\n@include "shared.tpl"' };
   const fragment = { uri: 'file:///templates/shared.tpl', text: '<p>{query.subid}</p>' };
-  assert.deepEqual(getRuntimeMacros(buildProject([index, fragment]), fragment.uri).map(item => item.name), ['query.subid']);
+  assert.deepEqual(getRuntimeMacros(buildProject([index, fragment], trusted), fragment.uri).map(item => item.name), ['query.subid']);
   const success = { uri: 'file:///templates/success.tpl.php', text: '@validation body fallback="/error"\n@param name String\n@endvalidation\n@include "shared.tpl"' };
-  assert.deepEqual(getRuntimeMacros(buildProject([index, success, fragment]), fragment.uri), []);
-  assert.deepEqual(getRuntimeMacros(buildProject([index, success, fragment]), index.uri).map(item => item.name), ['query.subid']);
+  assert.deepEqual(getRuntimeMacros(buildProject([index, success, fragment], trusted), fragment.uri), []);
+  assert.deepEqual(getRuntimeMacros(buildProject([index, success, fragment], trusted), index.uri).map(item => item.name), ['query.subid']);
 });
 
 test('escaped macros stay literal and numeric JSON paths complete', () => {
-  assert.deepEqual(labels(complete('<p>\\{body.§}</p>')), []);
-  const result = complete('@validation body fallback="/error"\n@param 0.name String\n@endvalidation\n<p>{body.0.§}</p>');
+  assert.deepEqual(labels(complete('<p>\\{body.§}</p>', [], trusted)), []);
+  const result = complete('@validation body fallback="/error"\n@param 0.name String\n@endvalidation\n<p>{body.0.§}</p>', [], trusted);
   assert.deepEqual(labels(result), ['name']);
-  const escapedHover = fixture('<p>\\{body.na§me}</p>');
+  const escapedHover = fixture('<p>\\{body.na§me}</p>', [], trusted);
   assert.equal(getHover(escapedHover.project, URI, escapedHover.offset), null);
 });

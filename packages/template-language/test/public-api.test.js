@@ -27,3 +27,33 @@ test('standalone formatter preserves literal preview data through the package en
   assert.deepEqual(JSON.parse(formatted.match(/@previewData\n([\s\S]*?)\n@endpreviewData/)[1]), { title: 'a  b' });
   assert.equal(await formatter.formatDocument(formatted, { tabSize: 2, insertSpaces: true }), formatted);
 });
+
+test('an unknown or missing dialect id falls back to safe-html-v1 and is reported as a diagnostic', () => {
+  assert.equal(language.DEFAULT_DIALECT, 'safe-html-v1');
+  assert.equal(language.normalizeDialect(undefined), 'safe-html-v1');
+  assert.equal(language.normalizeDialect('legacy-v0'), 'safe-html-v1');
+  assert.equal(language.normalizeDialect('fast-landings-v1'), 'fast-landings-v1');
+  const document = language.parseDocument('index.tpl', '@layout\n<p>{locale}</p>\n@endlayout', { dialect: 'legacy-v0' });
+  assert.equal(document.dialect, 'safe-html-v1');
+  assert.deepEqual(document.diagnostics.map(issue => issue.message), ['Unknown dialect "legacy-v0"; safe-html-v1 applies. Hosts select safe-html-v1 or fast-landings-v1.']);
+  assert.deepEqual(language.parseDocument('index.tpl', '@layout\n<p>{locale}</p>\n@endlayout').diagnostics, []);
+});
+
+test('an unknown dialect is a host-configuration warning reported once per document, not a template error', () => {
+  const project = language.buildProject([{ uri: 'a.tpl', text: '@layout\nA\n@endlayout' }, { uri: 'b.tpl', text: '@layout\nB\n@endlayout' }], { dialect: 'legacy-v0' });
+  for (const uri of ['a.tpl', 'b.tpl']) {
+    const unknown = project.documents.get(uri).diagnostics.filter(issue => /Unknown dialect/.test(issue.message));
+    assert.equal(unknown.length, 1, uri);
+    assert.equal(unknown[0].severity, 'warning');
+  }
+  const safeOnly = language.parseDocument('index.tpl', '<?php echo 1; ?>', { dialect: 'legacy-v0' }).diagnostics;
+  assert.equal(safeOnly.find(issue => /PHP source is unavailable/.test(issue.message)).severity, undefined, 'template errors keep the default error severity');
+});
+
+test('requestedDialect reads the id as written from a string, options or an editor configuration', () => {
+  assert.equal(language.requestedDialect('fast-landings-v1'), 'fast-landings-v1');
+  assert.equal(language.requestedDialect({ dialect: 'legacy-v0' }), 'legacy-v0');
+  assert.equal(language.requestedDialect({ get: name => (name === 'dialect' ? 'safe-html-v1' : undefined) }), 'safe-html-v1');
+  assert.equal(language.requestedDialect(undefined), undefined);
+  assert.equal(language.normalizeDialect(language.requestedDialect({ get: () => undefined })), 'safe-html-v1');
+});

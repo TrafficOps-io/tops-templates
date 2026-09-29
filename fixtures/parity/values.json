@@ -1,0 +1,205 @@
+{
+  "description": "Unset optional fields are empty rather than a type fallback; declared defaults apply; unknown keys are dropped with a warning; type violations fail; rich text is stored as authored.",
+  "cases": [
+    {
+      "name": "Defaults and an empty values document are empty except declared defaults and min_items rows",
+      "source": "@type Row\n@param tint Color\n@param note String\n@endtype\n@param accent Color\n@param size Number min=10 max=20\n@param opacity Range min=0 max=1 step=0.1\n@param layout Select options=\"wide:Wide|narrow:Narrow\"\n@param link Url\n@param logo Image\n@param contact Email\n@param enabled Boolean\n@param card Row\n@param items Row[]\n@param rows Row[] min_items=2\n@param declared Color = \"#123456\"\n@param chosen Select = \"b\" options=\"a:A|b:B\"\n@param amount Number = 0\n@layout\n[{{accent}}|{{size}}|{{opacity}}|{{layout}}|{{link}}|{{logo}}|{{contact}}|{{enabled}}|{{card.tint}}|{{declared}}|{{chosen}}|{{amount}}]\n@endlayout",
+      "values": {},
+      "expect": {
+        "ok": true,
+        "defaults": {
+          "accent": "",
+          "size": "",
+          "opacity": "",
+          "layout": "",
+          "link": "",
+          "logo": "",
+          "contact": "",
+          "enabled": false,
+          "card": {
+            "tint": "",
+            "note": ""
+          },
+          "items": [],
+          "rows": [
+            {
+              "tint": "",
+              "note": ""
+            },
+            {
+              "tint": "",
+              "note": ""
+            }
+          ],
+          "declared": "#123456",
+          "chosen": "b",
+          "amount": 0
+        },
+        "values": {
+          "accent": "",
+          "size": "",
+          "opacity": "",
+          "layout": "",
+          "link": "",
+          "logo": "",
+          "contact": "",
+          "enabled": false,
+          "card": {
+            "tint": "",
+            "note": ""
+          },
+          "items": [],
+          "rows": [
+            {
+              "tint": "",
+              "note": ""
+            },
+            {
+              "tint": "",
+              "note": ""
+            }
+          ],
+          "declared": "#123456",
+          "chosen": "b",
+          "amount": 0
+        },
+        "warnings": [],
+        "html": "[|||||||||#123456|b|0]"
+      }
+    },
+    {
+      "name": "Unknown keys at every level are dropped and reported",
+      "source": "@type Row\n@param tint Color\n@param note String\n@endtype\n@param accent Color\n@param size Number min=10 max=20\n@param opacity Range min=0 max=1 step=0.1\n@param layout Select options=\"wide:Wide|narrow:Narrow\"\n@param link Url\n@param logo Image\n@param contact Email\n@param enabled Boolean\n@param card Row\n@param items Row[]\n@param rows Row[] min_items=2\n@param declared Color = \"#123456\"\n@param chosen Select = \"b\" options=\"a:A|b:B\"\n@param amount Number = 0\n@layout\n[{{accent}}|{{size}}|{{opacity}}|{{layout}}|{{link}}|{{logo}}|{{contact}}|{{enabled}}|{{card.tint}}|{{declared}}|{{chosen}}|{{amount}}]\n@endlayout",
+      "values": {
+        "accent": "#fff",
+        "retired": "x",
+        "card": {
+          "tint": "#000",
+          "old": 1
+        },
+        "rows": [
+          {
+            "tint": ""
+          },
+          {
+            "note": "n",
+            "legacy": true
+          }
+        ]
+      },
+      "expect": {
+        "ok": true,
+        "values": {
+          "accent": "#fff",
+          "size": "",
+          "opacity": "",
+          "layout": "",
+          "link": "",
+          "logo": "",
+          "contact": "",
+          "enabled": false,
+          "card": {
+            "tint": "#000",
+            "note": ""
+          },
+          "items": [],
+          "rows": [
+            {
+              "tint": "",
+              "note": ""
+            },
+            {
+              "tint": "",
+              "note": "n"
+            }
+          ],
+          "declared": "#123456",
+          "chosen": "b",
+          "amount": 0
+        },
+        "warnings": [
+          "retired",
+          "card.old",
+          "rows.1.legacy"
+        ],
+        "html": "[#fff||||||||#000|#123456|b|0]"
+      }
+    },
+    {
+      "name": "A type violation still fails even when unknown keys are present",
+      "source": "@type Row\n@param tint Color\n@param note String\n@endtype\n@param accent Color\n@param size Number min=10 max=20\n@param opacity Range min=0 max=1 step=0.1\n@param layout Select options=\"wide:Wide|narrow:Narrow\"\n@param link Url\n@param logo Image\n@param contact Email\n@param enabled Boolean\n@param card Row\n@param items Row[]\n@param rows Row[] min_items=2\n@param declared Color = \"#123456\"\n@param chosen Select = \"b\" options=\"a:A|b:B\"\n@param amount Number = 0\n@layout\n[{{accent}}|{{size}}|{{opacity}}|{{layout}}|{{link}}|{{logo}}|{{contact}}|{{enabled}}|{{card.tint}}|{{declared}}|{{chosen}}|{{amount}}]\n@endlayout",
+      "values": {
+        "retired": "x",
+        "accent": "red"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "An optional Select accepts an empty string",
+      "source": "@type Row\n@param tint Color\n@param note String\n@endtype\n@param accent Color\n@param size Number min=10 max=20\n@param opacity Range min=0 max=1 step=0.1\n@param layout Select options=\"wide:Wide|narrow:Narrow\"\n@param link Url\n@param logo Image\n@param contact Email\n@param enabled Boolean\n@param card Row\n@param items Row[]\n@param rows Row[] min_items=2\n@param declared Color = \"#123456\"\n@param chosen Select = \"b\" options=\"a:A|b:B\"\n@param amount Number = 0\n@layout\n[{{accent}}|{{size}}|{{opacity}}|{{layout}}|{{link}}|{{logo}}|{{contact}}|{{enabled}}|{{card.tint}}|{{declared}}|{{chosen}}|{{amount}}]\n@endlayout",
+      "values": {
+        "layout": ""
+      },
+      "expect": {
+        "ok": true,
+        "html": "[|||||||||#123456|b|0]"
+      }
+    },
+    {
+      "name": "A repeater below min_items is rejected",
+      "source": "@type Row\n@param tint Color\n@param note String\n@endtype\n@param accent Color\n@param size Number min=10 max=20\n@param opacity Range min=0 max=1 step=0.1\n@param layout Select options=\"wide:Wide|narrow:Narrow\"\n@param link Url\n@param logo Image\n@param contact Email\n@param enabled Boolean\n@param card Row\n@param items Row[]\n@param rows Row[] min_items=2\n@param declared Color = \"#123456\"\n@param chosen Select = \"b\" options=\"a:A|b:B\"\n@param amount Number = 0\n@layout\n[{{accent}}|{{size}}|{{opacity}}|{{layout}}|{{link}}|{{logo}}|{{contact}}|{{enabled}}|{{card.tint}}|{{declared}}|{{chosen}}|{{amount}}]\n@endlayout",
+      "values": {
+        "rows": [
+          {
+            "tint": ""
+          }
+        ]
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "A required Select rejects an empty string",
+      "source": "@param layout Select required options=\"wide:Wide\"\n@layout\n{{layout}}\n@endlayout",
+      "values": {
+        "layout": ""
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "A required Select without a value fails",
+      "source": "@param layout Select required options=\"wide:Wide\"\n@layout\n{{layout}}\n@endlayout",
+      "values": {},
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Preview data with an unknown key is a definition error",
+      "source": "@template \"P\" previewData='{\"retired\":\"x\"}'\n@param title String\n@layout\n{{title}}\n@endlayout",
+      "values": {},
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Rich text is stored as authored and sanitized only when rendered",
+      "source": "@param body Wysiwyg\n@layout\n<p>{{body}}</p><div>{{& body}}</div>\n@endlayout",
+      "values": {
+        "body": "<p onclick=\"x()\">Hi <b>there</b></p>"
+      },
+      "expect": {
+        "ok": true,
+        "values": {
+          "body": "<p onclick=\"x()\">Hi <b>there</b></p>"
+        },
+        "html": "<p>&lt;p onclick=&quot;x()&quot;&gt;Hi &lt;b&gt;there&lt;/b&gt;&lt;/p&gt;</p><div><p>Hi <b>there</b></p></div>"
+      }
+    }
+  ]
+}

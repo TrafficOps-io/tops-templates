@@ -186,7 +186,7 @@ class TemplateEngineTest extends TestCase
         ]));
 
         $this->assertSame([
-            'color' => '#aabbcc', 'size' => 14, 'layout' => 'wide', 'enabled' => false,
+            'color' => '#aabbcc', 'size' => 14, 'layout' => '', 'enabled' => false,
             'comments' => [['body' => 'Comment']],
         ], $this->engine()->defaults($definition));
         $values = $this->engine()->validateValues($definition, ['size' => '20.5', 'enabled' => '1']);
@@ -195,6 +195,39 @@ class TemplateEngineTest extends TestCase
         $this->assertSame('textarea', $this->engine()->fieldAtPath($definition, 'comments.0.body')['type']);
         $this->assertNull($this->engine()->fieldAtPath($definition, 'comments.0.missing'));
         $this->assertNull($this->engine()->fieldAtPath($definition, '../../body'));
+    }
+
+    public function test_unset_optional_fields_default_to_empty_rather_than_a_type_fallback(): void
+    {
+        $definition = $this->engine()->validateDefinition($this->definition([
+            $this->field('accent', 'color'),
+            $this->field('size', 'number', ['min' => 10, 'max' => 20]),
+            $this->field('opacity', 'range', ['min' => 0, 'max' => 1, 'step' => 0.1]),
+            $this->field('layout', 'select', ['options' => ['wide' => 'Wide', 'narrow' => 'Narrow']]),
+            $this->field('link', 'url'),
+            $this->field('logo', 'image'),
+            $this->field('contact', 'email'),
+            $this->field('enabled', 'checkbox'),
+            $this->field('card', 'group', ['fields' => [$this->field('tint', 'color')]]),
+            $this->field('items', 'repeater', ['fields' => [$this->field('tint', 'color')]]),
+            $this->field('rows', 'repeater', ['min_items' => 2, 'fields' => [$this->field('tint', 'color')]]),
+            $this->field('declared', 'color', ['default' => '#123456']),
+            $this->field('chosen', 'select', ['options' => ['a' => 'A', 'b' => 'B'], 'default' => 'b']),
+        ], '[{{accent}}|{{size}}|{{opacity}}|{{layout}}|{{link}}|{{logo}}|{{contact}}|{{enabled}}|{{#card}}{{tint}}{{/card}}|{{declared}}|{{chosen}}]'));
+
+        $expected = [
+            'accent' => '', 'size' => '', 'opacity' => '', 'layout' => '', 'link' => '', 'logo' => '', 'contact' => '', 'enabled' => false,
+            'card' => ['tint' => ''], 'items' => [], 'rows' => [['tint' => ''], ['tint' => '']],
+            'declared' => '#123456', 'chosen' => 'b',
+        ];
+        $this->assertSame($expected, $this->engine()->defaults($definition));
+        $this->assertSame($expected, $this->engine()->validateValues($definition, []));
+        $this->assertSame('[|||||||||#123456|b]', $this->engine()->render($definition, []));
+        $this->assertSame('', $this->engine()->validateValues($definition, ['layout' => ''])['layout']);
+
+        $required = $this->definition([$this->field('layout', 'select', ['options' => ['wide' => 'Wide'], 'required' => true])]);
+        $this->assertValidationKey('values.layout', fn () => $this->engine()->validateValues($required, []));
+        $this->assertValidationKey('values.layout', fn () => $this->engine()->validateValues($required, ['layout' => '']));
     }
 
     #[DataProvider('invalidValueProvider')]
@@ -324,14 +357,46 @@ class TemplateEngineTest extends TestCase
         $this->assertSame(['variant' => 'hero'], $definition['sections'][0]['fields'][0]['applicationMetadata']);
     }
 
-    public function test_unknown_settings_and_nested_invalid_values_have_precise_errors(): void
+    public function test_nested_invalid_values_have_precise_errors(): void
     {
         $definition = $this->definition([
             $this->field('comments', 'repeater', ['fields' => [$this->field('email', 'email')], 'max_items' => 1]),
         ]);
-        $this->assertValidationKey('values.unknown', fn () => $this->engine()->validateValues($definition, ['unknown' => 'data']));
         $this->assertValidationKey('values.comments.0.email', fn () => $this->engine()->validateValues($definition, ['comments' => [['email' => 'bad']]]));
         $this->assertValidationKey('values.comments', fn () => $this->engine()->validateValues($definition, ['comments' => [[], []]]));
+    }
+
+    public function test_unknown_value_keys_are_dropped_with_a_warning_while_type_violations_still_fail(): void
+    {
+        $definition = $this->definition([
+            $this->field('title', 'text'),
+            $this->field('card', 'group', ['fields' => [$this->field('tint', 'color')]]),
+            $this->field('comments', 'repeater', ['fields' => [$this->field('email', 'email')], 'max_items' => 2]),
+        ], '{{title}}');
+        $values = [
+            'title' => 'Kept', 'retired' => 'dropped',
+            'card' => ['tint' => '#fff', 'old' => 1],
+            'comments' => [['email' => 'a@example.com'], ['email' => 'b@example.com', 'legacy' => true]],
+        ];
+
+        $normalized = $this->engine()->validateValues($definition, $values, $warnings);
+        $this->assertSame([
+            'title' => 'Kept',
+            'card' => ['tint' => '#fff'],
+            'comments' => [['email' => 'a@example.com'], ['email' => 'b@example.com']],
+        ], $normalized);
+        $this->assertSame([
+            'retired' => 'This field is not defined in the template.',
+            'card.old' => 'This field is not defined in the template.',
+            'comments.1.legacy' => 'This field is not defined in the template.',
+        ], $warnings);
+        $this->assertSame(['title' => 'Kept'], $this->engine()->validateValues($this->definition([$this->field('title', 'text')]), ['title' => 'Kept'], $warnings) + []);
+        $this->assertSame([], $warnings);
+        $this->assertSame('Kept', $this->engine()->render($definition, $values));
+
+        $this->assertValidationKey('values.comments.1.email', fn () => $this->engine()->validateValues($definition, [...$values, 'comments' => [['email' => 'a@example.com'], ['email' => 'bad', 'legacy' => true]]]));
+        // Preview data belongs to the definition, so an unknown key there remains an authoring error.
+        $this->assertValidationKey('template', fn () => $this->engine()->validateDefinition([...$definition, 'previewData' => ['retired' => 'x']]));
     }
 
     public function test_generated_output_and_default_expansion_are_bounded(): void

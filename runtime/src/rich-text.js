@@ -25,3 +25,12 @@ export function isRichTextEmpty(html) {
   if (/<hr(?:\s|\/?\>)|<img\s[^>]*\bsrc="[^"]+"/i.test(html)) return false;
   return sanitizeHtml(html, {allowedTags:[], allowedAttributes:{}}).replace(/&(?:nbsp|#160|#xA0);/gi,' ').replace(/\s|\u200b|\ufeff/g,'') === '';
 }
+/** Image sources of sanitized rich text, as TemplateRichText::imageSources() reads them from the DOM. */
+export function richTextImageSources(html) {
+  const sources = new Set();
+  for (const match of html.matchAll(/<img\b[^>]*?\ssrc="([^"]*)"/gi)) {
+    const source = match[1].replace(/&(amp|lt|gt|quot|#39);/g, (_, entity) => ({amp:'&', lt:'<', gt:'>', quot:'"', '#39':"'"}[entity]));
+    if (source) sources.add(source);
+  }
+  return [...sources];
+}

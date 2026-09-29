@@ -289,7 +289,7 @@ test('discovers tpl.php entrypoints and includes without importing companion pag
         '/work/form/rules.tpl.php': '@validation query fallback="/error"\n@param subid String required\n@endvalidation',
         '/work/form/success.tpl.php': '@validation body fallback="/error"\n@param name String required\n@endvalidation',
     };
-    const { loader } = fixture(files, [page]);
+    const { loader } = fixture(files, [page], { dialect: 'fast-landings-v1' });
     const result = await loader.load(page);
     assert.equal(result.entrypointUri.path, page.uri.path);
     assert.deepEqual(language.getRuntimeMacros(result.project, page.uri.toString()).map(item => item.name), ['query.subid']);
@@ -313,6 +313,21 @@ test('safe-html-v1 keeps executable sources out of the graph and include complet
     const includes = await loader.completeIncludes(page, '');
     assert.ok(includes.some(item => item.label === 'content.tpl'));
     assert.ok(!includes.some(item => item.label === 'rules.tpl.php'));
+});
+
+test('a missing or unknown configured dialect falls back to safe-html-v1 and an unknown id is diagnosed', async () => {
+    const page = document('/work/form/template.html', '@include "rules.tpl.php"\n<p>{locale}</p>');
+    const files = { '/work/form/rules.tpl.php': '@validation query fallback="/error"\n@param id String\n@endvalidation' };
+    for (const options of [{}, { dialect: 'fast-landings-v9' }]) {
+        const { loader } = fixture(files, [page], options);
+        const result = await loader.load(page);
+        assert.equal(result.dialect, 'safe-html-v1');
+        assert.equal(result.project.dialect, 'safe-html-v1');
+        assert.deepEqual(sourceTexts(result), [page.getText()], 'executable sources stay out of the safe graph');
+        const diagnostics = result.project.documents.get(page.uri.toString()).diagnostics.map(issue => issue.message);
+        assert.equal(diagnostics.some(message => /Unknown dialect "fast-landings-v9"/.test(message)), options.dialect !== undefined);
+        assert.ok(!(await loader.completeIncludes(page, '')).some(item => item.label === 'rules.tpl.php'));
+    }
 });
 
 test('safe-html-v1 does not discover a tpl.php entrypoint for a plain fragment', async () => {

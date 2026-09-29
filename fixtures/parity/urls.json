@@ -1,0 +1,487 @@
+{
+  "description": "Url, Image and Email validation follows PHP safeUrl() and FILTER_VALIDATE_EMAIL: Url is absolute HTTP(S) only; image paths are relative without ?, #, traversal or a leading slash; percent-encoding must decode away.",
+  "cases": [
+    {
+      "name": "Url accepts an absolute HTTPS URL with query and fragment",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "link": "https://example.com/page?a=b&c=d#top"
+      },
+      "expect": {
+        "ok": true,
+        "html": "[https://example.com/page?a=b&amp;c=d#top||]"
+      }
+    },
+    {
+      "name": "Url accepts an upper-case scheme and host",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "link": "HTTPS://EXAMPLE.COM/x?a=1#f"
+      },
+      "expect": {
+        "ok": true,
+        "html": "[HTTPS://EXAMPLE.COM/x?a=1#f||]"
+      }
+    },
+    {
+      "name": "Url accepts HTTP with a port",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "link": "http://example.com:8080/x"
+      },
+      "expect": {
+        "ok": true,
+        "html": "[http://example.com:8080/x||]"
+      }
+    },
+    {
+      "name": "Url accepts an IPv4 host",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "link": "https://8.8.8.8/x"
+      },
+      "expect": {
+        "ok": true,
+        "html": "[https://8.8.8.8/x||]"
+      }
+    },
+    {
+      "name": "Url accepts a bracketed IPv6 host",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "link": "https://[2606:4700:4700::1111]/"
+      },
+      "expect": {
+        "ok": true,
+        "html": "[https://[2606:4700:4700::1111]/||]"
+      }
+    },
+    {
+      "name": "Url rejects a relative path",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "link": "assets/page.html"
+      },
+      "expect": {
+        "ok": false,
+        "reason": "PHP requires HTTP(S) for Url"
+      }
+    },
+    {
+      "name": "Url rejects an absolute local path",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "link": "/local"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Url rejects a protocol-relative URL",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "link": "//example.com/x"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Url rejects javascript scheme",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "link": "javascript:alert(1)"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Url rejects credentials",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "link": "https://user@example.com/"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Url rejects an encoded space",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "link": "https://example.com/a%20b"
+      },
+      "expect": {
+        "ok": false,
+        "reason": "decoded value contains a control character"
+      }
+    },
+    {
+      "name": "Url rejects an encoded percent sign",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "link": "https://example.com/%25"
+      },
+      "expect": {
+        "ok": false,
+        "reason": "a percent sign survives decoding"
+      }
+    },
+    {
+      "name": "Url rejects a non-ASCII host",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "link": "https://exämple.com/"
+      },
+      "expect": {
+        "ok": false,
+        "reason": "FILTER_VALIDATE_URL rejects non-ASCII"
+      }
+    },
+    {
+      "name": "Url rejects a non-ASCII path",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "link": "https://example.com/ü"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Url rejects an underscore in the host",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "link": "https://example_host.com/"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Url rejects a URL longer than 2048 bytes",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "link": {
+          "$concat": [
+            "https://example.com/",
+            {
+              "$repeat": [
+                "a",
+                2040
+              ]
+            }
+          ]
+        }
+      },
+      "expect": {
+        "ok": false,
+        "reason": "2060 bytes exceed the 2048-byte URL limit"
+      }
+    },
+    {
+      "name": "Image accepts a relative asset path",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "pic": "assets/images/logo.png"
+      },
+      "expect": {
+        "ok": true,
+        "html": "[|assets/images/logo.png|]"
+      }
+    },
+    {
+      "name": "Image accepts an HTTPS URL with a query",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "pic": "https://images.example.com/logo.png?v=2"
+      },
+      "expect": {
+        "ok": true,
+        "html": "[|https://images.example.com/logo.png?v=2|]"
+      }
+    },
+    {
+      "name": "Image rejects a query string in a relative path",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "pic": "assets/a.png?v=1"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Image rejects a fragment in a relative path",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "pic": "assets/a.png#x"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Image rejects a leading slash",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "pic": "/absolute.png"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Image rejects traversal",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "pic": "../escape.png"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Image rejects encoded traversal",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "pic": "assets/%2e%2e/escape.png"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Image rejects double-encoded traversal",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "pic": "assets/%252e%252e/escape.png"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Image rejects a dot segment",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "pic": "./a.png"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Image rejects a colon",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "pic": "c:/a.png"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Image rejects backslashes",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "pic": "assets\\escape.png"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Image rejects a data URL",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "pic": "data:image/svg+xml,<svg/>"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Image rejects a protocol-relative URL",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "pic": "//other.test/logo.png"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Email accepts a plain address",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "mail": "a.b+c@sub.example.co.uk"
+      },
+      "expect": {
+        "ok": true,
+        "html": "[||a.b+c@sub.example.co.uk]"
+      }
+    },
+    {
+      "name": "Email accepts a single-letter top-level domain",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "mail": "a@b.c"
+      },
+      "expect": {
+        "ok": true,
+        "html": "[||a@b.c]"
+      }
+    },
+    {
+      "name": "Email rejects a domain without a dot",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "mail": "user@localhost"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Email rejects a missing domain",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "mail": "a@b"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Email rejects consecutive dots in the local part",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "mail": "a..b@example.com"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Email rejects a leading dot in the local part",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "mail": ".a@example.com"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Email rejects a label starting with a hyphen",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "mail": "a@-example.com"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Email rejects a trailing dot",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "mail": "a@example.com."
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Email rejects spaces",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "mail": "a b@example.com"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Email rejects an underscore in the domain",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "mail": "a@example_x.com"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Email rejects a 65-character local part",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "mail": {
+          "$repeat": [
+            "a",
+            65
+          ]
+        }
+      },
+      "expect": {
+        "ok": false,
+        "reason": "local part longer than 64 characters (value also lacks a domain, rejected either way)"
+      }
+    },
+    {
+      "name": "Markdown image with a safe relative path is allowed",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "rich": "![Alt](assets/photo.png)"
+      },
+      "expect": {
+        "ok": true,
+        "html": "[||]"
+      }
+    },
+    {
+      "name": "Markdown image with an HTTPS source is allowed",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "rich": "![Alt](https://example.com/photo.png)"
+      },
+      "expect": {
+        "ok": true,
+        "html": "[||]"
+      }
+    },
+    {
+      "name": "Markdown image with traversal is rejected",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "rich": "![Alt](../private.png)"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Markdown image with an absolute local path is rejected",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "rich": "![Alt](/private.png)"
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Markdown image with a query string is rejected",
+      "source": "@param link Url\n@param pic Image\n@param mail Email\n@param rich Markdown\n@layout\n[{{link}}|{{pic}}|{{mail}}]\n@endlayout",
+      "values": {
+        "rich": "![Alt](assets/photo.png?x=1)"
+      },
+      "expect": {
+        "ok": false
+      }
+    }
+  ]
+}

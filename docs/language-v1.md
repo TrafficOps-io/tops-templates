@@ -85,6 +85,10 @@ The parameter form is `@param name Type`, followed by zero or more options:
 - `min_items` and `max_items` constrain a custom `Type[]` repeater;
 - `aspect_ratio="16:9"` or `sizes="1200x630|1080x1080"` constrains `Image`; the two forms are mutually exclusive.
 
+An optional field with no value and no declared default is empty: it renders as empty text and is stored as `""`. There is no implicit `#000000` color, minimum number or first `Select` option. A `Boolean` is `false`, a group recurses into its fields, and a repeater is an empty list unless `min_items` requires rows, in which case each row is filled the same way. A declared default (`= "value"`) applies whenever the value is missing.
+
+A values document may carry keys that no field declares, for example after a template retires a field. Such keys are dropped with a warning; they never fail validation. A value of the wrong type or a missing required value is still an error.
+
 Built-in author types are:
 
 | Author type | Normalized type |
@@ -140,9 +144,9 @@ Blocks are typed authoring macros expanded while the source is parsed. They are 
 
 Block calls are type-checked. Unknown, recursive and excessively deep calls are rejected. `aiInstructions` is the only block option; it is retained as definition metadata when present.
 
-### `@layout`, `@if` and `@each`
+### `@layout`, `@if`, `@unless` and `@each`
 
-HTML belongs inside one `@layout … @endlayout` block per page. `@if path … @endif` emits a truthy section. `@each alias in path: … @endeach` iterates a repeater of an author-defined type. Paths use dot notation and are resolved lexically; block arguments cannot escape their scope.
+HTML belongs inside one `@layout … @endlayout` block per page. `@if path … @endif` emits a truthy section; `@if` over a list is rejected, use `@each`. `@unless path … @endunless` renders when a field is empty or false (PHP truthiness: `""`, `"0"`, `0`, `false` and empty lists are falsey) and keeps the enclosing scope, including for empty lists, which allows lossless migration of legacy inverse sections. `@each alias in path: … @endeach` iterates a repeater of an author-defined type. Paths use dot notation and are resolved lexically; block arguments cannot escape their scope. Adding a directive such as `@unless` stays within language version 1.
 
 CSS at-rules commonly found at the start of a line, including `@media`, `@supports`, `@font-face` and `@keyframes`, are treated as markup inside layout or block bodies.
 
@@ -164,6 +168,8 @@ The compiled definition uses a deliberately small Mustache-like expression set:
 - `../name` selects a parent scope and `@root.name` selects the root scope.
 
 Expressions are data lookups, not general code. Object or list settings cannot be interpolated as scalars, and formatted output is restricted to rich-text field types. Partials exist in JSON definitions; source-level reuse normally uses typed blocks and includes.
+
+`Wysiwyg` and `Markdown` values are stored exactly as the author entered them. Validation only checks them; sanitization happens when they are rendered, so the same stored value renders identically in every implementation.
 
 The common engine never rescans settings for directives, Mustache expressions or safe-runtime tokens. An application-owned post-render runtime may deliberately define another phase; for example, the documented trusted `fast-landings-v1` profile permits request tokens in stored string settings. Such behavior belongs to that dialect's threat model, not language version 1 or the safe default.
 
@@ -210,7 +216,3 @@ These are ceilings, not capacity promises. Hosts should apply tighter upload, ar
 ## Versioning
 
 The integer `version` identifies the stored language/definition contract independently of the Composer package version. Readers must reject unsupported language versions. Backward-compatible clarifications may keep version 1; a change that makes a previously valid definition mean something different requires a deliberate migration and normally a new language version.
-
-### Inverse conditions
-
-`@unless path` … `@endunless` renders when a field is empty or false. It preserves the enclosing scope, including for empty lists. This enables lossless migration of legacy inverse sections. Named `@each` loops access their row through the alias; other names retain their enclosing lexical bindings. Supported by the shared JavaScript runtime and PHP package 0.2.0.

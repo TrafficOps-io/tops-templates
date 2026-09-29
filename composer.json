@@ -76,6 +76,7 @@
             "/vscode-extension",
             "/packages",
             "/examples",
+            "/fixtures",
             "/scripts",
             "/.github",
             "/node_modules",

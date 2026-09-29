@@ -1,0 +1,449 @@
+{
+  "description": "Scalar coercion follows PHP: booleans accept true/false, 0/1 and \"0\"/\"1\"; numbers accept numeric strings; selects accept numbers; null scalars become empty.",
+  "cases": [
+    {
+      "name": "Boolean accepts the string \"1\" as true",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "flag": "1"
+      },
+      "expect": {
+        "ok": true,
+        "html": "[1|||]",
+        "values": {
+          "flag": true,
+          "size": "",
+          "pick": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "name": "Boolean accepts the string \"0\" as false",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "flag": "0"
+      },
+      "expect": {
+        "ok": true,
+        "html": "[|||]",
+        "values": {
+          "flag": false,
+          "size": "",
+          "pick": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "name": "Boolean accepts the number 1 as true",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "flag": 1
+      },
+      "expect": {
+        "ok": true,
+        "html": "[1|||]",
+        "values": {
+          "flag": true,
+          "size": "",
+          "pick": "",
+          "name": ""
+        }
+      },
+      "portableReject": "JavaScript cannot distinguish JSON integers from floats; use booleans or the strings \"0\"/\"1\"."
+    },
+    {
+      "name": "Boolean accepts the number 0 as false",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "flag": 0
+      },
+      "expect": {
+        "ok": true,
+        "html": "[|||]",
+        "values": {
+          "flag": false,
+          "size": "",
+          "pick": "",
+          "name": ""
+        }
+      },
+      "portableReject": "JavaScript cannot distinguish JSON integers from floats; use booleans or the strings \"0\"/\"1\"."
+    },
+    {
+      "name": "Boolean rejects the word \"true\"",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "flag": "true"
+      },
+      "expect": {
+        "ok": false,
+        "reason": "PHP in_array strict list: true, false, 0, 1, '0', '1'"
+      }
+    },
+    {
+      "name": "Boolean rejects null",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "flag": null
+      },
+      "expect": {
+        "ok": false,
+        "reason": "null is not in the boolean list"
+      }
+    },
+    {
+      "name": "Boolean rejects an empty string",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "flag": ""
+      },
+      "expect": {
+        "ok": false,
+        "reason": "'' is not in the boolean list"
+      }
+    },
+    {
+      "name": "Boolean rejects the JSON float 1.0",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "flag": 1.0
+      },
+      "expect": {
+        "ok": false,
+        "reason": "PHP json_decode keeps 1.0 a float, which is not in the strict boolean list"
+      }
+    },
+    {
+      "name": "Boolean rejects the JSON float 0.0",
+      "source": "@param flag Boolean\n@layout\n[{{flag}}]\n@endlayout",
+      "values": {
+        "flag": 0.0
+      },
+      "expect": {
+        "ok": false
+      }
+    },
+    {
+      "name": "Number accepts a decimal string",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "size": "20.5"
+      },
+      "expect": {
+        "ok": true,
+        "html": "[|20.5||]",
+        "values": {
+          "flag": false,
+          "size": 20.5,
+          "pick": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "name": "Number accepts a whitespace-padded numeric string like PHP is_numeric",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "size": " 20"
+      },
+      "expect": {
+        "ok": true,
+        "html": "[|20||]",
+        "values": {
+          "flag": false,
+          "size": 20,
+          "pick": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "name": "Number accepts exponent notation",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "size": "1e1"
+      },
+      "expect": {
+        "ok": true,
+        "html": "[|10||]",
+        "values": {
+          "flag": false,
+          "size": 10.0,
+          "pick": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "name": "Number accepts exponent notation and renders it as an integer",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "size": "1e1"
+      },
+      "expect": {
+        "ok": true,
+        "html": "[|10||]"
+      }
+    },
+    {
+      "name": "Number accepts a trailing decimal point",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "size": "5."
+      },
+      "expect": {
+        "ok": true,
+        "html": "[|5||]",
+        "values": {
+          "flag": false,
+          "size": 5.0,
+          "pick": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "name": "Number accepts a trailing decimal point and renders it as an integer",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "size": "5."
+      },
+      "expect": {
+        "ok": true,
+        "html": "[|5||]"
+      }
+    },
+    {
+      "name": "Number keeps a JSON number",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "size": 2.5
+      },
+      "expect": {
+        "ok": true,
+        "html": "[|2.5||]",
+        "values": {
+          "flag": false,
+          "size": 2.5,
+          "pick": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "name": "Number rejects hexadecimal strings",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "size": "0x1A"
+      },
+      "expect": {
+        "ok": false,
+        "reason": "PHP is_numeric rejects hex"
+      }
+    },
+    {
+      "name": "Number rejects booleans",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "size": true
+      },
+      "expect": {
+        "ok": false,
+        "reason": "booleans are not numbers"
+      }
+    },
+    {
+      "name": "Number rejects values off the step grid",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "size": "1.25"
+      },
+      "expect": {
+        "ok": false,
+        "reason": "step=0.5 from min=1"
+      }
+    },
+    {
+      "name": "Number rejects values above max",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "size": 101
+      },
+      "expect": {
+        "ok": false,
+        "reason": "max=100"
+      }
+    },
+    {
+      "name": "Optional Number accepts null as empty",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "size": null
+      },
+      "expect": {
+        "ok": true,
+        "html": "[|||]",
+        "values": {
+          "flag": false,
+          "size": "",
+          "pick": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "name": "Optional Number accepts an empty string as empty",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "size": ""
+      },
+      "expect": {
+        "ok": true,
+        "html": "[|||]",
+        "values": {
+          "flag": false,
+          "size": "",
+          "pick": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "name": "Select accepts a number matching an option key",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "pick": 1
+      },
+      "expect": {
+        "ok": true,
+        "html": "[||1|]",
+        "values": {
+          "flag": false,
+          "size": "",
+          "pick": "1",
+          "name": ""
+        }
+      }
+    },
+    {
+      "name": "Select accepts a numeric string option key",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "pick": "2"
+      },
+      "expect": {
+        "ok": true,
+        "html": "[||2|]",
+        "values": {
+          "flag": false,
+          "size": "",
+          "pick": "2",
+          "name": ""
+        }
+      }
+    },
+    {
+      "name": "Optional Select accepts null as empty",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "pick": null
+      },
+      "expect": {
+        "ok": true,
+        "html": "[|||]",
+        "values": {
+          "flag": false,
+          "size": "",
+          "pick": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "name": "Select rejects a number that is not an option",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "pick": 3
+      },
+      "expect": {
+        "ok": false,
+        "reason": "only 1 and 2 are options"
+      }
+    },
+    {
+      "name": "Optional String accepts null as empty",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "name": null
+      },
+      "expect": {
+        "ok": true,
+        "html": "[|||]",
+        "values": {
+          "flag": false,
+          "size": "",
+          "pick": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "name": "String rejects a number",
+      "source": "@param flag Boolean\n@param size Number min=1 max=100 step=0.5\n@param pick Select options=\"1:One|2:Two\"\n@param name String\n@layout\n[{{flag}}|{{size}}|{{pick}}|{{name}}]\n@endlayout",
+      "values": {
+        "name": 5
+      },
+      "expect": {
+        "ok": false,
+        "reason": "text fields require strings"
+      }
+    },
+    {
+      "name": "Required String rejects null",
+      "source": "@param name String required\n@layout\n{{name}}\n@endlayout",
+      "values": {
+        "name": null
+      },
+      "expect": {
+        "ok": false,
+        "reason": "null becomes '' which is required"
+      }
+    },
+    {
+      "name": "Required String rejects PHP-blank whitespace",
+      "source": "@param name String required\n@layout\n{{name}}\n@endlayout",
+      "values": {
+        "name": " \t\n"
+      },
+      "expect": {
+        "ok": false,
+        "reason": "trim() leaves nothing"
+      }
+    },
+    {
+      "name": "Required Number rejects an empty string",
+      "source": "@param size Number required\n@layout\n{{size}}\n@endlayout",
+      "values": {
+        "size": ""
+      },
+      "expect": {
+        "ok": false,
+        "reason": "required"
+      }
+    },
+    {
+      "name": "Very large numbers render in PHP float notation",
+      "source": "@param big Number\n@layout\n[{{big}}]\n@endlayout",
+      "values": {
+        "big": 1e+25
+      },
+      "expect": {
+        "ok": true,
+        "html": "[1.0E+25]"
+      },
+      "portableReject": "Portable numeric values stay below 1e14 so integer and float formatting agree."
+    }
+  ]
+}

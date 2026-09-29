@@ -1,43 +1,43 @@
-# TrafficOps Templates для VS Code
+# TrafficOps Templates for VS Code
 
-Подсветка синтаксиса, IntelliSense и formatter для DSL шаблонов Fast Landings v1. Типы вроде `Comment` объявляет автор шаблона через `@type`; расширение читает эти объявления и подключаемые через `@include` файлы.
+Syntax highlighting, IntelliSense and a formatter for the **TrafficOps Template Language** (TPL), the language of `.tpl` files rendered by the `trafficops/template-dsl` PHP package, the portable JavaScript runtime, the CLI and Template Studio. Record types such as `Comment` are declared by the template author with `@type`; the extension reads those declarations and the files pulled in through `@include`.
 
-## Возможности
+Extension id: `trafficops-io.tops-templates`, version 0.1.0, workspace package `tops-templates` in this monorepo. The language id, settings namespace and snippets file still carry their historical `fast-landings` names; see [Planned rename](#planned-rename).
 
-- Подсветка директив, типов, параметров, блоков, значений и `{{ интерполяций }}` вместе с HTML, CSS и JavaScript.
-- Дополнение директив и готовые snippets для шаблона, секций, типов, блоков, циклов и условий.
-- Встроенные и пользовательские типы после `@param` и в аргументах `@block`.
-- Редакторы `Wysiwyg` и `Markdown`, подсветка и дополнение `{{& path}}`, hover и F12 для форматированного содержимого.
-- Поля объектов после точки: `{{ comment.author. }}` предлагает поля типа `Author`.
-- Локальные аргументы блоков и переменные циклов с учётом вложенности и области видимости.
-- Дополнение имён блоков и подходящих по типу аргументов в `@render`, подсказки сигнатур.
-- Опции параметров: `label`, `help`, `aiInstructions`, `required`, числовые ограничения, варианты `Select`, границы списков, `aspect_ratio` и `sizes` для изображений.
-- Аннотация `aiInstructions` для полей и блоков: подсветка, автодополнение и текст инструкций при наведении.
-- Опциональные `previewData` и `previewUrl`: подсказки, проверка JSON, подсветка и форматирование блока данных для превью.
-- Пути `@include`, переход к объявлениям через F12, сведения при наведении, Outline и сворачивание блоков.
-- Изменения в открытых, ещё не сохранённых файлах сразу участвуют в подсказках.
-- **Format Document** и форматирование при сохранении: отступы DSL, HTML, CSS и JavaScript со встроенным Prettier.
-- Два выбираемых хостом профиля языка: безопасный общий `safe-html-v1` и совместимый с Fast Landings `fast-landings-v1`.
+## Features
 
-## Установка
+- Highlighting of directives, types, fields, blocks, values and `{{ expressions }}` together with HTML, CSS and JavaScript.
+- Directive completion and snippets for the template header, sections, types, blocks, loops and conditions.
+- Built-in and author-defined types after `@param` and in `@block` arguments.
+- `Wysiwyg` and `Markdown` fields: highlighting and completion of `{{& path}}`, hover and Go to Definition for formatted output.
+- Record members after a dot: `{{ comment.author. }}` lists the fields of the `Author` type.
+- Block arguments and loop aliases with correct nesting and lexical scope.
+- Completion of block names and type-matching arguments in `@render`, plus signature help.
+- Field options: `label`, `help`, `aiInstructions`, `required`, numeric bounds, `Select` options, repeater bounds, `aspect_ratio` and `sizes` for images.
+- `aiInstructions` on fields and blocks: highlighting, completion and the instruction text on hover.
+- Optional `previewData` and `previewUrl`: hints, JSON validation, highlighting and formatting of the preview block.
+- `@include` paths, Go to Definition, hover, Outline and folding.
+- Unsaved edits in open files take part in analysis immediately.
+- **Format Document** and format on save for TPL declarations plus embedded HTML, CSS and JavaScript through bundled Prettier.
+- Two host-selected dialects: the safe shared `safe-html-v1` and the trusted `fast-landings-v1`.
 
-Из корня монорепозитория:
+## Installation
+
+Download the `.vsix` file from [GitHub Releases](https://github.com/trafficops-io/tops-templates/releases) and run **Extensions: Install from VSIX…**. To build it from the repository root:
 
 ```sh
-npm install
-npm run package --workspace=tpl-vscode-plugin
-code --install-extension packages/tpl-vscode-plugin/dist/tpl-vscode-plugin-0.4.0.vsix
+npm ci
+npm run build:vsix
+code --install-extension vscode-extension/dist/tops-templates-0.1.0.vsix
 ```
 
-Либо в VS Code: **Extensions → … → Install from VSIX…**, затем выбрать полученный файл. Публикация в Marketplace и учётная запись издателя не требуются для установки VSIX.
+The extension supports VS Code **1.85+**. Development and packaging need Node.js **22+**. No Marketplace account is required to install a VSIX.
 
-Расширение поддерживает VS Code **1.85+**. Для разработки и упаковки нужен Node.js **22+**.
+## Getting started
 
-## Как начать
+Files named `*.tpl`, `*.tpl.html`, `*.tpl.txt` and `*.tpl.php` open in **TrafficOps Templates** mode. Plain `.html`, `.txt` and `.php` files switch to it automatically when they start with an `@template` declaration (`fastLandingsTemplates.autoDetect`); other HTML files keep their mode. `.tpl.php` sources belong to the `fast-landings-v1` dialect only; the safe dialect reports them as a diagnostic.
 
-Файлы `.tpl`, `.tpl.html`, `.tpl.txt` и `.tpl.php` открываются в режиме **TrafficOps Templates**. Для `.html`, `.txt` и `.php` режим автоматически определяется по декларации `@template` в начале файла. Обычные HTML-файлы сохраняют свой режим. `.tpl.php` является возможностью только профиля `fast-landings-v1`; безопасный профиль покажет диагностическую ошибку.
-
-Для файла с другим именем выберите **TrafficOps Templates** в переключателе языка или выполните команду **Fast Landings: Use TrafficOps Templates Language**. Явные ассоциации можно задать в настройках проекта:
+For a file with another name, pick **TrafficOps Templates** in the language picker or run the command **Use TrafficOps Templates Language**. Explicit associations can be configured per project:
 
 ```json
 {
@@ -47,7 +47,7 @@ code --install-extension packages/tpl-vscode-plugin/dist/tpl-vscode-plugin-0.4.0
 }
 ```
 
-Откройте `examples/template.tpl` вместе с `examples/blocks/comment.tpl`. После точки в `{{ comment.author. }}` вызовите **Ctrl+Space**, чтобы увидеть поля авторского типа.
+Open `examples/template.tpl` together with `examples/blocks/comment.tpl`, then press **Ctrl+Space** after the dot in `{{ comment.author. }}` to see the fields of the author type.
 
 ```html
 @template "Comments" version=1
@@ -75,16 +75,16 @@ code --install-extension packages/tpl-vscode-plugin/dist/tpl-vscode-plugin-0.4.0
 @endlayout
 ```
 
-Директивы располагаются на отдельных строках. Версия 1 использует `@if … @endif`, без `@else`. Полный контракт языка находится в [docs/language-v1.md](../docs/language-v1.md).
+Directives sit on their own lines. Language version 1 has `@if … @endif` and `@unless … @endunless` but no `@else`. The complete language contract is [docs/language-v1.md](../docs/language-v1.md).
 
-## Профили языка
+## Dialects
 
-Профиль выбирает приложение или workspace через `fastLandingsTemplates.dialect`. Сам текст шаблона не может повысить свои возможности или переключить профиль. Значение по умолчанию — `safe-html-v1`. Профиль `fast-landings-v1` предназначен только для внешнего приложения с доверенным исполняемым диалектом.
+The host application or the workspace selects the dialect through `fastLandingsTemplates.dialect`. Template text can never raise its own capabilities or switch the dialect. The default, and the fallback for an unknown identifier, is `safe-html-v1`; an unknown identifier is reported as a warning on the first line of each document. `fast-landings-v1` is only for an external application that ships a trusted executable dialect.
 
-- `safe-html-v1` — неисполняемый общий профиль. Доступны только runtime-макросы `{query.name}`, `{locale}` и `{actions.name}`. `@validation`, `headers`, `body`, wildcard-макросы, PHP и источники `.tpl.php` диагностируются как недоступные.
-- `fast-landings-v1` — текущий доверенный профиль Fast Landings: PHP-блоки, `@validation` и `{query…}`, `{headers…}`, `{body…}`, включая вложенные пути и `*`.
+- `safe-html-v1` is the non-executable shared dialect. Only the runtime tokens `{query.name}`, `{locale}` and `{actions.name}` are available. `@validation`, `headers`, `body`, wildcard tokens, PHP and `.tpl.php` sources are diagnosed as unavailable.
+- `fast-landings-v1` is the trusted Fast Landings dialect: PHP blocks, `@validation` and `{query…}`, `{headers…}`, `{body…}` including nested paths and `*`.
 
-Например, для проекта на общем пакете `template-dsl`:
+For a project built on the shared `template-dsl` package:
 
 ```json
 {
@@ -92,68 +92,68 @@ code --install-extension packages/tpl-vscode-plugin/dist/tpl-vscode-plugin-0.4.0
 }
 ```
 
-## Превью шаблона
+## Template preview
 
-Для генерации изображения превью задайте опциональный JSON-объект с демонстрационными значениями полей. Объявите блок на верхнем уровне, вне `@type`, `@section`, `@block` и `@layout`:
+To generate a preview image, provide an optional JSON object with sample field values. Declare the block at the top level, outside `@type`, `@section`, `@block` and `@layout`:
 
 ```html
 @template "Comments" version=1
 @previewData
 {
-  "title": "Истории наших читателей",
-  "comments": [{ "author": "Анна", "body": "Спасибо за подробный обзор!" }]
+  "title": "Stories from our readers",
+  "comments": [{ "author": "Anna", "body": "Thanks for the detailed review!" }]
 }
 @endpreviewData
 
-@param title String = "Новый заголовок"
+@param title String = "New headline"
 ```
 
-`previewData` используется только для превью и не меняет значения полей по умолчанию у создаваемого лендинга. Значения должны соответствовать полям шаблона, включая вложенные объекты и списки. Допускается один блок или короткая запись в заголовке: `@template "Comments" version=1 previewData='{"title":"Демо"}'`. В записи в заголовке обратные слеши JSON нужно дополнительно экранировать по правилам строк DSL; многострочный блок содержит обычный JSON.
+`previewData` is used for the preview only and does not change the default values of a landing created from the template. The values must match the template's fields, including nested records and lists; a key that names no field is a definition error. One block or the short header form is allowed: `@template "Comments" version=1 previewData='{"title":"Demo"}'`. In the header form, JSON backslashes must be escaped again under the TPL string rules; the multi-line block contains plain JSON.
 
-Если доступно публичное превью, укажите `previewUrl="https://example.com/demo"` в строке `@template`. URL публичной HTTP(S)-страницы или изображения имеет приоритет перед `previewData` при генерации превью. Сервер проверяет доступность и допустимость адреса.
+If a public preview exists, add `previewUrl="https://example.com/demo"` to the `@template` line. A public HTTP(S) page or image URL takes precedence over `previewData` when the preview is generated. The server checks that the address is reachable and allowed.
 
-Сниппеты `tpl-preview-data` и `tpl-preview-url` вставляют готовые объявления. Formatter отдельно форматирует JSON, сохраняет его значения и не интерпретирует HTML или `{{…}}` внутри строк. Некорректный или незакрытый блок сохраняется без изменений. Расширение отмечает ошибки JSON, повторный `previewData`, пропущенную закрывающую директиву и некорректный формат URL. Соответствие данных полям и безопасность URL окончательно проверяет сервер Fast Landings.
+The snippets `tpl-preview-data` and `tpl-preview-url` insert ready-made declarations. The formatter formats the JSON separately, preserves its values and does not interpret HTML or `{{…}}` inside strings. An invalid or unclosed block is left unchanged. The extension flags JSON errors, a duplicate `previewData`, a missing closing directive and a malformed URL. Field conformance and URL safety are finally checked by the host.
 
-## Изображения: пропорции и размеры
+## Images: aspect ratio and sizes
 
-Для `Image` расширение предлагает два взаимоисключающих параметра:
+`Image` fields accept two mutually exclusive options:
 
 ```html
 @param cover Image label="Cover" aspect_ratio="16:9"
 @param avatar Image label="Avatar" sizes="128x128|256x256"
 ```
 
-`aspect_ratio` задаёт пропорции кропа; допускается также число, например `1.5`. `sizes` задаёт варианты точных размеров в пикселях. После указания одного параметра второй больше не предлагается. Подсказки работают и внутри `@type`, в том числе для полей повторяемых блоков.
+`aspect_ratio` sets the crop ratio; a number such as `1.5` is also accepted. `sizes` lists exact output sizes in pixels. Once one option is present, the other is no longer suggested. Completion works inside `@type` as well, including fields of repeated records.
 
-Сниппеты `tpl-image-ratio` и `tpl-image-sizes` вставляют готовые объявления. Подсветка распознаёт имена опций и значения, а formatter сохраняет декларации на одной строке и не меняет их значения. Окончательную проверку диапазонов и корректности размеров выполняет сервер Fast Landings при импорте шаблона; расширение не заменяет эту валидацию.
+The snippets `tpl-image-ratio` and `tpl-image-sizes` insert ready-made declarations. Highlighting recognizes option names and values, and the formatter keeps the declaration on one line without changing its values. Range and size validation is performed by the host when the template is imported; the extension does not replace it.
 
-## Инструкции для AI
+## AI instructions
 
-Добавьте `aiInstructions="…"` в объявление поля или после аргументов блока:
+Add `aiInstructions="…"` to a field declaration or after the arguments of a block:
 
 ```html
 @type Article
-  @param title String aiInstructions="Напиши короткий заголовок."
-  @param body Text aiInstructions="Используй простой язык.\nРазделяй текст на абзацы."
+  @param title String aiInstructions="Write a short headline."
+  @param body Text aiInstructions="Use plain language.\nSplit the text into paragraphs."
 @endtype
-@param article Article aiInstructions="Согласуй заголовок и основной текст."
-@param related Article[] aiInstructions="Каждая запись раскрывает отдельную тему."
+@param article Article aiInstructions="Keep the headline and body consistent."
+@param related Article[] aiInstructions="Each entry covers a distinct topic."
 
-@block articleBody(value: Article) aiInstructions="Начни с введения (кратко)."
+@block articleBody(value: Article) aiInstructions="Start with a brief introduction."
   <h1>{{value.title}}</h1>
   <p>{{value.body}}</p>
 @endblock
 ```
 
-Автодополнение предлагает опцию у всех `@param`, в том числе внутри `@type`, и после закрывающей скобки `@block`. Уже указанная опция повторно не предлагается. Сниппет `tpl-ai-instructions` вставляет аннотацию, а наведение на поле или блок показывает её текст. Formatter сохраняет кавычки, пробелы и escape-последовательности в инструкции.
+Completion offers the option on every `@param`, including inside `@type`, and after the closing parenthesis of `@block`. An option that is already present is not offered again. The snippet `tpl-ai-instructions` inserts the annotation, and hovering a field or block shows its text. The formatter preserves quotes, spaces and escape sequences in the instruction.
 
-Fast Landings сохраняет инструкции как метаданные шаблона: у полей — в `aiInstructions`, у именованных блоков — в `blocks.<имя>.aiInstructions`. Допускается UTF-8 строка до 10 000 байт, включая пустую. Декларация остаётся на одной строке; для переноса внутри инструкции используйте `\n`. Аннотация сама по себе не запускает AI-генерацию и не меняет HTML или значения полей.
+Hosts store the instructions as template metadata: on fields as `aiInstructions`, on named blocks as `blocks.<name>.aiInstructions`. A UTF-8 string of up to 10,000 bytes is allowed, including an empty one. The declaration stays on one line; use `\n` for a line break inside the instruction. The annotation by itself does not trigger AI generation and does not change HTML or field values.
 
-## WYSIWYG и Markdown
+## WYSIWYG and Markdown
 
 ```html
-@param body Wysiwyg = "<p>Текст с <strong>форматированием</strong>.</p>" label="Статья"
-@param details Markdown = "## Подробности\n\n![Фото](assets/photo.jpg)" label="Подробности"
+@param body Wysiwyg = "<p>Text with <strong>formatting</strong>.</p>" label="Article"
+@param details Markdown = "## Details\n\n![Photo](assets/photo.jpg)" label="Details"
 
 @layout
   <article>{{& body}}</article>
@@ -161,19 +161,19 @@ Fast Landings сохраняет инструкции как метаданны�
 @endlayout
 ```
 
-`{{& path}}` выводит очищенный HTML из `Wysiwyg` или `Markdown`; обычный `{{path}}` экранирует сохранённую строку. Используйте форматированный вывод внутри `article`, `div`, `section` и подобных контейнеров тела страницы. Атрибуты, `script`, `style` и оборачивающий `p` для него не подходят; тройные фигурные скобки не поддерживаются сервером.
+`{{& path}}` outputs sanitized HTML from a `Wysiwyg` or `Markdown` field; a plain `{{path}}` escapes the stored string. Values are stored exactly as the author entered them and sanitized when rendered. Use formatted output inside `article`, `div`, `section` and similar body containers. Attributes, `script`, `style` and a wrapping `p` are not suitable; triple braces are not supported.
 
-Подсказки работают после `&` и точки, в том числе для полей `@type`, аргументов блоков, переменных циклов и объявлений из `@include`. В форматированных выражениях предлагаются поля редакторов и объекты с такими полями. Примитивные алиасы из `customTypes` также доступны: соответствие алиаса редактору проверяет Laravel, поскольку плагин не исполняет PHP-регистрацию типов.
+Completion works after `&` and after a dot, including fields of `@type` records, block arguments, loop aliases and declarations from `@include`. In formatted expressions the editor offers rich-text fields and records that contain them. Primitive aliases from `customTypes` are available too; the host checks whether an alias maps to an editor, because the extension does not execute PHP type registration.
 
-Сниппеты: `tpl-wysiwyg`, `tpl-markdown`, `tpl-rich-value`. Пример с подключаемым типом, блоком и повторяемыми статьями: `examples/rich-text/template.tpl`. Formatter сохраняет значения HTML/Markdown, ссылки на изображения и выражения `{{& …}}`.
+Snippets: `tpl-wysiwyg`, `tpl-markdown`, `tpl-rich-value`. See `examples/rich-text/template.tpl` for an included type, a block and repeated articles. The formatter preserves HTML/Markdown values, image references and `{{& …}}` expressions.
 
-Вставка и загрузка изображений выполняются в редакторах Fast Landings. Хранилище задаётся нативным Laravel Filesystem disk — локальным или S3 — через `FAST_LANDINGS_MEDIA_DISK`; при публикации изображения переносятся в статический выпуск. Эти настройки не являются DSL-опциями и не требуют настройки в VS Code. В CLI и браузерном редакторе TrafficOps изображения указываются относительными путями; загрузка на сервер не выполняется.
+Image insertion and upload happen in the host's editors; they are not TPL options and need no VS Code configuration. In the CLI and Template Studio, images are referenced by relative paths and nothing is uploaded.
 
-## Макросы запроса и валидация Fast Landings
+## Request tokens and validation (fast-landings-v1)
 
-Значения текущего HTTP-запроса доступны через одинарные фигурные скобки: `{query.subid}`, `{headers.user-agent}`, `{body.name}`. Вложенные пути поддерживаются, например `{body.customer.name}`; `{query.*}`, `{headers.*}` и `{body.*}` выводят весь источник как JSON. `{{title}}` по-прежнему читает сохранённый параметр шаблона.
+Values of the current HTTP request are available through single braces: `{query.subid}`, `{headers.user-agent}`, `{body.name}`. Nested paths such as `{body.customer.name}` are supported; `{query.*}`, `{headers.*}` and `{body.*}` output the whole source as JSON. `{{title}}` still reads the stored template field.
 
-Объявите правила на верхнем уровне нужной страницы, например в `index.tpl.php`:
+Declare rules at the top level of the page they apply to, for example in `index.tpl.php`:
 
 ```html
 @validation query fallback="/error"
@@ -182,7 +182,7 @@ Fast Landings сохраняет инструкции как метаданны�
 @endvalidation
 ```
 
-В `success.tpl.php` можно проверить отправленную форму:
+A submitted form can be checked in `success.tpl.php`:
 
 ```html
 @validation body fallback="submit-error"
@@ -191,25 +191,25 @@ Fast Landings сохраняет инструкции как метаданны�
 @endvalidation
 
 @layout
-  <p>Спасибо за заказ, {body.name}! Мы перезвоним на {body.phone}.</p>
+  <p>Thank you for your order, {body.name}! We will call you back on {body.phone}.</p>
 @endlayout
 ```
 
-Типы запроса: `String`, `Number`, `Integer`, `Boolean`. `required` требует значение; `min` и `max` ограничивают длину строки в Unicode-символах или числовое значение. `length` задаёт точную длину строки; прежнее написание `lenght` принимается как алиас. В строковой `mask` каждая точка обозначает одну цифру, остальные символы должны совпасть буквально. Имена заголовков нечувствительны к регистру. Опциональный локальный `fallback` перенаправляет невалидный запрос до вывода страницы; без него сервер отвечает `422 Invalid request.`.
+Request types are `String`, `Number`, `Integer` and `Boolean`. `required` demands a value; `min` and `max` bound the string length in Unicode characters or the numeric value. `length` sets an exact string length; the historical spelling `lenght` is accepted as an alias. In a string `mask`, each dot matches one digit and every other character must match literally. Header names are case-insensitive. The optional local `fallback` redirects an invalid request before the page renders; without it the server answers `422 Invalid request.`.
 
-Параметры внутри `@validation` принадлежат HTTP-запросу: они не создают поля настроек лендинга. Правила и подсказки относятся к своей странице и явно подключённым файлам, соседние страницы их не наследуют. Макросы разрешены также внутри значений настроек лендинга, например `Спасибо, {body.name}!`; такая строка подставляется при запросе посетителя.
+Fields inside `@validation` belong to the HTTP request: they do not create landing fields. Rules and completions apply to their own page and its explicitly included files; neighbouring pages do not inherit them. Tokens are also allowed inside a landing's values, for example `Thanks, {body.name}!`; such a string is substituted when a visitor requests the page.
 
-Автодополнение после `{` предлагает источники, после точки — объявленные поля, вложенные пути, распространённые заголовки и `*`. Поддерживаются переход к объявлению, сведения о типе и правилах при наведении, Outline и сворачивание `@validation`. Сниппеты: `tpl-validation` и `tpl-macro`. Примеры — `examples/runtime/`.
+Completion after `{` offers the sources, and after a dot the declared fields, nested paths, common headers and `*`. Go to Definition, hover with type and rules, Outline and folding of `@validation` are supported. Snippets: `tpl-validation` and `tpl-macro`. Examples live in `examples/runtime/`.
 
-Литерал макроса экранируется обратным слешем: `\{body.name}`. Вывод значений запроса допускается в тексте и безопасных HTML-атрибутах; `script`, `style` и обработчики событий для него не подходят. Для JavaScript передайте значение через `data-*` и прочитайте его из DOM.
+A literal token is escaped with a backslash: `\{body.name}`. Request values may appear in text and in safe HTML attributes; `script`, `style` and event handlers are not suitable. For JavaScript, pass the value through a `data-*` attribute and read it from the DOM.
 
-PHP-блоки `<?php … ?>` и `<?= … ?>` непрозрачны для DSL: их содержимое не создаёт параметры и подсказки макросов, formatter сохраняет код без изменения. Макросы пишутся в шаблонной разметке вне PHP. PHP-строки, комментарии и heredoc также сохраняются.
+PHP blocks `<?php … ?>` and `<?= … ?>` are opaque to TPL: their contents create no fields or token completions, and the formatter leaves the code unchanged. Tokens are written in the template markup outside PHP. PHP strings, comments and heredocs are preserved as well.
 
-## Форматирование
+## Formatting
 
-Выполните **Format Document** (macOS: **Shift+Option+F**, Windows/Linux: **Shift+Alt+F**). Весь файл форматируется с учётом вложенности `@type`, `@section`, `@block`, `@layout`, `@if`, `@each` и `@validation`. Внутри разметки форматируются HTML, `<style>` и `<script>`. Размер отступа и tabs/spaces берутся из настроек текущего редактора.
+Run **Format Document** (macOS: **Shift+Option+F**, Windows/Linux: **Shift+Alt+F**). The whole file is formatted with the nesting of `@type`, `@section`, `@block`, `@layout`, `@if`, `@unless`, `@each` and `@validation` taken into account. Inside markup, HTML, `<style>` and `<script>` are formatted. Indent size and tabs/spaces follow the current editor settings.
 
-Для форматирования при сохранении добавьте в настройки VS Code:
+For format on save, add to your VS Code settings:
 
 ```json
 {
@@ -224,23 +224,23 @@ PHP-блоки `<?php … ?>` и `<?= … ?>` непрозрачны для DSL:
 }
 ```
 
-`@param` и остальные DSL-декларации остаются на одной строке: перенос строки изменил бы их смысл для компилятора. Значения в кавычках, интерполяции и содержимое `pre`/`textarea` сохраняются. Если фрагмент ещё не дописан и не разбирается, formatter сохраняет его исходный текст.
+`@param` and the other TPL declarations stay on one line: a line break would change their meaning to the compiler. Quoted values, interpolations and the contents of `pre`/`textarea` are preserved. If a passage is still incomplete and cannot be parsed, the formatter keeps its original text.
 
-Для элемента с особым форматированием текста, например `white-space`, заданным через внешний CSS-класс, можно поставить `<!-- prettier-ignore -->` перед открывающим тегом. Его содержимое останется как есть. `pre`, `textarea` и элементы с явным inline `white-space: pre`, `pre-wrap`, `pre-line` или `break-spaces` защищены автоматически.
+For an element whose text formatting is special, for example `white-space` set through an external CSS class, put `<!-- prettier-ignore -->` before the opening tag and its contents are left as they are. `pre`, `textarea` and elements with an explicit inline `white-space: pre`, `pre-wrap`, `pre-line` or `break-spaces` are protected automatically.
 
-Prettier и необходимые HTML/CSS/JavaScript parsers входят в VSIX. Установка отдельного расширения Prettier или npm-зависимостей в проект шаблона не нужна. Formatter не загружает и не исполняет конфигурационные файлы и плагины из workspace. `.prettierrc` не используется; параметры задаются через настройки VS Code выше.
+Prettier and the required HTML/CSS/JavaScript parsers ship inside the VSIX. Neither a separate Prettier extension nor npm dependencies in the template project are needed. The formatter does not load or execute configuration files or plugins from the workspace; `.prettierrc` is not used, the settings above apply.
 
-## Подключаемые файлы
+## Included files
 
-`@include "blocks/comment.tpl"` всегда разрешается относительно корня пакета шаблона, в том числе внутри вложенных фрагментов. Корень определяется по ближайшему `template.html`, `template.txt` или `template.tpl`, который подключает текущий файл. Поиск ограничен открытым workspace; для файла вне workspace используется его собственная папка.
+`@include "blocks/comment.tpl"` is always resolved relative to the template package root, also from nested includes. The root is the nearest `template.html`, `template.txt`, `template.tpl`, `index.tpl` or `index.tpl.html` (and `index.tpl.php`, `template.tpl.php` in the trusted dialect) that includes the current file. The search is limited to the open workspace; a file outside the workspace uses its own folder.
 
-Объявления соседнего, не связанного через `@include` шаблона не попадают в подсказки. Отсутствующий или ещё не дописанный include не блокирует редактирование остальных файлов. Источники читаются как текст и никогда не исполняются.
+Declarations of a neighbouring template that is not connected through `@include` do not leak into completions. A missing or unfinished include does not block editing of the other files. Sources are read as text and never executed.
 
-## Настройки
+## Settings
 
 ```json
 {
-  "fastLandingsTemplates.dialect": "fast-landings-v1",
+  "fastLandingsTemplates.dialect": "safe-html-v1",
   "fastLandingsTemplates.autoDetect": true,
   "fastLandingsTemplates.customTypes": ["Headline", "Spacing"],
   "emmet.includeLanguages": {
@@ -249,26 +249,40 @@ Prettier и необходимые HTML/CSS/JavaScript parsers входят в V
 }
 ```
 
-`customTypes` нужен только для примитивных алиасов, зарегистрированных разработчиком приложения в `TemplateFieldTypes`. Типы объектов из `@type` обнаруживаются автоматически; перечислять их в настройках не нужно. Emmet подключается по желанию. Полноценные языковые сервисы HTML/CSS/JavaScript расширение не подменяет: IntelliSense предоставляется для DSL, а встроенные TextMate-грамматики отвечают за подсветку разметки, стилей и скриптов.
+`customTypes` is only needed for primitive aliases registered by the application developer in `TemplateFieldTypes`. Record types from `@type` are discovered automatically and need not be listed. Emmet is optional. The extension does not replace the full HTML/CSS/JavaScript language services: IntelliSense is provided for TPL, and the built-in TextMate grammars highlight markup, styles and scripts.
 
-## Разработка и проверки
+## Planned rename
+
+The language is the TrafficOps Template Language, but several identifiers still carry the historical Fast Landings name. Renaming them is a breaking change for user settings, `files.associations` and Marketplace metadata, so it is tracked separately and will ship in a dedicated release with a migration note. The planned mapping is:
+
+| Today | Planned |
+| --- | --- |
+| Language id `fast-landings-tpl` | `tops-tpl` |
+| Grammar scope `text.html.fast-landings-tpl`, injection `fast-landings-tpl.injection` | `text.html.tops-tpl`, `tops-tpl.injection` |
+| Grammar file `syntaxes/fast-landings-tpl.tmLanguage.json` | `syntaxes/tops-tpl.tmLanguage.json` |
+| Snippets file `snippets/fast-landings-tpl.json` | `snippets/tops-tpl.json` |
+| Settings `fastLandingsTemplates.dialect`, `.autoDetect`, `.customTypes`, `.format.enable`, `.format.printWidth` | `topsTemplates.dialect`, `.autoDetect`, `.customTypes`, `.format.enable`, `.format.printWidth` |
+| Command `fastLandingsTemplates.setLanguage` (category "Fast Landings") | `topsTemplates.setLanguage` (category "TrafficOps") |
+| Configuration default block `[fast-landings-tpl]` | `[tops-tpl]` |
+
+The dialect identifier `fast-landings-v1` is not part of this rename: it names the trusted application dialect and stays as documented in [docs/dialects.md](../docs/dialects.md).
+
+## Development and checks
 
 ```sh
-npm run check --workspace=tpl-vscode-plugin
-npm test --workspace=tpl-vscode-plugin
-npm run test:integration --workspace=tpl-vscode-plugin
-npm run test:runtime --workspace=tpl-vscode-plugin
-npm run package --workspace=tpl-vscode-plugin
+npm run check --workspace=tops-templates
+npm test --workspace=tops-templates
+npm run test:integration --workspace=tops-templates
+npm run test:runtime --workspace=tops-templates
+npm run package --workspace=tops-templates
 ```
 
-Откройте папку этого пакета в VS Code и нажмите **F5**, чтобы запустить Extension Development Host с примерами.
+Open this package's folder in VS Code and press **F5** to start an Extension Development Host with the examples.
 
-Unit-тесты проверяют formatter, семантические подсказки, включения и реальную токенизацию TextMate через Oniguruma. Интеграционные тесты запускают отдельный Extension Host с временными workspace, профилем и каталогом расширений; проверяют также Format Document, Format on Save и настройки отступов. На macOS используется установленный `/Applications/Visual Studio Code.app`; для другой установки задайте `VSCODE_EXECUTABLE_PATH`. Если локальный исполняемый файл не найден, официальный `@vscode/test-electron` скачает стабильную версию VS Code. `TPL_EXTENSION_PATH` позволяет проверить расширение, извлечённое из VSIX, вне монорепозитория.
+Unit tests cover the formatter, semantic completions, includes and real TextMate tokenization through Oniguruma. Integration tests start a separate Extension Host with temporary workspaces, profile and extensions directory, and also check Format Document, format on save and indentation settings. On macOS the installed `/Applications/Visual Studio Code.app` is used; for another installation set `VSCODE_EXECUTABLE_PATH`. If no local executable is found, the official `@vscode/test-electron` downloads a stable VS Code. `TPL_EXTENSION_PATH` allows testing an extension extracted from a VSIX outside the monorepo.
 
-Отдельная проверка `test:runtime` требует PHP с DOM и установленных Composer-зависимостей в корне репозитория. Она компилирует шаблоны до и после форматирования настоящим серверным parser/renderer и сравнивает форму, значения, разметку, CSS и поведение тестового JavaScript.
+`test:runtime` needs PHP with the DOM extension and the Composer dependencies installed at the repository root. It compiles templates before and after formatting with the real PHP parser and renderer and compares form, values, markup, CSS and the behaviour of the test JavaScript.
 
-`@trafficops/template-language` содержит анализатор DSL без VS Code API, `src/projects.js` разрешает include-граф через `workspace.fs`, `@trafficops/template-language/formatter` форматирует DSL и встроенные языки, а `src/extension.js` подключает редакторские providers. `npm run build` собирает их вместе с Prettier в `build/extension.js`; VSIX включает этот bundle и лицензию Prettier, без зависимости от `node_modules` пользователя. Подсветка хранится отдельно в `syntaxes/`, snippets — в `snippets/`.
+`@trafficops/template-language` contains the TPL analyzer without any VS Code API, `src/projects.js` resolves the include graph through `workspace.fs`, `@trafficops/template-language/formatter` formats TPL and the embedded languages, and `src/extension.js` wires up the editor providers. `npm run build` bundles them together with Prettier into `build/extension.js`; the VSIX ships that bundle and the Prettier licence without depending on the user's `node_modules`. Highlighting lives in `syntaxes/`, snippets in `snippets/`.
 
-Расширение следует DSL v1. При расширении серверного языка обновляйте его каталог директив/типов, анализатор, грамматику и соответствующие тесты; сервер Fast Landings остаётся источником окончательной проверки шаблона.
-
-The extension bundles `@trafficops/template-language` and its formatter. Its Marketplace identity remains `trafficops-io.tops-templates`.
+The extension follows language version 1. When the language grows, update the directive/type catalogue, the analyzer, the grammar and the corresponding tests together; the PHP reference implementation remains the final authority on template validity.

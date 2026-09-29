@@ -33,8 +33,7 @@ final class TemplateEngine
         if (! in_array($field['type'], TemplateRichText::TYPES, true)) {
             $this->valueError($path, 'This setting is not a rich text field.');
         }
-        $budget = self::MAX_VALUES;
-        $value = $this->normalizeField($field, $value, $path, false, $budget);
+        $value = $this->normalizeField($field, $value, $path, false, new ValueValidation(self::MAX_VALUES));
 
         return $this->richText->render($field['type'], $value);
     }
@@ -164,10 +163,14 @@ final class TemplateEngine
             if (! is_array($values) || ($values !== [] && array_is_list($values))) {
                 $this->invalid('previewData must be an object containing template settings.');
             }
-            $budget = self::MAX_VALUES;
+            $validation = new ValueValidation(self::MAX_VALUES);
             try {
                 // Validate directly: validateValues() would re-validate this definition recursively.
-                $preview['previewData'] = $this->normalizeValues($this->rootFields(['sections' => $sections]), $values, 'previewData', true, $budget);
+                $preview['previewData'] = $this->normalizeValues($this->rootFields(['sections' => $sections]), $values, 'previewData', true, $validation);
+                // Preview data is part of the definition, so an unknown key is an authoring error.
+                foreach ($validation->warnings as $path => $warning) {
+                    $this->invalid("previewData.{$path}: {$warning}");
+                }
             } catch (ValidationException $exception) {
                 $messages = [];
                 foreach ($exception->errors() as $path => $errors) {
@@ -262,12 +265,20 @@ final class TemplateEngine
         return $field;
     }
 
-    public function validateValues(array $definition, array $values): array
+    /**
+     * Keys that no field declares are dropped and reported in $warnings (path => message);
+     * type violations and missing required values still throw.
+     *
+     * @param  array<string, string>|null  $warnings
+     */
+    public function validateValues(array $definition, array $values, ?array &$warnings = null): array
     {
         $definition = $this->validateDefinition($definition);
-        $budget = self::MAX_VALUES;
+        $validation = new ValueValidation(self::MAX_VALUES);
+        $normalized = $this->normalizeValues($this->rootFields($definition), $values, 'values', true, $validation);
+        $warnings = $validation->warnings;
 
-        return $this->normalizeValues($this->rootFields($definition), $values, 'values', true, $budget);
+        return $normalized;
     }
 
     /** Context is explicitly supplied application data, never a request or service container. */
@@ -276,8 +287,7 @@ final class TemplateEngine
         $definition = $this->validateDefinition($definition);
         $runtime = $this->dialect->runtime();
         $context = $runtime->validateContext($context);
-        $budget = self::MAX_VALUES;
-        $values = $this->normalizeValues($this->rootFields($definition), $values, 'values', true, $budget);
+        $values = $this->normalizeValues($this->rootFields($definition), $values, 'values', true, new ValueValidation(self::MAX_VALUES));
         [$nodes, $partials, $mainSource, $partialSources] = $this->compile($definition);
         $output = '';
         $operations = 200000;
@@ -411,8 +421,7 @@ final class TemplateEngine
             $field = TemplateImageOptions::normalize($field, $fieldPath);
             if (array_key_exists('default', $field)) {
                 try {
-                    $budget = self::MAX_VALUES;
-                    $field['default'] = $this->normalizeField($field, $field['default'], "{$fieldPath}.default", false, $budget);
+                    $field['default'] = $this->normalizeField($field, $field['default'], "{$fieldPath}.default", false, new ValueValidation(self::MAX_VALUES));
                 } catch (ValidationException $exception) {
                     $this->invalid('Invalid default: '.implode(' ', array_merge(...array_values($exception->errors()))));
                 }
@@ -446,11 +455,9 @@ final class TemplateEngine
             return $field['default'];
         }
 
+        // An unset optional field is empty: no implicit color, minimum number or first option.
         return match ($field['type']) {
             'checkbox' => false,
-            'number', 'range' => $field['min'] ?? min(0, $field['max'] ?? 0),
-            'color' => '#000000',
-            'select' => (string) array_key_first($field['options']),
             'group' => $this->defaultValues($field['fields'], $budget),
             'repeater' => $this->defaultItems($field, $budget),
             default => '',
@@ -482,28 +489,30 @@ final class TemplateEngine
         return $items;
     }
 
-    private function normalizeValues(array $fields, array $values, string $path, bool $required, int &$budget): array
+    private function normalizeValues(array $fields, array $values, string $path, bool $required, ValueValidation $validation): array
     {
         $known = array_column($fields, 'name');
         foreach ($values as $key => $_) {
             if (! in_array($key, $known, true)) {
-                $this->valueError("{$path}.{$key}", 'This setting is not defined in the template.');
+                // A key without a field (for example one the template retired) is dropped, not fatal.
+                // Warning paths are dotted and relative to the values root: comments.1.legacy.
+                $validation->warnings[substr(strstr("{$path}.{$key}", '.'), 1)] = 'This field is not defined in the template.';
             }
         }
         $normalized = [];
         foreach ($fields as $field) {
-            if (--$budget < 0) {
+            if (--$validation->budget < 0) {
                 $this->valueError($path, 'The maximum number of settings was exceeded.');
             }
             $name = $field['name'];
-            $value = array_key_exists($name, $values) ? $values[$name] : $this->defaultValue($field, $budget);
-            $normalized[$name] = $this->normalizeField($field, $value, "{$path}.{$name}", $required, $budget);
+            $value = array_key_exists($name, $values) ? $values[$name] : $this->defaultValue($field, $validation->budget);
+            $normalized[$name] = $this->normalizeField($field, $value, "{$path}.{$name}", $required, $validation);
         }
 
         return $normalized;
     }
 
-    private function normalizeField(array $field, mixed $value, string $path, bool $required, int &$budget): mixed
+    private function normalizeField(array $field, mixed $value, string $path, bool $required, ValueValidation $validation): mixed
     {
         $type = $field['type'];
         if ($type === 'group') {
@@ -511,7 +520,7 @@ final class TemplateEngine
                 $this->valueError($path, 'Block settings must be an object.');
             }
 
-            return $this->normalizeValues($field['fields'], $value, $path, $required, $budget);
+            return $this->normalizeValues($field['fields'], $value, $path, $required, $validation);
         }
         if ($type === 'repeater') {
             if (! is_array($value) || ! array_is_list($value)
@@ -522,10 +531,10 @@ final class TemplateEngine
                 $this->valueError($path, 'At least one item is required.');
             }
             foreach ($value as $index => &$item) {
-                if (--$budget < 0 || ! is_array($item) || ($item !== [] && array_is_list($item))) {
+                if (--$validation->budget < 0 || ! is_array($item) || ($item !== [] && array_is_list($item))) {
                     $this->valueError("{$path}.{$index}", 'Each item must be an object within the settings limit.');
                 }
-                $item = $this->normalizeValues($field['fields'], $item, "{$path}.{$index}", $required, $budget);
+                $item = $this->normalizeValues($field['fields'], $item, "{$path}.{$index}", $required, $validation);
             }
             unset($item);
 
@@ -586,13 +595,13 @@ final class TemplateEngine
                 $this->valueError($path, 'This setting is required.');
             }
 
-            // Keep Markdown source editable; store only sanitized HTML for WYSIWYG.
-            return $type === 'wysiwyg' ? $html : $value;
-        }
-        if ($type === 'select' && ! array_key_exists($value, $field['options'])) {
-            $this->valueError($path, 'Choose one of the available options.');
+            // Rich text is stored exactly as authored; the renderer sanitizes it on output.
+            return $value;
         }
         if ($value !== '') {
+            if ($type === 'select' && ! array_key_exists($value, $field['options'])) {
+                $this->valueError($path, 'Choose one of the available options.');
+            }
             if ($type === 'color' && ! preg_match('/^#(?:[a-fA-F0-9]{3}|[a-fA-F0-9]{6}|[a-fA-F0-9]{8})$/D', $value)) {
                 $this->valueError($path, 'Enter a hexadecimal color such as #336699.');
             }
