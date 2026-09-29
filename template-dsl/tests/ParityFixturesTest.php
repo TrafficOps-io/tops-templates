@@ -20,9 +20,7 @@ class ParityFixturesTest extends TestCase
     #[DataProvider('fixtureProvider')]
     public function test_fixture_case_matches_the_reference_behaviour(array $case): void
     {
-        if (isset($case['residual'])) {
-            $this->markTestSkipped("Known residual divergence ({$case['residual']}); see fixtures/parity/README.md.");
-        }
+        $this->assertArrayNotHasKey('residual', $case, 'Parity cases must execute; use portableReject for stricter JavaScript input.');
         $expect = $case['expect'];
         try {
             $actual = $this->runCase($case);

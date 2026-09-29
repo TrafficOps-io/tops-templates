@@ -32,9 +32,14 @@ function run(fixture) {
 for (const file of readdirSync(directory).filter((name) => name.endsWith('.json')).sort()) {
   const suite = JSON.parse(readFileSync(directory + file, 'utf8'));
   for (const fixture of suite.cases) {
-    const skip = fixture.residual ? `Known residual divergence (${fixture.residual}); see fixtures/parity/README.md.` : false;
-    test(`${file.replace(/\.json$/, '')}: ${fixture.name}`, {skip}, () => {
+    test(`${file.replace(/\.json$/, '')}: ${fixture.name}`, () => {
+      assert.equal(fixture.residual, undefined, 'Parity cases must execute; use portableReject for stricter JavaScript input');
       const expect = fixture.expect;
+      if (fixture.portableReject) {
+        assert.equal(expect.ok, true, 'A portable rejection may only narrow PHP-accepted input');
+        assert.throws(() => run(fixture), undefined, fixture.portableReject);
+        return;
+      }
       if (!expect.ok) { assert.throws(() => run(fixture), undefined, 'Expected the case to be rejected'); return; }
       const actual = run(fixture);
       if ('defaults' in expect) assert.deepEqual(actual.defaults, expect.defaults, 'defaults');

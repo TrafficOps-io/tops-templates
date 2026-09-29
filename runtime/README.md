@@ -52,15 +52,15 @@ Definitions expose `version`, `name`, `description`, `sections`, `fields`, `html
 
 ## Value contract
 
-Values are validated exactly as the PHP engine validates them:
+Values follow the PHP engine's rules, with the stricter portable restrictions below:
 
 | Rule | Behavior (PHP and JavaScript) |
 | --- | --- |
 | Unset optional field | Empty (`""`); `Boolean` is `false`, a repeater is `[]` unless `min_items` requires rows. A declared default applies. |
 | Unknown keys | Dropped with a warning (`validateValues(..., {warnings})`, paths such as `comments.1.legacy`); never an error. Type violations and missing required values throw. |
-| `Boolean` | Accepts `true`/`false`, `0`/`1` and `"0"`/`"1"`; anything else, including `null`, is rejected. |
-| `Number`, `Range` | Accepts JSON numbers and PHP numeric strings (`"20.5"`, `" 20"`, `"1e1"`, `"5."`); stores a number. `min`/`max`/`step` apply with PHP's step tolerance. An optional field accepts `""` or `null` as empty. |
-| `Select` | Accepts an option key or a number whose string form is a key; `""` is valid for an optional field. |
+| `Boolean` | Accepts `true`/`false` and `"0"`/`"1"`. PHP also accepts integer `0`/`1`; JavaScript rejects numeric input because it cannot distinguish those integers from PHP-rejected JSON floats `0.0`/`1.0`. `null` is rejected. |
+| `Number`, `Range` | Accepts JSON numbers and PHP numeric strings (`"20.5"`, `" 20"`, `"1e1"`, `"5."`); stores a number. Portable numbers have at most 14 significant decimal digits and are zero or have magnitude from `0.0001` (inclusive) to `1e14` (exclusive). `min`/`max`/`step` apply with PHP's step tolerance. An optional field accepts `""` or `null` as empty. |
+| `Select` | Accepts an option key or a number whose string form is a key; numeric input follows the same portable number restrictions and rejects negative zero. A string key avoids numeric conversion. `""` is valid for an optional field. |
 | Text types | Strings only; `null` becomes `""`. At most 10,000 bytes (`String`, `Color`, `Url`, `Image`, `Email`, `Select`) or 100,000 bytes (`Text`, `Wysiwyg`, `Markdown`) of UTF-8; tab, LF and CR are allowed, other control characters are rejected. A required field rejects PHP-blank whitespace. |
 | `Url` | Absolute HTTP(S) URL up to 2048 bytes without credentials; relative paths are rejected. Percent-encoding is decoded up to five times and must not leave controls, spaces, `//` or `%`. |
 | `Image` | Same HTTP(S) rule, or a relative path without a leading slash, `:`, `?`, `#`, empty, `.` or `..` segments. Query strings and fragments are rejected. |
@@ -81,14 +81,11 @@ These former divergences now behave as in the PHP reference and are pinned by th
 8. an unset optional `Number` stays `""`;
 9. `@if` over a list is rejected ("Use @each for lists.").
 
-### Known residual divergences
+### Portable restrictions and numeric representation
 
-Two differences cannot be removed on the JavaScript side because JSON parsing and number formatting erase information PHP keeps. The parity fixtures mark them with `"residual"` and both runners skip them with a message, so they stay visible:
+JavaScript erases PHP's integer/float distinction. The runtime rejects numeric Boolean input and numeric values whose scalar spelling can differ from PHP's default 14-digit float precision. These rules apply to field values, declared defaults and numeric Select inputs. Use the PHP renderer for numbers outside the portable range. Every shared fixture executes in both suites; `portableReject` pins cases PHP accepts and JavaScript deliberately rejects.
 
-| Residual id | PHP | JavaScript | Why it remains |
-| --- | --- | --- | --- |
-| `json-float-boolean` | A JSON `1.0` or `0.0` for a `Boolean` is a float and is rejected. | Accepted as `true`/`false`. | `JSON.parse` returns the same number for `1` and `1.0`, so the runtime cannot tell them apart. This is the one known case where JavaScript is looser; hosts that need the PHP rule must validate with PHP. |
-| `float-formatting` | Numeric strings such as `"1e1"` or `"5."` normalize to floats (`10.0`, stored as `10.0`), and extreme values render in PHP notation (`1.0E+25`). | Normalize to `10`/`5` and render as `1e+25`. | JavaScript has a single number type and its own shortest round-trip formatting; the rendered HTML matches for ordinary values. |
+Numeric strings such as `"1e1"` or `"5."` normalize to PHP floats (`10.0`, `5.0`) and JavaScript numbers (`10`, `5`). This representation difference remains because JavaScript has a single number type; their rendered HTML is identical. The fixture's PHP expectations preserve and check the float type, while JavaScript checks the equivalent numeric value. Hosts needing float-preserving JSON storage must use PHP.
 
 Where JavaScript cannot reproduce a PHP rule exactly it is stricter: `Image` paths additionally go through `safePath` (no `%`, hidden segments or executable extensions, at most 255 bytes); `Email` rejects quoted local parts and IP-literal domains; `Url` requires printable ASCII and DNS-shaped host labels; lone surrogates are rejected. Rich text uses Marked with GFM disabled and raw Markdown HTML stripped, followed by `sanitize-html`; CommonMark edge cases and sanitizer serialization can differ from PHP. Do not depend on byte-identical HTML formatting across implementations.
 

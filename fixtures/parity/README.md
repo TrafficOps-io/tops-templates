@@ -41,21 +41,18 @@ A new file needs no registration. Neither runner rewrites results before compari
 | `expect.warnings` | Warning paths for dropped unknown keys, dotted and relative to the values root (`comments.1.legacy`). |
 | `expect.html` | Entry page HTML. Whitespace between tags is removed and whitespace runs collapse to one space before comparing. |
 | `expect.pages` | Map of output path to HTML, normalized the same way. |
-| `residual` | Id of a known, documented divergence. Both runners skip the case with a message; the expectation still records PHP's behaviour. |
+| `portableReject` | A reason JavaScript deliberately rejects a case accepted by PHP. The PHP runner still checks all reference expectations; JavaScript asserts rejection. It is only valid when `expect.ok` is `true`. |
 
 Two value helpers keep large inputs readable anywhere in `values` and `expect`:
 
 - `{"$repeat": ["a", 10000]}` is the string `"a"` repeated 10,000 times;
 - `{"$concat": ["https://example.com/", {"$repeat": ["a", 2040]}]}` joins its expanded parts.
 
-## Residual divergences
+## Stricter portable input
 
-| Id | Difference |
-| --- | --- |
-| `float-formatting` | PHP normalizes numeric strings such as `"1e1"` to floats (`10.0`) and renders extreme floats as `1.0E+25`; JavaScript has one number type (`10`, `1e+25`). |
-| `json-float-boolean` | PHP rejects a JSON `1.0` for a `Boolean`; `JSON.parse` makes it indistinguishable from `1`, so JavaScript accepts it. |
+No parity case is skipped. The `portableReject` cases record stricter JavaScript input where JSON has erased a PHP integer/float distinction or number spelling would differ. Numeric Boolean input is rejected; numbers and numeric Select inputs stay within the portable precision and magnitude restrictions. PHP assertions always execute, including its float type expectations (`10.0` rather than `10`). JavaScript checks the equivalent number and identical HTML for accepted input.
 
-The reasons are in [runtime/README.md](../../runtime/README.md#known-residual-divergences). Add a residual only when the difference cannot be removed on the JavaScript side, and document it in both places.
+The restrictions are in [runtime/README.md](../../runtime/README.md#portable-restrictions-and-numeric-representation). Add `portableReject` only for a documented stricter rule; never skip a PHP expectation to conceal a JavaScript difference. Both runners reject the old `residual` marker.
 
 ## Adding a case
 

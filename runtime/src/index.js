@@ -221,6 +221,19 @@ export function getDefaults(definition) { return normalizeValues(definition.fiel
 const PHP_NUMERIC = /^[ \t\n\r\v\f]*[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?[ \t\n\r\v\f]*$/;
 const CONTROL_CHARS = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/;
 const PHP_BLANK = /^[ \t\n\r\x0B]*$/;
+/**
+ * Keep scalar spelling identical to PHP's default 14-digit float precision. JSON erases
+ * whether an integral number was a PHP int or float, so accept their common spelling
+ * range only. Out-of-range or higher-precision values need the PHP renderer.
+ */
+function portableNumber(value, name) {
+  const magnitude = Math.abs(value);
+  const digits = String(value).replace(/^-/, '').replace('.', '').replace(/^0+/, '');
+  if (!Number.isFinite(value) || Object.is(value, -0) || magnitude >= 1e14 || magnitude !== 0 && magnitude < 1e-4 || digits.length > 14) {
+    fail(`${name} must have at most 14 significant digits and be zero or between 0.0001 (inclusive) and 1e14 (exclusive) in magnitude`);
+  }
+  return value;
+}
 const EMAIL_LOCAL = /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*$/;
 const DNS_LABEL = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
 /** PHP truthiness: "" and "0" are the only falsey strings; empty lists and groups are falsey. */
@@ -285,21 +298,24 @@ function normalizeValues(fields, data, path = '', budget = {value:0}, allowMissi
       if (!allowMissingRequired && field.required && !value.length) fail(`${name} is required`);
       value = value.map((item, index) => normalizeValues(field.fields, item, `${name}[${index}].`, budget, allowMissingRequired, warnings));
     } else if (field.type === 'checkbox') {
-      // PHP accepts true/false, 0/1 and "0"/"1" only; null is not a boolean.
-      if (![true, false, 0, 1, '0', '1'].includes(value)) fail(`${name} must be a boolean`);
+      // PHP rejects JSON floats 0.0/1.0, indistinguishable from 0/1 in JavaScript.
+      // Reject numeric booleans entirely rather than accept more than the PHP reference.
+      if (![true, false, '0', '1'].includes(value)) fail(`${name} must be a boolean or the string "0"/"1"`);
       value = Boolean(Number(value));
     } else {
       if (value === null) value = '';
       if (!allowMissingRequired && field.required && typeof value === 'string' && PHP_BLANK.test(value)) fail(`${name} is required`);
       if (['number','range'].includes(field.type)) {
         if (value === '') return [field.name, ''];
-        const number = typeof value === 'number' ? value : typeof value === 'string' && PHP_NUMERIC.test(value) ? Number(value.trim()) : NaN;
+        // PHP normalizes with + 0, which also turns negative zero into positive zero.
+        const number = (typeof value === 'number' ? value : typeof value === 'string' && PHP_NUMERIC.test(value) ? Number(value.trim()) : NaN) + 0;
         if (!Number.isFinite(number)) fail(`${name} must be a finite number`);
+        portableNumber(number, name);
         if (field.min !== undefined && number < field.min || field.max !== undefined && number > field.max) fail(`${name} is outside its numeric bounds`);
         if (field.step !== undefined) { const steps = (number - (field.min ?? 0)) / field.step; if (!Number.isFinite(steps) || Math.abs(steps - Math.round(steps)) > 0.000001) fail(`${name} must follow step ${field.step}`); }
         return [field.name, number];
       }
-      if (field.type === 'select' && typeof value === 'number' && Number.isFinite(value)) value = String(value);
+      if (field.type === 'select' && typeof value === 'number') value = String(portableNumber(value, name));
       const limit = ['textarea','wysiwyg','markdown'].includes(field.type) ? LIMITS.longTextBytes : LIMITS.textBytes;
       if (typeof value !== 'string' || !value.isWellFormed() || bytes(value) > limit || CONTROL_CHARS.test(value)) fail(`${name} must be valid text of at most ${limit} bytes`);
       if (['markdown','wysiwyg'].includes(field.type)) {

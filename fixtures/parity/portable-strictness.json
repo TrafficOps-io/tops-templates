@@ -1,0 +1,106 @@
+{
+  "description": "PHP-accepted values that JavaScript deliberately rejects to satisfy ADR-0001 without erased JSON type or float spelling information. Every PHP expectation still executes.",
+  "cases": [
+    {
+      "name": "Number accepts the largest fourteen-digit integer",
+      "source": "@param number Number\n@layout\n[{{number}}]\n@endlayout",
+      "values": {
+        "number": 99999999999999
+      },
+      "expect": {
+        "ok": true,
+        "html": "[99999999999999]"
+      }
+    },
+    {
+      "name": "Number accepts the lowest ordinary decimal without scientific notation",
+      "source": "@param number Number\n@layout\n[{{number}}]\n@endlayout",
+      "values": {
+        "number": 0.0001
+      },
+      "expect": {
+        "ok": true,
+        "html": "[0.0001]"
+      }
+    },
+    {
+      "name": "Number accepts fourteen significant decimal digits",
+      "source": "@param number Number\n@layout\n[{{number}}]\n@endlayout",
+      "values": {
+        "number": 1.2345678901234
+      },
+      "expect": {
+        "ok": true,
+        "html": "[1.2345678901234]"
+      }
+    },
+    {
+      "name": "Number accepts an integer that PHP floats render in scientific notation",
+      "source": "@param number Number\n@layout\n[{{number}}]\n@endlayout",
+      "values": {
+        "number": 100000000000000.0
+      },
+      "expect": {
+        "ok": true,
+        "html": "[1.0E+14]"
+      },
+      "portableReject": "Portable numeric values must have the same scalar spelling for PHP integers and floats."
+    },
+    {
+      "name": "Number accepts a small value that PHP renders in scientific notation",
+      "source": "@param number Number\n@layout\n[{{number}}]\n@endlayout",
+      "values": {
+        "number": 1e-05
+      },
+      "expect": {
+        "ok": true,
+        "html": "[1.0E-5]"
+      },
+      "portableReject": "Portable numeric values must have the same scalar spelling for PHP integers and floats."
+    },
+    {
+      "name": "Number accepts extra precision that PHP rounds at render time",
+      "source": "@param number Number\n@layout\n[{{number}}]\n@endlayout",
+      "values": {
+        "number": 1.234567890123456
+      },
+      "expect": {
+        "ok": true,
+        "html": "[1.2345678901235]"
+      },
+      "portableReject": "Portable numeric values must have the same scalar spelling for PHP integers and floats."
+    },
+    {
+      "name": "Number normalizes negative zero to positive zero",
+      "source": "@param number Number\n@layout\n[{{number}}]\n@endlayout",
+      "values": {
+        "number": -0.0
+      },
+      "expect": {
+        "ok": true,
+        "html": "[0]"
+      }
+    },
+    {
+      "name": "Number defaults use PHP float notation beyond the portable bound",
+      "source": "@param number Number = 1e14\n@layout\n[{{number}}]\n@endlayout",
+      "expect": {
+        "ok": true,
+        "html": "[1.0E+14]"
+      },
+      "portableReject": "The portable numeric spelling restriction also applies to declared defaults."
+    },
+    {
+      "name": "Select normalizes numeric input through the PHP scalar spelling",
+      "source": "@param pick Select options=\"1.0E+25:Big\"\n@layout\n[{{pick}}]\n@endlayout",
+      "values": {
+        "pick": 1e+25
+      },
+      "expect": {
+        "ok": true,
+        "html": "[1.0E+25]"
+      },
+      "portableReject": "Numeric Select input follows the same portable scalar spelling restriction."
+    }
+  ]
+}
