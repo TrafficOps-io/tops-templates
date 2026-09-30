@@ -72,7 +72,10 @@ export function normalizeAiProviderError(error, options = {}) {
   const detail = unique.at(-1) || (httpStatus ? `OpenRouter request failed (${httpStatus}).` : 'The AI provider request failed.');
   const outer = unique[0];
   const text = outer && outer !== detail && !outer.includes(detail) ? `${detail} (${outer})` : detail;
-  cancelled ||= cancelledPattern.test(text);
+  // Providers also describe gateway timeouts as "aborted". A provider/HTTP
+  // error status takes precedence over wording; explicit local abort markers
+  // were already recognized while inspecting the error.
+  cancelled ||= !statuses.length && cancelledPattern.test(text);
   const classification = `${text} ${codes.join(' ')}`;
   const moderated = moderationPattern.test(classification);
   const terminalReason = terminalPattern.test(classification);

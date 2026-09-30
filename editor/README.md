@@ -85,6 +85,8 @@ Source edits use `set_values` for saved content: changing a `@param` default alo
 
 Tool continuations preserve the ordered reasoning blocks and signatures returned by the provider, including distinct signed blocks with identical text. A request-local compatibility layer contains the OpenRouter SDK's adjacent-block merge and history deduplication behavior without changing SSE bytes or adding model requests. Reasoning content and signatures never enter exported diagnostics.
 
+Text runs using `google/gemini-3.8-flash` request its supported `low` reasoning effort instead of its default `medium`, reducing deliberation during tool workflows. Other model IDs and image requests retain their provider defaults. Actual latency remains provider-dependent.
+
 Text requests use `https://openrouter.ai/api/v1/chat/completions` with provider data collection disabled and strict parameter routing. Sampling parameters such as temperature are omitted so reasoning models can participate. Planner and reviewer stages expose a single tool with automatic tool selection, supporting providers that cannot force a named function; only a schema-valid tool submission completes either stage. All draft content is validated locally. Image requests use the [dedicated Image API](https://openrouter.ai/docs/guides/overview/multimodal/image-generation) and the selected model’s provider policies. Requests are billed to the user’s OpenRouter account; provider latency and model support vary.
 
 ## Privacy and preview

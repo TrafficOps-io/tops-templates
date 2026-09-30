@@ -371,8 +371,11 @@ export function createOpenRouterTemplateModel({ apiKey, model, fetchImpl = globa
   const requestFetch = diagnosticFetch || createAiDiagnosticFetch(fetchImpl, { onProgress, apiKey: key });
   // Parallel calls are optional. Requiring that hint excludes otherwise capable
   // tool providers (including Qwen); keep strict routing for the actual tools.
+  // Gemini 3.8 Flash supports low effort; reduce its default medium thinking
+  // during tool workflows. Unknown models retain their provider defaults.
+  const reasoning = modelId === 'google/gemini-3.8-flash' ? { effort: 'low' } : undefined;
   return createReasoningSafeOpenRouterModel(fetch => createOpenRouter({ apiKey: key, compatibility: 'strict', fetch, appName: 'Landing Studio by TrafficOps', appUrl: typeof location !== 'undefined' ? location.origin : undefined })
-    .chat(modelId, { provider: { require_parameters: true, data_collection: 'deny' } }), requestFetch);
+    .chat(modelId, { provider: { require_parameters: true, data_collection: 'deny' }, ...(reasoning ? { reasoning } : {}) }), requestFetch);
 }
 export async function generateTemplateWithOpenRouterAgent(options = {}) {
   try {

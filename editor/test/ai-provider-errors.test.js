@@ -36,6 +36,43 @@ test('HTTP diagnostics preserve status and generation id through re-normalizatio
   assert.equal(failure.terminalImage, true);
 });
 
+test('provider timeout wording is not local cancellation and survives re-normalization', () => {
+  const failure = normalizeAiProviderError({ id: 'gen-google-timeout', error: {
+    code: 504, message: 'JSON error injected into SSE stream',
+    metadata: { provider_name: 'Google', raw: JSON.stringify({ error: { code: 504, message: 'The operation was aborted' } }) },
+  } }, { status: 200 });
+  for (const normalized of [failure, normalizeAiProviderError(failure)]) {
+    assert.match(normalized.message, /\[Google\] The operation was aborted/);
+    assert.equal(normalized.statusCode, 504);
+    assert.equal(normalized.code, '504');
+    assert.equal(normalized.provider, 'Google');
+    assert.equal(normalized.generationId, 'gen-google-timeout');
+    assert.equal(normalized.cancelled, false);
+    assert.equal(normalized.retryable, true);
+    assert.equal(normalized.terminalImage, false);
+  }
+  for (const status of [429, 502, 503, 504]) {
+    const normalized = normalizeAiProviderError({ code: status, message: 'Provider cancelled the operation' });
+    assert.equal(normalized.cancelled, false, String(status));
+    assert.equal(normalized.retryable, true, String(status));
+  }
+});
+
+test('explicit local aborts and cancellation without provider statuses remain cancelled', () => {
+  for (const error of [
+    new DOMException('The operation was aborted', 'AbortError'),
+    new Error('Generation cancelled'),
+    { name: 'AbortError', code: 504, message: 'The operation was aborted' },
+    { cancelled: true, statusCode: 503, message: 'Cancelled locally' },
+  ]) {
+    const failure = normalizeAiProviderError(error);
+    assert.equal(failure.cancelled, true);
+    assert.equal(failure.retryable, false);
+    assert.equal(failure.terminalImage, true);
+    assert.equal(normalizeAiProviderError(failure).cancelled, true);
+  }
+});
+
 test('only transient statuses and transport failures are retryable', () => {
   for (const status of [429, 502, 503, 504]) assert.equal(isRetryableAiProviderError({ code: status, message: 'Request failed' }), true, String(status));
   for (const status of [400, 401, 402, 403, 404, 422, 500]) assert.equal(isRetryableAiProviderError({ code: status, message: 'Request failed' }), false, String(status));

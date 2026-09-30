@@ -74,6 +74,25 @@ test('the actual OpenRouter adapter receives the nested provider reason after di
   assert.equal(events.find(event => event.type === 'request-finished').retryable, true);
 });
 
+test('actual SDK treats Google SSE 504 aborted wording as a retryable provider failure', async () => {
+  const events = [];
+  const payload = { id: 'gen-google-timeout', error: { code: 504, message: 'The operation was aborted', metadata: { provider_name: 'Google' } }, choices: [{ index: 0, delta: {}, finish_reason: 'error' }] };
+  const provider = createOpenRouter({ apiKey: 'test-key', fetch: createAiDiagnosticFetch(async () => fragmentedResponse(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`, 1), { onProgress: event => events.push(event) }) });
+  const result = streamText({ model: provider.chat('google/gemini-3.8-flash'), prompt: 'Test', maxRetries: 0, onError() {} });
+  const streamEvents = [];
+  for await (const event of result.fullStream) streamEvents.push(event);
+  const failure = normalizeAiProviderError(streamEvents.find(event => event.type === 'error').error);
+  assert.equal(failure.cancelled, false);
+  assert.equal(failure.retryable, true);
+  assert.equal(failure.statusCode, 504);
+  const finished = events.find(event => event.type === 'request-finished');
+  assert.equal(finished.status, 200);
+  assert.equal(finished.statusCode, 504);
+  assert.equal(finished.generationId, 'gen-google-timeout');
+  assert.equal(finished.outcome, 'error');
+  assert.equal(finished.retryable, true);
+});
+
 test('SSE passthrough preserves invalid UTF-8 comments and final events without a delimiter', async () => {
   const prefix = new Uint8Array([58, 32, 255, 13, 10, 13, 10]), final = encoder.encode('data: {"choices":[{"delta":{"content":"Done"}}]}');
   const bytes = new Uint8Array(prefix.length + final.length); bytes.set(prefix); bytes.set(final, prefix.length);
