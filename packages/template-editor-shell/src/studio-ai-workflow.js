@@ -66,6 +66,7 @@ async function structuredStage({ model, name, schema, instructions, prompt, atta
   // tools only submit results; neither attempt can replay writes or paid images.
   const callBudget = { remaining: 2 };
   const messages = [{ role: 'user', content: attachmentMessage(prompt, attachments) }];
+  const stageProgress = event => onProgress?.(event.type === 'tool-start' && event.tool !== name ? { ...event, tool: 'unavailable_tool' } : event);
   const knownFields = new Set(Object.keys(schema.shape));
   const safeIssues = issues => issues.slice(0, 8).map(issue => {
     const field = knownFields.has(issue.path?.[0]) ? [issue.path[0], ...issue.path.slice(1).filter(part => Number.isInteger(part) && part >= 0).slice(0, 3)].join('.') : 'result';
@@ -84,12 +85,14 @@ async function structuredStage({ model, name, schema, instructions, prompt, atta
   };
   // Some tool-capable providers only support auto, not required/named choices.
   // The sole tool and validated submission enforce the stage's result locally.
-  const agent = new ToolLoopAgent({ model, instructions: `${instructions}\nKeep summary to 1–3 short sentences and fewer than 500 characters; do not repeat the brief or page copy. Keep each plan task to one short action and each review issue to one concise blocking mismatch. Preserve the full requested website content; these limits apply only to submission fields.\nFinish by calling ${name} with the completed result. Do not return the result as prose or JSON text.`, tools: { [name]: tool({ description: 'Submit the completed result.', inputSchema: schema, execute: async value => { submitted = value; return { ok: true }; } }) }, toolChoice: 'auto', stopWhen: stepCountIs(1), maxOutputTokens: 4000, maxRetries: 0, telemetry: { isEnabled: false } });
+  const agent = new ToolLoopAgent({ model, instructions: `${instructions}\nThis is a read-only ${name === 'submit_plan' ? 'planning' : 'review'} stage. The ONLY available tool is ${name}; call only ${name}. Website changes and image generation requested in the brief are writer actions and must never be attempted in this stage.\nKeep summary to 1–3 short sentences and fewer than 500 characters; do not repeat the brief or page copy. Keep each plan task to one short action and each review issue to one concise blocking mismatch. Preserve the full requested website content; these limits apply only to submission fields.\nFinish by calling ${name} with the completed result. Do not return the result as prose or JSON text.`, tools: { [name]: tool({ description: 'Submit the completed result.', inputSchema: schema, execute: async value => { submitted = value; return { ok: true }; } }) }, toolChoice: 'auto', stopWhen: stepCountIs(1), maxOutputTokens: 4000, maxRetries: 0, telemetry: { isEnabled: false } });
   for (let attempt = 0; attempt < 2; attempt++) {
-    const result = await runCall(agent, { ...runtime, callBudget, messages, signal, stream }, onProgress);
+    const result = await runCall(agent, { ...runtime, callBudget, messages, signal, stream }, stageProgress);
     signal?.throwIfAborted();
     if (submitted) return submitted;
     let issues = [];
+    const toolCalls = result.steps.flatMap(step => step.toolCalls || []);
+    if (toolCalls.some(call => call.toolName !== name)) issues.push({ field: 'result', code: 'unknown_tool' });
     // A provider may return the same schema as JSON text despite auto choice.
     // Accept only a complete, locally validated result; prose is never approval.
     if (result.text) {
@@ -99,7 +102,7 @@ async function structuredStage({ model, name, schema, instructions, prompt, atta
         issues.push(...safeIssues(checked.error.issues));
       } catch { /* Plain prose is not eligible for a schema correction. */ }
     }
-    for (const call of result.steps.flatMap(step => step.toolCalls || []).filter(call => call.toolName === name)) {
+    for (const call of toolCalls.filter(call => call.toolName === name)) {
       try {
         const checked = schema.safeParse(typeof call.input === 'string' ? parseStructuredContent(call.input) : call.input);
         issues.push(...(checked.success ? [{ field: 'result', code: 'invalid_tool_submission' }] : safeIssues(checked.error.issues)));
@@ -113,7 +116,7 @@ async function structuredStage({ model, name, schema, instructions, prompt, atta
     // Preserve the complete turn, including signed reasoning and the SDK's
     // tool-validation feedback. Correct only the read-only submission shape.
     for (const completed of result.steps) messages.push(...completed.response.messages);
-    messages.push({ role: 'user', content: `Your ${name} submission failed local schema validation: ${JSON.stringify(issues)}. Correct these fields and call ${name} once with a complete result matching its schema. Keep the original task and your actual assessment; do not replace it with prose or change the project. This is the only submission correction attempt.` });
+    messages.push({ role: 'user', content: `Your ${name} submission failed local schema validation: ${JSON.stringify(issues)}. This is a read-only submission stage. The ONLY available tool is ${name}; call only ${name}, once, with a complete result matching its schema. Website changes and image generation belong to the writer, not this stage. Correct the submission while keeping the original task and your actual assessment; do not replace it with prose or change the project. This is the only submission correction attempt.` });
   }
 }
 

@@ -372,6 +372,86 @@ for (const stage of ['submit_plan', 'submit_review']) test(`the streaming OpenRo
   assert.ok(submissions.every(request => request.tool_choice === 'auto'), 'repair does not require an unsupported named tool choice');
 });
 
+for (const stage of ['submit_plan', 'submit_review']) for (const count of [1, 8]) test(`${stage} repairs ${count} unavailable image calls without executing the image generator`, async () => {
+  const initial = setup(), events = [];
+  const wrong = call('generate_image', { path: 'images/wrong-0.png', prompt: 'An image requested in the brief.' });
+  for (let index = 1; index < count; index++) wrong.content.push(...call('generate_image', { path: `images/wrong-${index}.png`, prompt: 'Another image.' }).content);
+  const writer = [call('set_values', { values: { headline: 'Completed after tool correction' } }), done()];
+  const responses = stage === 'submit_plan' ? [wrong, plan(), ...writer, review()] : [plan(), ...writer, wrong, review()];
+  const model = new MockLanguageModelV4({ doGenerate: responses });
+  let images = 0;
+  const result = await runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Update the headline.', generateImages: true, apiKey: 'mock-key', imageModel: 'test/image', languageModel: model, validateDraft,
+    fetchImpl: async () => { images++; throw new Error('A stage submission must not generate an image.'); }, onProgress: event => events.push(event) });
+  assert.equal(result.valid, true); assert.equal(result.values.headline, 'Completed after tool correction');
+  assert.equal(images, 0); assert.deepEqual(result.files, initial.files);
+  const submissions = model.doGenerateCalls.filter(request => request.tools.some(tool => tool.name === stage));
+  assert.equal(submissions.length, 2);
+  assert.deepEqual(submissions.map(request => request.tools.map(tool => tool.name)), [[stage], [stage]], 'stage correction has no writer or image tools');
+  const toolFeedback = submissions[1].prompt.filter(message => message.role === 'tool').flatMap(message => message.content);
+  assert.equal(toolFeedback.filter(part => part.toolName === 'generate_image' && part.output.type === 'error-text').length, count, 'every unavailable call retains its SDK validation feedback');
+  assert.ok(events.some(event => event.code === 'AI_STAGE_SCHEMA_INVALID' && event.outcome === 'result:unknown_tool'));
+  assert.equal(events.some(event => event.type === 'image-start'), false);
+});
+
+for (const stage of ['submit_plan', 'submit_review']) for (const response of ['wrong-tool', 'prose']) test(`${stage} stops after an unavailable tool and a repeated ${response} response`, async () => {
+  const initial = setup(), events = [];
+  const wrong = () => call('generate_image', { path: 'images/wrong.png', prompt: 'An unavailable image request.' });
+  const writer = [call('set_values', { values: { headline: 'Retained completed content' } }), done()];
+  const second = response === 'wrong-tool' ? wrong() : done();
+  const responses = stage === 'submit_plan' ? [wrong(), second, plan()] : [plan(), ...writer, wrong(), second, review()];
+  const model = new MockLanguageModelV4({ doGenerate: responses });
+  let images = 0;
+  await assert.rejects(runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Update the headline.', generateImages: true, apiKey: 'mock-key', imageModel: 'test/image', languageModel: model, validateDraft,
+    fetchImpl: async () => { images++; throw new Error('Unavailable stage tools must never execute.'); }, onProgress: event => events.push(event) }), error => {
+    assert.equal(error.code, response === 'wrong-tool' ? 'AI_STAGE_SCHEMA_INVALID' : 'AI_STAGE_MISSING_RESULT');
+    assert.match(error.message, stage === 'submit_review' ? /completed draft is retained/i : /project is unchanged/i);
+    return true;
+  });
+  const submissions = model.doGenerateCalls.filter(request => request.tools.some(tool => tool.name === stage));
+  assert.equal(submissions.length, 2); assert.equal(images, 0);
+  assert.equal(events.some(event => event.type === 'phase' && event.phase === 'ready'), false);
+});
+
+for (const stage of ['submit_plan', 'submit_review']) for (const count of [1, 8]) test(`streamed ${stage} corrects ${count} unknown image calls with signed history and zero image requests`, async () => {
+  const initial = setup(), requests = [], events = [], details = [{ type: 'reasoning.encrypted', data: 'opaque-unknown-tool-analysis', format: 'google-gemini-v1', index: 0 }];
+  let stageAttempts = 0, writerCalls = 0, images = 0;
+  const fetchImpl = async (url, init) => {
+    if (!String(url).endsWith('/chat/completions')) { images++; throw new Error('Only chat submissions are allowed in this test.'); }
+    const body = JSON.parse(init.body); requests.push(body);
+    const names = body.tools.map(tool => tool.function.name), submitting = names.includes(stage);
+    let response, wrong = false;
+    if (submitting && stageAttempts++ === 0) {
+      wrong = true; response = call('generate_image', { path: 'images/wrong-0.png', prompt: 'Requested writer image.' });
+      for (let index = 1; index < count; index++) response.content.push(...call('generate_image', { path: `images/wrong-${index}.png`, prompt: 'Another writer image.' }).content);
+    } else if (names.includes('submit_plan')) response = plan();
+    else if (names.includes('submit_review')) response = review();
+    else response = writerCalls++ ? call('validate_draft', {}) : call('set_values', { values: { headline: 'Completed streamed content' } });
+    const payload = { id: 'gen-stage-unknown-tool-test', model: body.model, choices: [{ index: 0, delta: { role: 'assistant',
+      tool_calls: response.content.map((part, index) => ({ index, id: part.toolCallId, type: 'function', function: { name: part.toolName, arguments: part.input } })), ...(wrong ? { reasoning_details: details } : {}) }, finish_reason: 'tool_calls' }] };
+    return new Response(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+  };
+  const result = await runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Update the headline.', generateImages: true, apiKey: 'mock-key', imageModel: 'test/image', model: 'xiaomi/mimo-v2.6-flash', stream: true, fetchImpl, validateDraft, onProgress: event => events.push(event) });
+  assert.equal(result.valid, true); assert.equal(result.values.headline, 'Completed streamed content');
+  assert.equal(images, 0); assert.equal(events.some(event => event.type === 'image-start'), false);
+  const submissions = requests.filter(request => request.tools.some(tool => tool.function.name === stage));
+  assert.equal(submissions.length, 2); assert.ok(submissions.every(request => request.tool_choice === 'auto'));
+  const feedback = submissions[1].messages.filter(message => message.role === 'tool');
+  assert.equal(feedback.length, count, 'all unavailable streamed tool calls receive feedback in the same correction request');
+  assert.ok(submissions[1].messages.some(message => message.role === 'assistant' && JSON.stringify(message.reasoning_details) === JSON.stringify(details)));
+  assert.equal(events.filter(event => event.type === 'tool-start' && event.tool === 'unavailable_tool').length, count);
+  assert.equal(events.some(event => event.type === 'tool-start' && event.tool === 'generate_image'), false, 'untrusted stage tool names are not exposed in progress diagnostics');
+});
+
+test('unknown submission tool names never enter schema diagnostics or the final error', async () => {
+  const initial = setup(), untrustedName = 'private_customer_record_DO_NOT_EXPORT', diagnostics = createAiDiagnostics({ mode: 'content' });
+  const model = new MockLanguageModelV4({ doGenerate: [call(untrustedName, {}), call(untrustedName, {})] });
+  await assert.rejects(runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Update the headline.', languageModel: model, validateDraft, onProgress: event => diagnostics.record(event) }), error => {
+    assert.match(error.message, /result \(unknown_tool\)/); assert.equal(error.message.includes(untrustedName), false); return true;
+  });
+  const exported = JSON.stringify(diagnostics.snapshot());
+  assert.equal(exported.includes(untrustedName), false); assert.match(exported, /result:unknown_tool/);
+});
+
 test('a shared deadline stops the workflow before another stage even when the provider ignores abort', async t => {
   const initial = setup(), started = Date.now();
   let clock = started;
