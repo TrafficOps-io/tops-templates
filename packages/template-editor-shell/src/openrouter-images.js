@@ -1,17 +1,18 @@
 import { validateOpenRouterApiKey } from './openrouter-ai.js';
 import { LIMITS } from './project.js';
-import { normalizeAiProviderError } from './ai-provider-errors.js';
+import { AiProviderError, normalizeAiProviderError } from './ai-provider-errors.js';
 export const OPENROUTER_IMAGE_ENDPOINT = 'https://openrouter.ai/api/v1/images';
+const imageFormatError = message => new AiProviderError(message, { code: 'image_format_failed', retryable: false, terminalImage: true, cancelled: false });
 export function imageFromResponse(payload) {
   const item = payload?.data?.[0];
   const type = item?.media_type || 'image/png';
   const extension = ({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' })[type];
-  if (!extension || typeof item?.b64_json !== 'string' || !item.b64_json) throw new Error('The model did not return a PNG, JPEG or WebP image. Choose a raster image model in Settings.');
-  if (item.b64_json.length > Math.ceil(LIMITS.file * 4 / 3) + 4) throw new Error('The generated image exceeds 8 MiB. Request a smaller image.');
+  if (!extension || typeof item?.b64_json !== 'string' || !item.b64_json) throw imageFormatError('The model did not return a PNG, JPEG or WebP image. Choose a raster image model in Settings.');
+  if (item.b64_json.length > Math.ceil(LIMITS.file * 4 / 3) + 4) throw imageFormatError('The generated image exceeds 8 MiB. Request a smaller image.');
   let bytes;
   try { bytes = Uint8Array.from(atob(item.b64_json), character => character.charCodeAt(0)); }
-  catch { throw new Error('The provider returned invalid image data.'); }
-  if (!bytes.length || bytes.length > LIMITS.file) throw new Error('The generated image is empty or too large.');
+  catch { throw imageFormatError('The provider returned invalid image data.'); }
+  if (!bytes.length || bytes.length > LIMITS.file) throw imageFormatError('The generated image is empty or too large.');
   return new File([bytes], `ai-image-${Date.now()}.${extension}`, { type });
 }
 export async function generateImageWithOpenRouter({ apiKey, imageModel, prompt, references = [], field = {}, signal, fetchImpl = globalThis.fetch }) {

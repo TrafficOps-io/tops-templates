@@ -36,6 +36,19 @@ test('HTTP diagnostics preserve status and generation id through re-normalizatio
   assert.equal(failure.terminalImage, true);
 });
 
+test('only typed local image failures retain a terminal marker through normalization', () => {
+  const local = new AiProviderError('Failed to fetch decoded image data', { code: 'image_conversion_failed', terminalImage: true, retryable: false });
+  for (const failure of [normalizeAiProviderError(local), normalizeAiProviderError(normalizeAiProviderError(local))]) {
+    assert.equal(failure.code, 'image_conversion_failed');
+    assert.equal(failure.terminalImage, true);
+    assert.equal(failure.retryable, false);
+    assert.equal(failure.cancelled, false);
+  }
+  const transient = normalizeAiProviderError({ code: 503, message: 'Temporarily unavailable', terminalImage: true });
+  assert.equal(transient.terminalImage, false, 'arbitrary provider payload flags are not local terminal markers');
+  assert.equal(transient.retryable, true);
+});
+
 test('provider timeout wording is not local cancellation and survives re-normalization', () => {
   const failure = normalizeAiProviderError({ id: 'gen-google-timeout', error: {
     code: 504, message: 'JSON error injected into SSE stream',

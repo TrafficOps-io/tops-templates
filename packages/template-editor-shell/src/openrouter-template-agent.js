@@ -11,6 +11,7 @@ import { runWithAiProviderRecovery } from './ai-provider-recovery.js';
 import { normalizeAiProviderError } from './ai-provider-errors.js';
 import { createAiDiagnosticFetch } from './ai-request-diagnostics.js';
 import { createReasoningSafeOpenRouterModel } from './openrouter-reasoning-history.js';
+import { compactAiField } from './ai-context.js';
 
 const MAX_WRITE_CHARS = 12000, MAX_BATCH_FILES = 3;
 const MAX_AGENT_STEPS = 16, REPAIR_STEPS = 3, MAX_AGENT_FILE_BYTES = 256 * 1024, MAX_AGENT_TOTAL_BYTES = 1024 * 1024;
@@ -149,7 +150,11 @@ export function createTemplateDraftAgent({ model, onProgress, initialFiles = {},
     get_fields: tool({ description: 'Inspect the actual current template fields after source edits. Saved values override defaults.', inputSchema: z.object({}), execute: async () => {
       try {
         const schema = await validateDraft({ files: snapshot(), values, mode, signal, schemaOnly: true });
-        return { fields: schema.definition?.fields || schema.definition?.sections?.flatMap(section => section.fields), values };
+        const fields = schema.definition?.fields || schema.definition?.sections?.flatMap(section => section.fields);
+        // Effective values include defaults for newly declared/nested fields.
+        // Keep them once, without repeating defaults and parser-only metadata
+        // in the schema carried into every later provider request.
+        return { fields: fields?.map(compactAiField), values: schema.values || values };
       } catch (error) { return { ok: false, error: error.message }; }
     } }),
     set_values: tool({ description: 'Update actual saved content for existing or newly declared fields. Saved values override defaults. Batch independent sections; omitted fields are preserved. Supply full nested groups/repeaters.', inputSchema: z.object({ values: z.record(z.string(), z.json()) }), execute: input => {

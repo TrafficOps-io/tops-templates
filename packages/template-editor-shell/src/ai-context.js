@@ -17,10 +17,10 @@ function documentLanguages(files) {
   return languages;
 }
 
-function cleanField(field) {
-  const keys = ['name', 'label', 'help', 'type', 'required', 'options', 'min', 'max', 'min_items', 'max_items', 'aiInstructions', 'aspect_ratio', 'sizes'];
+export function compactAiField(field) {
+  const keys = ['name', 'label', 'help', 'type', 'required', 'options', 'min', 'max', 'step', 'min_items', 'max_items', 'aiInstructions', 'aspect_ratio', 'sizes'];
   const clean = Object.fromEntries(keys.filter(key => field[key] !== undefined).map(key => [key, field[key]]));
-  if (field.fields) clean.fields = field.fields.map(cleanField);
+  if (field.fields) clean.fields = field.fields.map(compactAiField);
   return clean;
 }
 
@@ -30,7 +30,7 @@ export function aiProjectContext({ files = {}, values = {}, definition, reviewSo
   const fields = definition?.fields || definition?.sections?.flatMap(section => section.fields);
   const manifest = Object.entries(files).map(([path, content]) => ({ path, bytes: byteSize(content), text: typeof content === 'string' }));
   const context = {
-    ...(definition ? { template: { name: definition.name, description: definition.description }, fields: fields?.map(cleanField) } : {}),
+    ...(definition ? { template: { name: definition.name, description: definition.description }, fields: fields?.map(compactAiField) } : {}),
     values,
     files: manifest,
     assets: Object.keys(files).filter(path => imagePath.test(path) || typeof files[path] !== 'string'),

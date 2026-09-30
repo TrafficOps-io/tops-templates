@@ -35,7 +35,7 @@ export class AiProviderError extends Error {
 
 export function normalizeAiProviderError(error, options = {}) {
   const messages = [], statuses = [], codes = [], seen = new Set();
-  let provider = options.provider, generationId = options.generationId, cancelled = false;
+  let provider = options.provider, generationId = options.generationId, cancelled = false, localTerminalImage = false;
   function inspect(value, depth = 0) {
     if (!value || depth > MAX_DEPTH) return;
     if (typeof value === 'string') {
@@ -51,6 +51,7 @@ export function normalizeAiProviderError(error, options = {}) {
     if (typeof value !== 'object' || seen.has(value)) return;
     seen.add(value);
     if (Array.isArray(value)) { for (const item of value.slice(0, 4)) inspect(item, depth + 1); return; }
+    if (value instanceof AiProviderError && value.terminalImage === true) localTerminalImage = true;
     if (value.name === 'AbortError' || value.cancelled === true) cancelled = true;
     for (const field of ['statusCode', 'status', 'code']) {
       const status = statusOf(value[field]);
@@ -81,8 +82,8 @@ export function normalizeAiProviderError(error, options = {}) {
   const terminalReason = terminalPattern.test(classification);
   const forbiddenStatus = statuses.find(status => status !== 429 && status >= 400 && status < 500);
   const statusCode = forbiddenStatus || httpStatus || statuses.at(-1);
-  const retryable = !cancelled && !moderated && !terminalReason && !forbiddenStatus && (statuses.some(status => transientStatuses.has(status)) || networkPattern.test(text));
-  const terminalImage = cancelled || moderated || terminalReason || statuses.some(status => terminalStatuses.has(status));
+  const retryable = !localTerminalImage && !cancelled && !moderated && !terminalReason && !forbiddenStatus && (statuses.some(status => transientStatuses.has(status)) || networkPattern.test(text));
+  const terminalImage = localTerminalImage || cancelled || moderated || terminalReason || statuses.some(status => terminalStatuses.has(status));
   const safeProvider = safeText(provider, options.apiKey, 100) || undefined;
   const safeGenerationId = safeText(generationId, options.apiKey, 120) || undefined;
   const label = safeProvider && !text.startsWith(`[${safeProvider}] `) ? `[${safeProvider}] ` : '';

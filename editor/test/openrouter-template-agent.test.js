@@ -567,14 +567,82 @@ test('Edit project updates the actual saved field value instead of only rewritin
 
 test('source edits can declare a field and then set its real value using the updated schema', async () => {
   const files = starterProject(true);
-  const source = files['index.tpl'].replace('@endsection', '  @param product String = "" label="Product"\n@endsection').replace('</body>', '<p>{{ product }}</p></body>');
-  const model = new MockLanguageModelV4({ doGenerate: [toolCall('set_file', { path: 'index.tpl', content: source }, 'declare'), toolCall('set_values', { values: { product: 'OptiHeart' } }, 'value'), toolCall('validate_draft', {}, 'validate')] });
+  const source = files['index.tpl'].replace('@endsection', '  @param product String = "Default product" label="Product"\n@endsection').replace('</body>', '<p>{{ product }}</p></body>');
+  const model = new MockLanguageModelV4({ doGenerate: [toolCall('set_file', { path: 'index.tpl', content: source }, 'declare'), toolCall('get_fields', {}, 'fields'), toolCall('set_values', { values: { product: 'OptiHeart' } }, 'value'), toolCall('validate_draft', {}, 'validate')] });
   const result = await generateTemplateWithOpenRouterAgent({ validateDraft, languageModel: model, mode: 'edit', files, values: { title: 'Saved title' }, prompt: 'Add an editable product section.' });
   assert.equal(result.valid, true);
   assert.equal(result.values.product, 'OptiHeart');
   assert.equal(result.values.title, 'Saved title');
   assert.ok(result.definition.sections.flatMap(section => section.fields).some(field => field.name === 'product'));
   assert.match(generateProject(result.files, result.values)['index.html'], /<p>OptiHeart<\/p>/);
+  const fieldResult = model.doGenerateCalls[2].prompt.filter(message => message.role === 'tool').flatMap(message => message.content).find(part => part.toolName === 'get_fields').output.value;
+  assert.equal(fieldResult.values.product, 'Default product', 'new defaults remain available as actual field values');
+  assert.equal(fieldResult.values.title, 'Saved title', 'inspection retains existing saved values');
+  assert.equal(Object.hasOwn(fieldResult.fields.find(field => field.name === 'product'), 'default'), false, 'the schema does not repeat a default already represented in values');
+});
+
+test('get_fields sends compact nested metadata and effective defaults without changing the semantic definition', async () => {
+  const article = 'Existing educational article content. '.repeat(80);
+  const files = { 'index.tpl': `@template "Nested content" version=1 description="Compact schema regression"
+@type Details
+  @param topic Select = "general" label="Topic" help="Pick a category" options="general:General|heart:Heart" required
+  @param rating Range = 2 min=0 max=4 step=0.5 label="Rating" aiInstructions="Keep the rating in half-point increments"
+@endtype
+@type Entry
+  @param title String = "Default entry" label="Entry title" help="A short title" required
+  @param body Markdown = ${JSON.stringify(article)} label="Article" aiInstructions="Preserve educational content"
+  @param details Details label="Details"
+  @param portrait Image = "" label="Portrait" aspect_ratio="1:1"
+  @param banner Image = "" label="Banner" sizes="1200x630|1080x1080"
+@endtype
+@section content "Content"
+  @param headline String = "Original headline" label="Headline" required
+  @param lead Entry label="Lead entry"
+  @param cards Entry[] label="Cards" min_items=1 max_items=3
+@endsection
+@layout
+<!doctype html><html lang="en"><body><h1>{{ headline }}</h1><h2>{{ lead.title }}</h2>
+@each card in cards:
+<h3>{{ card.title }}</h3>
+@endeach
+</body></html>
+@endlayout` };
+  const values = { lead: { title: 'Saved group title' }, cards: [{ title: 'Saved repeater title' }] };
+  const initial = await validateDraft({ files, values, mode: 'edit', schemaOnly: true });
+  const originalDefinition = structuredClone(initial.definition);
+  const model = new MockLanguageModelV4({ doGenerate: [toolCall('get_fields', {}, 'fields'), toolCall('set_values', { values: { headline: 'Updated headline' } }, 'update'), toolCall('validate_draft', {}, 'validate')] });
+  const result = await generateTemplateWithOpenRouterAgent({ validateDraft, languageModel: model, mode: 'edit', files, values, prompt: 'Update the headline and preserve the nested content.' });
+  const payload = model.doGenerateCalls[1].prompt.find(message => message.role === 'tool').content[0].output.value;
+  const semanticFields = initial.definition.fields || initial.definition.sections.flatMap(section => section.fields);
+  assert.deepEqual(payload.values, initial.values, 'all saved values and nested defaults are represented once');
+  assert.equal(payload.values.lead.body, article);
+  assert.equal(payload.values.cards[0].body, article);
+  assert.equal(payload.values.cards[0].details.rating, 2);
+  const lead = payload.fields.find(field => field.name === 'lead'), cards = payload.fields.find(field => field.name === 'cards');
+  assert.equal(lead.type, 'group');
+  assert.equal(cards.type, 'repeater');
+  assert.equal(cards.min_items, 1); assert.equal(cards.max_items, 3);
+  const title = lead.fields.find(field => field.name === 'title');
+  assert.equal(title.label, 'Entry title'); assert.equal(title.help, 'A short title'); assert.equal(title.required, true);
+  const details = lead.fields.find(field => field.name === 'details');
+  const topic = details.fields.find(field => field.name === 'topic'), rating = details.fields.find(field => field.name === 'rating');
+  assert.deepEqual(topic.options, { general: 'General', heart: 'Heart' });
+  assert.deepEqual([rating.min, rating.max, rating.step], [0, 4, 0.5]);
+  assert.equal(rating.aiInstructions, 'Keep the rating in half-point increments');
+  assert.equal(lead.fields.find(field => field.name === 'portrait').aspect_ratio, 1);
+  assert.deepEqual(lead.fields.find(field => field.name === 'banner').sizes, [{ width: 1200, height: 630, label: '1200x630' }, { width: 1080, height: 1080, label: '1080x1080' }]);
+  const inspectFields = fields => fields.forEach(field => {
+    assert.equal(Object.hasOwn(field, 'default'), false);
+    assert.equal(Object.hasOwn(field, 'author_type'), false);
+    if (field.fields) inspectFields(field.fields);
+  });
+  inspectFields(payload.fields);
+  const bytes = value => Buffer.byteLength(JSON.stringify(value));
+  assert.ok(bytes(payload) < bytes({ fields: semanticFields, values: initial.values }) * 0.75, 'removing repeated article defaults materially reduces the carried tool payload');
+  assert.deepEqual(initial.definition, originalDefinition);
+  assert.deepEqual(result.definition, originalDefinition, 'full defaults and semantic types remain available to the host validator');
+  assert.equal(result.values.lead.title, 'Saved group title');
+  assert.equal(result.values.cards[0].title, 'Saved repeater title');
 });
 
 test('parallel saved field updates in Edit project preserve every completed section', async () => {
