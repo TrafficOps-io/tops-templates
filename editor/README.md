@@ -77,7 +77,11 @@ Use **Attach images** in the assistant or **New project → With AI** for websit
 
 Enable **Generate images requested in the brief** after configuring an image model. The writer can generate up to four images per run, optionally guided by selected attached references through the [OpenRouter Image API](https://openrouter.ai/docs/guides/overview/multimodal/image-generation). Generated images and marked page photos stay in the review draft until **Apply changes**, which commits files and content together. **Discard** or cancellation keeps the original project.
 
-Source agents use streamed tool calls, a maximum of 16 steps per writer pass (12 for content), a shared fifteen-minute run budget with five minutes per provider call, and no SDK retries. An upstream idle timeout allows one announced recovery attempt within that same call/time budget, switching to compact individual file writes; other errors are not retried. Their final changes must pass the real parser and renderer after the last mutation. Editing tools limit changed source to 256 KiB per file and 1 MiB total; binary assets are retained but cannot be rewritten by text tools. Explicit cancellation/discard restores the original project. Validation failures are returned to the model for repair within the run budget, with the last three steps reserved for checks and corrections. Completed writes survive invalid output, provider failures and timeouts as a draft marked as needing attention. Users can continue from that draft in a new run or keep it in the editor for manual correction; unfinished file strings are never retained, while strictly complete file objects from an interrupted batch can be recovered after normal path/type/size checks. Independent file tools are enabled in the same response, reducing provider round trips, while validation runs after mutations. During generation or review the user can send up to eight clarifications, each at most 6,000 characters, without cancelling. They reach the next provider step, even if the previous step ended in a final summary, and require validation again within the same run budget. The user can inspect live source/preview, then **Apply changes** or **Discard**. Concurrent source edits and project switches are blocked until review ends.
+Source agents use streamed tool calls, a maximum of 16 steps per writer pass (12 for content), a shared fifteen-minute run budget with five minutes per provider call, and no SDK retries. One shared, announced recovery is allowed for transient 429/502/503/504 or network failures before any tool input starts. It respects Retry-After and the original call/time budget; authentication, payment, permission and moderation failures are never retried. An upstream idle timeout can instead resume a retained source draft with compact individual file writes, using that same recovery allowance. Their final changes must pass the real parser and renderer after the last mutation. Editing tools limit changed source to 256 KiB per file and 1 MiB total; binary assets are retained but cannot be rewritten by text tools. Explicit cancellation/discard restores the original project. Validation failures are returned to the model for repair within the run budget, with the last three steps reserved for checks and corrections. Completed writes survive invalid output, provider failures and timeouts as a draft marked as needing attention. Users can continue from that draft in a new run or keep it in the editor for manual correction; unfinished file strings are never retained, while strictly complete file objects from an interrupted batch can be recovered after normal path/type/size checks. Independent file tools are enabled in the same response, reducing provider round trips, while validation runs after mutations. During generation or review the user can send up to eight clarifications, each at most 6,000 characters, without cancelling. They reach the next provider step, even if the previous step ended in a final summary, and require validation again within the same run budget. The user can inspect live source/preview, then **Apply changes** or **Discard**. Concurrent source edits and project switches are blocked until review ends.
+
+Source edits use `set_values` for saved content: changing a `@param` default alone does not override existing saved values. Successful final validation proceeds directly to independent review without another summary-only provider request. Content updates are serialized and batched by logical sections; planning and Fill Content stages receive field schemas, values and file metadata instead of full source. Requests requiring source edits are reported as needing **Edit project** rather than silently reducing the brief. Review uses the actual updated schema and draft.
+
+**Run diagnostics** exports stage timings, selected models, request sizes, usage, status codes, provider names and generation IDs. It excludes keys, prompts, source, values, attachment bodies and freeform provider messages. Detailed provider error explanations remain visible in the panel. Terminal image failures stop repeated generation attempts across revision passes while preserving successful assets and content.
 
 Text requests use `https://openrouter.ai/api/v1/chat/completions` with provider data collection disabled and strict parameter routing. Sampling parameters such as temperature are omitted so reasoning models can participate. Planner and reviewer stages expose a single tool with automatic tool selection, supporting providers that cannot force a named function; only a schema-valid tool submission completes either stage. All draft content is validated locally. Image requests use the [dedicated Image API](https://openrouter.ai/docs/guides/overview/multimodal/image-generation) and the selected model’s provider policies. Requests are billed to the user’s OpenRouter account; provider latency and model support vary.
 
@@ -159,6 +163,7 @@ npm run build:editor
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/library-browser.mjs editor/dist
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/library-ai-browser.mjs editor/dist
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/fill-content-browser.mjs editor/dist
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/optiheart-ai-browser.mjs editor/dist
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/recovery-browser.mjs editor/dist
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/studio-browser.mjs editor/dist
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/pwa-access-browser.mjs editor/dist
@@ -182,7 +187,47 @@ and saves still work. No runtime compiler or PWApps code is installed there.
 The agent browser check uses a paused, mock OpenRouter SSE response and no paid requests.
 It verifies partial source in the assistant and Monaco before tool completion,
 clarifications delivered at the next step, edit/delete tools, preview, apply/discard,
-and rollback on cancellation or provider failure without retries.
+and rollback on cancellation or provider failure after tool input starts without replaying writes.
+
+The OptiHeart browser check runs the complete reported Polish prelanding brief
+against a synthetic persisted Russian project, with every OpenRouter URL
+intercepted. It verifies source edits and actual saved field values together,
+three video placeholders, independent review, Apply/autosave/reload, private
+diagnostic downloads and the rendered page at 390px and 1280px. It never opens
+the user's installed PWA or spends OpenRouter credits.
+
+An optional standalone AI harness defaults to the same free synthetic workflow:
+
+```sh
+node editor/test/ai-live-check.mjs --dry-run --mode edit --out /tmp/studio-ai-check
+node editor/test/ai-live-check.mjs --dry-run --fail-planner-once --out /tmp/studio-ai-recovery-check
+```
+
+It writes `report.json`, `values.json`, `source/` and `rendered/` under the specified
+temporary directory. Reports identify the fixture as synthetic and contain
+request timings, byte counts, model/tool metadata, returned token usage, cost,
+generation IDs and normalized provider errors. They exclude API keys, request
+headers and provider request/response bodies. The project artifacts are separate
+and intentionally contain the generated page. Synthetic runs prove integration
+behavior; they do not verify that a live provider can complete the brief.
+
+Real-provider verification is a separate manual opt-in that uses paid credits.
+Only run it after the user explicitly authorizes those requests. Set
+`STUDIO_OPENROUTER_TEST_KEY` securely in the environment, then provide `--live`:
+
+```sh
+node editor/test/ai-live-check.mjs --live --model xiaomi/mimo-v2.6-flash --mode edit --max-calls 12 --max-cost 0.25 --timeout-ms 300000 --out /tmp/studio-ai-live-check
+```
+
+`--fixture` accepts an exported project JSON with `files` and `values` or
+`settings`, without connection settings. Binary files may be numeric arrays or
+objects with a `base64` property. The harness invokes the production workflow
+and host validator, then independently renders the draft and checks structural
+requirements and local assets. The POST count and whole-run timeout are hard
+limits. The cost limit prevents later calls once returned usage reaches the
+threshold; unavailable cost remains unknown, and one call can cross that
+threshold. Inspect the rendered mobile layout and factual sources as well as
+the automated checks before accepting a live result.
 
 The PWA access check verifies that ordinary tabs cannot use AI or remembered
 folder handles, even with saved credentials, a pending AI brief, `?studio=1`,

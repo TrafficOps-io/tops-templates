@@ -1,6 +1,11 @@
 import { tool } from 'ai';
 import { z } from 'zod';
 import { safePath, validateProject } from './project.js';
+import { normalizeAiProviderError, isTerminalImageError } from './ai-provider-errors.js';
+
+// The workflow creates one generateImage closure per run and shares it across
+// writer passes. A denied request must not be repeated by subsequent revisions.
+const terminalFailures = new WeakMap();
 
 // Shared by content and source agents. Binary assets never pass through text tools.
 export function draftImageTool({ generateImage, getFiles, commit, signal, onProgress }) {
@@ -14,6 +19,7 @@ export function draftImageTool({ generateImage, getFiles, commit, signal, onProg
         signal?.throwIfAborted(); safePath(path);
         if (!/^images\/[a-zA-Z0-9_/-]+\.png$/.test(path)) throw new Error('Use a new images/*.png path.');
         if (Object.hasOwn(getFiles(), path) || pending.has(path)) throw new Error('This image path already exists. Reuse it or choose a new path.');
+        if (terminalFailures.has(generateImage)) throw terminalFailures.get(generateImage);
         if (++attempted > 4) throw new Error('The limit of 4 image requests per run was reached.');
         pending.add(path); onProgress?.({ type: 'image-start', path });
         const bytes = await generateImage({ prompt, referenceIds, signal });
@@ -21,7 +27,13 @@ export function draftImageTool({ generateImage, getFiles, commit, signal, onProg
         const candidate = { ...getFiles(), [path]: bytes };
         validateProject(candidate); commit(candidate, path);
         return { ok: true, path };
-      } catch (error) { if (signal?.aborted) throw error; return { ok: false, error: error.message }; }
+      } catch (error) {
+        const failure = normalizeAiProviderError(error);
+        if (isTerminalImageError(failure)) terminalFailures.set(generateImage, failure);
+        onProgress?.({ type: 'image-error', path, error: failure.message, statusCode: failure.statusCode, code: failure.code, provider: failure.provider, generationId: failure.generationId, retryable: failure.retryable, terminal: failure.terminalImage });
+        if (signal?.aborted) throw failure;
+        return { ok: false, error: failure.message, statusCode: failure.statusCode, retryable: failure.retryable, terminal: failure.terminalImage };
+      }
       finally { pending.delete(path); }
     },
   });

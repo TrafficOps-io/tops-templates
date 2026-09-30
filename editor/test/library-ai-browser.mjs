@@ -48,7 +48,7 @@ async function openTestPage() {
         const payload = { id: stage, model: 'test/model', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: stage, type: 'function', function: { name: stage, arguments: JSON.stringify(value) } }] }, finish_reason: 'tool_calls' }] };
         return new Response(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
       }
-      if (test.outcome === 'error' && step === 2) return Response.json({ error: { message: 'Mock provider unavailable after completed file', code: 503 } }, { status: 503 });
+      if (test.outcome === 'error' && step >= 2) return Response.json({ error: { message: 'Mock provider unavailable after completed file', code: 503 } }, { status: 503 });
       const content = '@template "AI studio"\n@section content "Content"\n@param title String = "AI studio launch" label="Title" required\n@endsection\n@layout\n<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{title}}</title></head><body><main><h1>{{title}}</h1><p>Created from the saved brief.</p></main></body></html>\n@endlayout\n';
       const call = step === 1 ? ['set_file', { path: 'index.tpl', content }] : step === 2 ? ['validate_draft', {}] : null;
       return new Response(new ReadableStream({ start(controller) {
@@ -142,7 +142,7 @@ try {
   await page.evaluate(() => window.libraryAiTest.release());
   await page.getByText('Changes ready', { exact: true }).waitFor();
   await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'AI studio launch', exact: true }).waitFor();
-  assert.equal(providerCalls.length, 5);
+  assert.equal(providerCalls.length, 4, 'successful host validation skips a summary-only provider request');
   assert.ok(providerCalls[0].body.messages.some(message => message.content?.some?.(part => part.type === 'image_url')));
   await page.getByRole('button', { name: 'Apply changes', exact: true }).click();
   const saved = await waitForSaved(page, 'AI launch', 'AI studio launch'); assert.equal(saved.revision, 3);
@@ -150,7 +150,7 @@ try {
   await page.getByRole('button', { name: 'Collapse editor', exact: true }).click();
   await page.locator('.ai-prompt textarea').waitFor();
   await page.waitForTimeout(800);
-  assert.equal(providerCalls.length, 5, 'reload never restarts a paid generation');
+  assert.equal(providerCalls.length, 4, 'reload never restarts a paid generation');
   assert.equal(await page.locator('.ai-prompt textarea').inputValue(), prompt);
   await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'AI studio launch', exact: true }).waitFor();
 
@@ -164,7 +164,7 @@ try {
   const cancelled = (await records(page)).find(record => record.name === 'Cancelled creation');
   assert.equal(cancelled.aiStarted, true); assert.equal(cancelled.revision, 2);
   assert.ok(cancelled.files['index.tpl'].includes('Your next idea'));
-  assert.equal(providerCalls.length, 7);
+  assert.equal(providerCalls.length, 6);
 
   // A later provider failure retains completed generated source for review.
   await page.getByRole('button', { name: 'Library', exact: true }).first().click();
@@ -177,7 +177,7 @@ try {
   assert.ok((await records(page)).find(record => record.name === 'Recovered creation').files['index.tpl'].includes('Your next idea'));
   await page.getByRole('button', { name: 'Keep draft in editor', exact: true }).click();
   await waitForSaved(page, 'Recovered creation', 'AI studio launch');
-  assert.equal(providerCalls.length, 10, 'provider failures do not automatically repeat requests');
+  assert.equal(providerCalls.length, 10, 'a persistent pre-tool 503 gets one recovery without replaying completed writes');
   assert.deepEqual(errors, []);
   console.log('PASS: library AI creation, persisted one-shot claim before fetch, streamed review/apply/autosave, reload without requests, missing-key Settings recovery, cancel and retained failed draft.');
 } catch (error) {

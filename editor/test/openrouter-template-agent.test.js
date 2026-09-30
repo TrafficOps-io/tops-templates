@@ -4,6 +4,7 @@ import test from 'node:test';
 import { MockLanguageModelV4 } from 'ai/test';
 import { createOpenRouterTemplateModel, generateTemplateWithOpenRouterAgent } from '@trafficops/template-editor-shell/openrouter-template-agent';
 import { starterProject } from '../src/starter.js';
+import { generateProject } from '@trafficops/template-runtime';
 
 const usage = {
   inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
@@ -30,8 +31,9 @@ function finalOutput(text) {
 
 function successfulResponses({ mutateAfterValidation = false } = {}) {
   const responses = Object.entries(starterProject(true)).map(([path, content], index) => toolCall('set_file', { path, content }, `set-${index}`));
-  responses.push(toolCall('validate_draft', {}, 'validate'));
-  if (mutateAfterValidation) responses.push(toolCall('set_file', { path: 'notes.md', content: 'Changed after validation.' }, 'late-change'));
+  const validation = toolCall('validate_draft', {}, 'validate');
+  if (mutateAfterValidation) validation.content.push(...toolCall('set_file', { path: 'notes.md', content: 'Changed after validation.' }, 'late-change').content);
+  responses.push(validation);
   responses.push(finalOutput('A valid landing page draft is ready.'));
   return responses;
 }
@@ -47,7 +49,7 @@ test('ToolLoopAgent builds only an in-memory draft and validates it with the Stu
 
   assert.deepEqual(Object.keys(result.files).sort(), Object.keys(starterProject(true)).sort());
   assert.match(result.files['index.tpl'], /@template/);
-  assert.equal(result.summary, 'A valid landing page draft is ready.');
+  assert.match(result.summary, /validated|landing page draft/i);
   assert.equal(result.steps, model.doGenerateCalls.length);
   assert.ok(progress.some(event => event.type === 'validation' && event.valid));
   assert.ok(model.doGenerateCalls.every(call => call.tools?.some(entry => entry.name === 'validate_draft')));
@@ -168,7 +170,7 @@ test('streaming reports model activity and live files before completion', async 
   } });
   const events = [];
   const result = await generateTemplateWithOpenRouterAgent({ validateDraft, languageModel: model, prompt: 'Create a page', stream: true, onProgress: event => events.push(event) });
-  assert.equal(result.steps, 3);
+  assert.equal(result.steps, 2, 'final validation completes writing without a separate summary request');
   assert.ok(events.some(event => event.type === 'step'));
   assert.ok(events.some(event => event.files?.['index.tpl']));
   assert.equal(events.filter(event => event.type === 'step-finished').length, result.steps);
@@ -190,7 +192,7 @@ test('small project sources are available before the first model call, without b
   assert.equal('images/private.png' in sources, false);
   assert.ok(new TextEncoder().encode(JSON.stringify(sources)).byteLength <= 64 * 1024);
   assert.match(result.files['index.tpl'], /Cooking course/);
-  assert.equal(result.steps, 3);
+  assert.equal(result.steps, 2, 'no summary-only provider round trip follows successful validation');
 });
 
 test('batch source reads enforce a shared limit and exclude binary data', async () => {
@@ -311,7 +313,8 @@ for (const arrival of ['tool', 'final', 'validation']) {
   test(`clarification during ${arrival} is delivered once and must be validated again`, async () => {
     const queue = [], events = []; let injected = false, checks = 0;
     const responses = [toolCall('set_file', { path: 'notes.md', content: 'First version' }, 'first')];
-    if (arrival !== 'tool') responses.push(toolCall('validate_draft', {}, 'validate-first'), finalOutput('First version ready.'));
+    if (arrival === 'validation') responses.push(toolCall('validate_draft', {}, 'validate-first'));
+    if (arrival === 'final') responses.push(finalOutput('First version ready.'));
     responses.push(toolCall('edit_file', { path: 'notes.md', search: 'First', replace: 'Corrected' }, 'correct'), toolCall('validate_draft', {}, 'validate-corrected'), finalOutput('Corrected version ready.'));
     const model = new MockLanguageModelV4({ doGenerate: async () => {
       const response = responses.shift();
@@ -320,7 +323,7 @@ for (const arrival of ['tool', 'final', 'validation']) {
     } });
     const result = await generateTemplateWithOpenRouterAgent({ validateDraft: async args => {
       const result = await validateDraft(args);
-      if (arrival === 'validation' && ++checks === 2) { queue.push('Use the corrected version.'); injected = true; }
+      if (arrival === 'validation' && ++checks === 1) { queue.push('Use the corrected version.'); injected = true; }
       return result;
     }, languageModel: model, mode: 'edit', files: starterProject(true), prompt: 'Add notes', takeInstructions: () => queue.splice(0), onProgress: event => events.push(event) });
     assert.equal(result.files['notes.md'], 'Corrected version');
@@ -335,7 +338,7 @@ test('a clarification at the step limit cannot be silently reported as completed
   const model = new MockLanguageModelV4({ doGenerate: async () => {
     step++;
     if (step === 16) queue.push('Make the note blue.');
-    return step === 1 ? toolCall('set_file', { path: 'notes.md', content: 'Note' }, 'write') : toolCall('validate_draft', {}, `validate-${step}`);
+    return toolCall('set_file', { path: 'notes.md', content: `Note ${step}` }, `write-${step}`);
   } });
   await assert.rejects(() => generateTemplateWithOpenRouterAgent({ validateDraft, languageModel: model, mode: 'edit', files: starterProject(true), prompt: 'Add notes', takeInstructions: () => queue.splice(0) }), /step limit/);
   assert.equal(step, 16);
@@ -413,6 +416,7 @@ function timeoutStream(input) {
   return { stream: new ReadableStream({ start(controller) {
     controller.enqueue({ type: 'stream-start', warnings: [] });
     if (input !== undefined) {
+      controller.enqueue({ type: 'raw', rawValue: { choices: [{ delta: { tool_calls: [{ index: 0, id: 'interrupted-batch', function: { name: 'set_files', arguments: input } }] } }] } });
       controller.enqueue({ type: 'tool-input-start', id: 'interrupted-batch', toolName: 'set_files' });
       controller.enqueue({ type: 'tool-input-delta', id: 'interrupted-batch', delta: input });
     }
@@ -547,4 +551,39 @@ test('focused edits cannot disguise a large whole-file replacement', async () =>
   assert.match(rejection.error, /focused section/);
   assert.equal(result.files['notes.md'], content);
   assert.equal(result.files['small.css'], 'body { color: blue; }', 'small existing files can still be replaced coherently');
+});
+
+test('Edit project updates the actual saved field value instead of only rewriting an overridden template default', async () => {
+  const files = starterProject(true), events = [];
+  const model = new MockLanguageModelV4({ doGenerate: [toolCall('set_values', { values: { title: 'Polski tytuł' } }, 'translate'), toolCall('validate_draft', {}, 'validate')] });
+  const result = await generateTemplateWithOpenRouterAgent({ validateDraft, languageModel: model, mode: 'edit', files, values: { title: 'Original saved title' }, prompt: 'Translate the title to Polish.', onProgress: event => events.push(event) });
+  assert.equal(result.valid, true);
+  assert.equal(result.values.title, 'Polski tytuł');
+  assert.equal(result.files['index.tpl'], files['index.tpl'], 'a content edit can preserve all source');
+  assert.match(generateProject(result.files, result.values)['index.html'], /<h1>Polski tytuł<\/h1>/);
+  assert.ok(events.some(event => event.type === 'values-set' && event.values.title === 'Polski tytuł'));
+  assert.equal(model.doGenerateCalls.length, 2, 'final validation needs no summary-only call');
+});
+
+test('source edits can declare a field and then set its real value using the updated schema', async () => {
+  const files = starterProject(true);
+  const source = files['index.tpl'].replace('@endsection', '  @param product String = "" label="Product"\n@endsection').replace('</body>', '<p>{{ product }}</p></body>');
+  const model = new MockLanguageModelV4({ doGenerate: [toolCall('set_file', { path: 'index.tpl', content: source }, 'declare'), toolCall('set_values', { values: { product: 'OptiHeart' } }, 'value'), toolCall('validate_draft', {}, 'validate')] });
+  const result = await generateTemplateWithOpenRouterAgent({ validateDraft, languageModel: model, mode: 'edit', files, values: { title: 'Saved title' }, prompt: 'Add an editable product section.' });
+  assert.equal(result.valid, true);
+  assert.equal(result.values.product, 'OptiHeart');
+  assert.equal(result.values.title, 'Saved title');
+  assert.ok(result.definition.sections.flatMap(section => section.fields).some(field => field.name === 'product'));
+  assert.match(generateProject(result.files, result.values)['index.html'], /<p>OptiHeart<\/p>/);
+});
+
+test('parallel saved field updates in Edit project preserve every completed section', async () => {
+  const files = starterProject(), batch = toolCall('set_values', { values: { headline: 'Polski tytuł' } }, 'headline');
+  batch.content.push(...toolCall('set_values', { values: { description: 'Polski opis' } }, 'description').content);
+  const model = new MockLanguageModelV4({ doGenerate: [batch, toolCall('validate_draft', {}, 'validate')] });
+  const result = await generateTemplateWithOpenRouterAgent({ validateDraft: async options => { await new Promise(resolve => setTimeout(resolve, 10)); return validateDraft(options); }, languageModel: model, mode: 'edit', files, values: { headline: 'Original title', description: 'Original description' }, prompt: 'Translate two content sections.' });
+  assert.equal(result.valid, true);
+  assert.equal(result.values.headline, 'Polski tytuł');
+  assert.equal(result.values.description, 'Polski opis');
+  assert.equal(model.doGenerateCalls.length, 2);
 });

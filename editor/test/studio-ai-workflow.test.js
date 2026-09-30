@@ -7,6 +7,7 @@ import { attachmentAssets, attachmentMessage, readImageAttachments, validateAtta
 import { validateDraft } from './support/ai-validator.js';
 import { starterProject } from '../src/starter.js';
 import { createStudioProject, cloneStudioProject } from '../src/studio-library.js';
+import { aiProjectContext } from '../../packages/template-editor-shell/src/ai-context.js';
 
 const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4n+DwHwAGoAKfr+/eKAAAAABJRU5ErkJggg==';
 const usage = { inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 5, text: 5, reasoning: 0 } };
@@ -181,4 +182,168 @@ test('attachment validation bounds input, excludes reference-only images from as
   const project = createStudioProject({ kind: 'landing', name: 'AI refs', files: starterProject(true), aiPrompt: 'Use photos', aiAttachments: refs, aiGenerateImages: true });
   assert.deepEqual(project.aiAttachments, refs);
   assert.equal(cloneStudioProject(project).aiAttachments, undefined);
+});
+
+test('content planning, writing and review send actual fields and values without source or large unrelated documents', async () => {
+  const initial = setup();
+  initial.files['private-notes.md'] = 'UNRELATED_DOCUMENT_CONTENT '.repeat(14000);
+  initial.files['images/unused.svg'] = '<svg xmlns="http://www.w3.org/2000/svg"><!-- UNUSED_SVG_SOURCE --></svg>';
+  const model = new MockLanguageModelV4({ doGenerate: [plan(), call('set_values', { values: { headline: 'Polski tytuł' } }), done(), review()] });
+  const result = await runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Translate the headline.', languageModel: model, validateDraft });
+  assert.equal(result.valid, true);
+  for (const request of model.doGenerateCalls) {
+    const prompt = JSON.stringify(request.prompt);
+    assert.equal(prompt.includes('UNRELATED_DOCUMENT_CONTENT'), false);
+    assert.equal(prompt.includes('UNUSED_SVG_SOURCE'), false);
+    assert.equal(prompt.includes('@template'), false, 'content stages do not send source text');
+    assert.ok(prompt.includes('headline'), 'actual editable fields remain available');
+  }
+  assert.equal(result.files['private-notes.md'], initial.files['private-notes.md']);
+});
+
+test('source planner excludes large unrelated source, while review sees actual changed page source', async () => {
+  const files = starterProject(true);
+  files['private-notes.md'] = 'UNRELATED_SOURCE_DOCUMENT '.repeat(14000);
+  files['images/unused.svg'] = '<svg xmlns="http://www.w3.org/2000/svg"><!-- UNUSED_SVG_SOURCE --></svg>';
+  const model = new MockLanguageModelV4({ doGenerate: [plan(), call('edit_file', { path: 'index.tpl', search: '</body>', replace: '<section id="videos">Video placeholders</section></body>' }), done(), review()] });
+  const result = await runStudioAiWorkflow({ mode: 'edit', files, values: { title: 'Saved title' }, prompt: 'Add video placeholders.', languageModel: model, validateDraft });
+  assert.equal(result.valid, true);
+  assert.equal(JSON.stringify(model.doGenerateCalls[0].prompt).includes('@template'), false, 'planner receives manifest and values, not full source');
+  const reviewer = model.doGenerateCalls.find(request => request.tools?.some(tool => tool.name === 'submit_review'));
+  const prompt = JSON.stringify(reviewer.prompt);
+  assert.ok(prompt.includes('Video placeholders'));
+  assert.equal(prompt.includes('UNRELATED_SOURCE_DOCUMENT'), false);
+  assert.equal(prompt.includes('UNUSED_SVG_SOURCE'), false);
+});
+
+test('parallel content updates preserve both completed edits and validate without a summary round trip', async () => {
+  const initial = setup();
+  const writes = [call('set_values', { values: { headline: 'Polski tytuł' } }), call('set_values', { values: { description: 'Polski opis' } }), call('validate_draft', {})];
+  const batch = { ...writes[0], content: writes.flatMap(response => response.content) };
+  const model = new MockLanguageModelV4({ doGenerate: [plan(), batch, review()] });
+  const result = await runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Translate the headline and description.', languageModel: model,
+    validateDraft: async options => { await new Promise(resolve => setTimeout(resolve, 10)); return validateDraft(options); } });
+  assert.equal(result.valid, true);
+  assert.equal(result.values.headline, 'Polski tytuł');
+  assert.equal(result.values.description, 'Polski opis');
+  assert.equal(model.doGenerateCalls.length, 3, 'one batch finishes writing and runs the independent reviewer');
+});
+
+test('planner detects a content request that needs new sections and does not downscope or start writing', async () => {
+  const initial = setup();
+  const model = new MockLanguageModelV4({ doGenerate: [call('submit_plan', { summary: 'Add three video blocks that are absent from the existing fields.', tasks: ['Add video sections'], requiresSourceChanges: true })] });
+  await assert.rejects(runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Add three video placeholders.', languageModel: model, validateDraft }), /needs Edit project/);
+  assert.equal(model.doGenerateCalls.length, 1);
+  assert.deepEqual(initial.files, setup().files);
+});
+
+test('reviewer source requirements preserve a partial content draft without futile source repair attempts', async () => {
+  const initial = setup();
+  const model = new MockLanguageModelV4({ doGenerate: [plan(), call('set_values', { values: { headline: 'Polski tytuł' } }), done(), call('submit_review', { approved: false, summary: 'The page needs new video sections.', issues: ['Add three new video blocks.'], requiresSourceChanges: true })] });
+  const result = await runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Translate and add video blocks.', languageModel: model, validateDraft });
+  assert.equal(result.valid, false);
+  assert.match(result.error, /need Edit project/);
+  assert.equal(result.values.headline, 'Polski tytuł');
+  assert.equal(model.doGenerateCalls.length, 4, 'impossible source changes do not trigger two content revision loops');
+  assert.deepEqual(result.files, initial.files);
+});
+
+test('schema-valid JSON from an automatic tool provider can submit planning and independent review', async () => {
+  const initial = setup();
+  const json = value => ({ ...done(), content: [{ type: 'text', text: JSON.stringify(value) }] });
+  const model = new MockLanguageModelV4({ doGenerate: [json({ summary: 'Translate headline.', tasks: ['Write Polish headline'] }), call('set_values', { values: { headline: 'Polski tytuł' } }), done(), json({ approved: true, summary: 'Actual Polish headline verified.', issues: [] })] });
+  const result = await runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Translate headline.', languageModel: model, validateDraft });
+  assert.equal(result.valid, true);
+  assert.equal(result.review.approved, true);
+});
+
+test('a shared deadline stops the workflow before another stage even when the provider ignores abort', async t => {
+  const initial = setup(), started = Date.now();
+  let clock = started;
+  t.mock.method(Date, 'now', () => clock);
+  const model = new MockLanguageModelV4({ doGenerate: async () => { clock = started + 21; return plan(); } });
+  await assert.rejects(runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Fill content.', timeout: 20, languageModel: model, validateDraft }), /run time limit/);
+  assert.equal(model.doGenerateCalls.length, 1, 'writer cannot get a fresh time budget after planning consumes the run');
+});
+
+test('Create review uses the generated schema and starts with fresh values rather than previous project fields', async () => {
+  const initial = setup(), files = starterProject(true);
+  const model = new MockLanguageModelV4({ doGenerate: [plan(), call('set_file', { path: 'index.tpl', content: files['index.tpl'] }), done(), review()] });
+  const result = await runStudioAiWorkflow({ ...initial, mode: 'create', prompt: 'Create a minimal page.', languageModel: model, validateDraft });
+  assert.equal(result.values.title, 'Your next idea');
+  assert.equal(result.values.headline, undefined, 'Create does not carry previous project fields into a new schema');
+  const reviewer = model.doGenerateCalls.find(request => request.tools?.some(tool => tool.name === 'submit_review'));
+  const user = reviewer.prompt.find(message => message.role === 'user').content[0].text;
+  const draft = JSON.parse(user.split('Actual final draft:\n')[1]);
+  assert.deepEqual(draft.fields.map(field => field.name), ['title']);
+});
+
+test('terminal image denial retains written content and stops after one independent review instead of futile revision passes', async () => {
+  const initial = setup(), events = [];
+  const model = new MockLanguageModelV4({ doGenerate: [plan(), call('set_values', { values: { headline: 'Completed text' } }), call('generate_image', { path: 'images/hero.png', prompt: 'Hero illustration', referenceIds: [] }), done(), review()] });
+  let images = 0;
+  const result = await runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Write a headline and generate hero art.', languageModel: model, validateDraft, generateImages: true, apiKey: 'mock', imageModel: 'test/image',
+    fetchImpl: async () => { images++; return Response.json({ error: { code: 403, message: 'Image provider access denied' } }, { status: 403 }); }, onProgress: event => events.push(event) });
+  assert.equal(result.valid, false);
+  assert.equal(result.review.approved, false, 'provider failure cannot be reported as ready even if a reviewer overlooks it');
+  assert.equal(result.values.headline, 'Completed text');
+  assert.match(result.error, /Image provider access denied/);
+  assert.equal(images, 1);
+  assert.equal(events.filter(event => event.type === 'phase' && event.phase === 'revise').length, 0);
+  assert.equal(result.files['images/hero.png'], undefined);
+});
+
+test('planner and writer share one transient recovery allowance for the whole run', async () => {
+  const initial = setup(), events = [];
+  const failure = () => Object.assign(new Error('Provider temporarily unavailable'), { statusCode: 503 });
+  const model = new MockLanguageModelV4({ doGenerate: async () => {
+    if (model.doGenerateCalls.length === 2) return plan();
+    throw failure();
+  } });
+  await assert.rejects(runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Fill content.', languageModel: model, validateDraft, onProgress: event => events.push(event) }), /temporarily unavailable/);
+  assert.equal(model.doGenerateCalls.length, 3, 'one planner retry consumes the shared allowance; writer is not retried again');
+  assert.equal(events.filter(event => event.type === 'provider-recovery').length, 1);
+});
+
+test('a transient error on the twelfth content call cannot trigger a thirteenth paid request', async () => {
+  const initial = setup(), events = [];
+  const model = new MockLanguageModelV4({ doGenerate: async () => {
+    const count = model.doGenerateCalls.length;
+    if (count === 12) throw Object.assign(new Error('Provider temporarily unavailable'), { statusCode: 503 });
+    return call('set_values', { values: { headline: `Updated headline ${count}` } });
+  } });
+  await assert.rejects(generateContentDraft({ ...initial, prompt: 'Fill content.', languageModel: model, validateDraft, onProgress: event => events.push(event) }), /temporarily unavailable/);
+  assert.equal(model.doGenerateCalls.length, 12);
+  assert.equal(events.filter(event => event.type === 'provider-recovery').length, 0);
+  assert.ok(events.some(event => event.type === 'values-set' && event.values.headline === 'Updated headline 11'));
+});
+
+test('literal document language reaches content planning and review without exposing template source', async () => {
+  const initial = setup();
+  initial.files['index.tpl'] = initial.files['index.tpl'].replace('<html lang="en">', '<html lang="ru">');
+  const model = new MockLanguageModelV4({ doGenerate: [plan(), call('set_values', { values: { headline: 'Polski tytuł' } }), done(), call('submit_review', { approved: false, summary: 'The literal document language is still Russian.', issues: ['Change the HTML document language to Polish.'], requiresSourceChanges: true })] });
+  const result = await runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Make the whole page Polish.', languageModel: model, validateDraft });
+  assert.equal(result.valid, false);
+  assert.match(result.error, /need Edit project/);
+  assert.equal(result.values.headline, 'Polski tytuł');
+  for (const [tool, label] of [['submit_plan', 'Current project:\n'], ['submit_review', 'Actual final draft:\n']]) {
+    const request = model.doGenerateCalls.find(input => input.tools?.some(entry => entry.name === tool));
+    const text = request.prompt.find(message => message.role === 'user').content[0].text;
+    const context = JSON.parse(text.split(label)[1]);
+    assert.deepEqual(context.documentLanguages, [{ path: 'index.tpl', language: 'ru' }]);
+    assert.equal(context.sources, undefined);
+    assert.equal(text.includes('@template'), false);
+    assert.match(JSON.stringify(request.prompt[0]), /literal HTML language attributes/);
+  }
+});
+
+test('document language metadata distinguishes literal attributes from dynamic fields and data-lang hints', () => {
+  const context = JSON.parse(aiProjectContext({ files: {
+    'index.tpl': '@layout\n<HTML data-lang="ru" lang=\'pl-PL\'><body>PRIVATE SOURCE TEXT</body></HTML>\n@endlayout',
+    'dynamic.tpl': '@layout\n<html lang="{{ pageLanguage }}"><body></body></html>\n@endlayout',
+    'notes.md': '<html lang="ru">Unrelated documentation</html>',
+  } }));
+  assert.deepEqual(context.documentLanguages, [{ path: 'index.tpl', language: 'pl-pl' }]);
+  assert.equal(JSON.stringify(context).includes('PRIVATE SOURCE TEXT'), false);
+  assert.equal(JSON.stringify(context).includes('Unrelated documentation'), false);
 });
