@@ -84,7 +84,7 @@ async function structuredStage({ model, name, schema, instructions, prompt, atta
   };
   // Some tool-capable providers only support auto, not required/named choices.
   // The sole tool and validated submission enforce the stage's result locally.
-  const agent = new ToolLoopAgent({ model, instructions: `${instructions}\nFinish by calling ${name} with the completed result. Do not return the result as prose or JSON text.`, tools: { [name]: tool({ description: 'Submit the completed result.', inputSchema: schema, execute: async value => { submitted = value; return { ok: true }; } }) }, toolChoice: 'auto', stopWhen: stepCountIs(1), maxOutputTokens: 4000, maxRetries: 0, telemetry: { isEnabled: false } });
+  const agent = new ToolLoopAgent({ model, instructions: `${instructions}\nKeep summary to 1–3 short sentences and fewer than 500 characters; do not repeat the brief or page copy. Keep each plan task to one short action and each review issue to one concise blocking mismatch. Preserve the full requested website content; these limits apply only to submission fields.\nFinish by calling ${name} with the completed result. Do not return the result as prose or JSON text.`, tools: { [name]: tool({ description: 'Submit the completed result.', inputSchema: schema, execute: async value => { submitted = value; return { ok: true }; } }) }, toolChoice: 'auto', stopWhen: stepCountIs(1), maxOutputTokens: 4000, maxRetries: 0, telemetry: { isEnabled: false } });
   for (let attempt = 0; attempt < 2; attempt++) {
     const result = await runCall(agent, { ...runtime, callBudget, messages, signal, stream }, onProgress);
     signal?.throwIfAborted();
