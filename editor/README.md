@@ -83,6 +83,8 @@ Source edits use `set_values` for saved content: changing a `@param` default alo
 
 **Run diagnostics** exports stage timings, selected models, request sizes, usage, status codes, provider names and generation IDs. It excludes keys, prompts, source, values, attachment bodies and freeform provider messages. Detailed provider error explanations remain visible in the panel. Terminal image failures stop repeated generation attempts across revision passes while preserving successful assets and content.
 
+Tool continuations preserve the ordered reasoning blocks and signatures returned by the provider, including distinct signed blocks with identical text. A request-local compatibility layer contains the OpenRouter SDK's adjacent-block merge and history deduplication behavior without changing SSE bytes or adding model requests. Reasoning content and signatures never enter exported diagnostics.
+
 Text requests use `https://openrouter.ai/api/v1/chat/completions` with provider data collection disabled and strict parameter routing. Sampling parameters such as temperature are omitted so reasoning models can participate. Planner and reviewer stages expose a single tool with automatic tool selection, supporting providers that cannot force a named function; only a schema-valid tool submission completes either stage. All draft content is validated locally. Image requests use the [dedicated Image API](https://openrouter.ai/docs/guides/overview/multimodal/image-generation) and the selected model’s provider policies. Requests are billed to the user’s OpenRouter account; provider latency and model support vary.
 
 ## Privacy and preview

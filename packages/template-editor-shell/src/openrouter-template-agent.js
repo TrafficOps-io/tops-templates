@@ -10,6 +10,7 @@ import { draftImageTool } from './ai-image-tool.js';
 import { runWithAiProviderRecovery } from './ai-provider-recovery.js';
 import { normalizeAiProviderError } from './ai-provider-errors.js';
 import { createAiDiagnosticFetch } from './ai-request-diagnostics.js';
+import { createReasoningSafeOpenRouterModel } from './openrouter-reasoning-history.js';
 
 const MAX_WRITE_CHARS = 12000, MAX_BATCH_FILES = 3;
 const MAX_AGENT_STEPS = 16, REPAIR_STEPS = 3, MAX_AGENT_FILE_BYTES = 256 * 1024, MAX_AGENT_TOTAL_BYTES = 1024 * 1024;
@@ -367,10 +368,11 @@ export function createTemplateDraftAgent({ model, onProgress, initialFiles = {},
 export function createOpenRouterTemplateModel({ apiKey, model, fetchImpl = globalThis.fetch, diagnosticFetch, onProgress } = {}) {
   const key = validateOpenRouterApiKey(apiKey), modelId = String(model || DEFAULT_OPENROUTER_MODEL).trim();
   if (!key) throw new Error('Add an OpenRouter API key in Settings.');
-  const openrouter = createOpenRouter({ apiKey: key, compatibility: 'strict', fetch: diagnosticFetch || createAiDiagnosticFetch(fetchImpl, { onProgress, apiKey: key }), appName: 'Landing Studio by TrafficOps', appUrl: typeof location !== 'undefined' ? location.origin : undefined });
+  const requestFetch = diagnosticFetch || createAiDiagnosticFetch(fetchImpl, { onProgress, apiKey: key });
   // Parallel calls are optional. Requiring that hint excludes otherwise capable
   // tool providers (including Qwen); keep strict routing for the actual tools.
-  return openrouter.chat(modelId, { provider: { require_parameters: true, data_collection: 'deny' } });
+  return createReasoningSafeOpenRouterModel(fetch => createOpenRouter({ apiKey: key, compatibility: 'strict', fetch, appName: 'Landing Studio by TrafficOps', appUrl: typeof location !== 'undefined' ? location.origin : undefined })
+    .chat(modelId, { provider: { require_parameters: true, data_collection: 'deny' } }), requestFetch);
 }
 export async function generateTemplateWithOpenRouterAgent(options = {}) {
   try {
