@@ -8,6 +8,7 @@ import { validateDraft } from './support/ai-validator.js';
 import { starterProject } from '../src/starter.js';
 import { createStudioProject, cloneStudioProject } from '../src/studio-library.js';
 import { aiProjectContext } from '../../packages/template-editor-shell/src/ai-context.js';
+import { createAiDiagnostics } from '../../packages/template-editor-shell/src/ai-diagnostics.js';
 
 const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4n+DwHwAGoAKfr+/eKAAAAABJRU5ErkJggg==';
 const usage = { inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 5, text: 5, reasoning: 0 } };
@@ -255,6 +256,120 @@ test('schema-valid JSON from an automatic tool provider can submit planning and 
   const result = await runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Translate headline.', languageModel: model, validateDraft });
   assert.equal(result.valid, true);
   assert.equal(result.review.approved, true);
+});
+
+for (const stage of ['submit_plan', 'submit_review']) for (const invalid of ['missing-field', 'overlong-summary', 'malformed-json']) test(`${stage} corrects ${invalid} once with schema feedback and preserved response history`, async () => {
+  const initial = setup(), events = [], apiKey = 'sk-or-schema-test-private';
+  const valid = stage === 'submit_plan' ? plan() : review();
+  const input = JSON.parse(valid.content[0].input);
+  if (invalid === 'missing-field') delete input[stage === 'submit_plan' ? 'tasks' : 'issues'];
+  if (invalid === 'overlong-summary') input.summary = `${apiKey} private offer content `.repeat(100);
+  const broken = call(stage, input);
+  if (invalid === 'malformed-json') broken.content[0].input = '{"summary":"unfinished';
+  const reasoning = { openrouter: { reasoning_details: [{ type: 'reasoning.text', text: 'Internal schema analysis.', signature: 'signed-stage-response', format: 'google-gemini-v1' }] } };
+  broken.content[0].providerMetadata = reasoning;
+  const writer = [call('set_values', { values: { headline: 'Completed headline' } }), done()];
+  const responses = stage === 'submit_plan' ? [broken, valid, ...writer, review()] : [plan(), ...writer, broken, valid];
+  const model = new MockLanguageModelV4({ doGenerate: responses });
+  const diagnostics = createAiDiagnostics({ model: 'mock/model', mode: 'content', apiKey });
+  const result = await runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Update the headline.', apiKey, languageModel: model, validateDraft,
+    onProgress: event => { events.push(event); diagnostics.record(event); } });
+  assert.equal(result.valid, true); assert.equal(result.review.approved, true);
+  assert.equal(result.values.headline, 'Completed headline');
+  const submissions = model.doGenerateCalls.filter(request => request.tools?.some(tool => tool.name === stage));
+  assert.equal(submissions.length, 2, 'only one additional read-only correction call is allowed');
+  const history = submissions[1].prompt;
+  const previous = history.filter(message => message.role === 'assistant').flatMap(message => message.content).find(part => part.type === 'tool-call' && part.toolName === stage);
+  assert.equal(previous.toolCallId, broken.content[0].toolCallId);
+  assert.deepEqual(previous.providerOptions, reasoning, 'signed reasoning from the rejected turn remains intact');
+  assert.ok(history.filter(message => message.role === 'tool').flatMap(message => message.content).some(part => part.toolName === stage && part.output.type === 'error-text'), 'SDK validation feedback reaches the correction call');
+  const failures = events.filter(event => event.code === 'AI_STAGE_SCHEMA_INVALID');
+  assert.equal(failures.length, 1); assert.equal(failures[0].tool, stage);
+  assert.match(failures[0].outcome, invalid === 'missing-field' ? /(?:tasks|issues):invalid_type/ : invalid === 'overlong-summary' ? /summary:too_big/ : /result:invalid_json/);
+  const exported = JSON.stringify(diagnostics.snapshot());
+  assert.match(exported, /AI_STAGE_SCHEMA_INVALID/);
+  assert.equal(exported.includes(apiKey), false); assert.equal(exported.includes('private offer content'), false);
+  assert.deepEqual(result.files, initial.files);
+});
+
+test('a second invalid review stops with schema diagnostics and retains the completed draft', async () => {
+  const initial = setup(), events = [];
+  const invalid = () => call('submit_review', { approved: true, summary: 'Missing the mandatory issues array.' });
+  const model = new MockLanguageModelV4({ doGenerate: [plan(), call('set_values', { values: { headline: 'Retained content' } }), done(), invalid(), invalid(), review()] });
+  await assert.rejects(runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Update the headline.', languageModel: model, validateDraft, onProgress: event => events.push(event) }), error => {
+    assert.equal(error.code, 'AI_STAGE_SCHEMA_INVALID');
+    assert.match(error.message, /issues \(invalid_type\)/); assert.match(error.message, /completed draft is retained/i);
+    assert.doesNotMatch(error.message, /project is unchanged/i);
+    return true;
+  });
+  assert.equal(model.doGenerateCalls.length, 5, 'invalid submissions cannot create an unbounded stage loop');
+  assert.ok(events.some(event => event.type === 'draft-sync' && event.values?.headline === 'Retained content'));
+  assert.equal(events.some(event => event.type === 'phase' && event.phase === 'ready'), false);
+  assert.notEqual(initial.values.headline, 'Retained content');
+});
+
+test('prose after an invalid review cannot approve the draft or trigger a third submission call', async () => {
+  const initial = setup();
+  const model = new MockLanguageModelV4({ doGenerate: [plan(), call('set_values', { values: { headline: 'Draft content' } }), done(), call('submit_review', { approved: 'true', summary: 'Wrong approval type.', issues: [] }), done(), review()] });
+  await assert.rejects(runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Update the headline.', languageModel: model, validateDraft }), /did not submit a review.*completed draft is retained/i);
+  assert.equal(model.doGenerateCalls.length, 5);
+});
+
+test('cancellation after a rejected submission prevents its correction call', async () => {
+  const initial = setup(), controller = new AbortController();
+  const model = new MockLanguageModelV4({ doGenerate: [call('submit_plan', { summary: 'Missing tasks.' }), plan()] });
+  await assert.rejects(runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Update the headline.', languageModel: model, validateDraft, signal: controller.signal,
+    onProgress: event => { if (event.code === 'AI_STAGE_SCHEMA_INVALID') controller.abort(); } }), /cancelled or timed out/i);
+  assert.equal(model.doGenerateCalls.length, 1);
+});
+
+test('a rejected submission cannot obtain a fresh deadline for its correction', async t => {
+  const initial = setup(), started = Date.now();
+  let clock = started;
+  t.mock.method(Date, 'now', () => clock);
+  const model = new MockLanguageModelV4({ doGenerate: async () => { clock = started + 21; return call('submit_plan', { summary: 'Missing tasks.' }); } });
+  await assert.rejects(runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Update the headline.', timeout: 20, languageModel: model, validateDraft }), /run time limit/);
+  assert.equal(model.doGenerateCalls.length, 1);
+});
+
+test('transport recovery and a schema correction share the two-call stage budget', async () => {
+  const initial = setup(), retryState = { attempted: false };
+  let attempts = 0;
+  const model = new MockLanguageModelV4({ doGenerate: async () => {
+    if (!attempts++) throw Object.assign(new Error('Temporarily unavailable.'), { statusCode: 503 });
+    return call('submit_plan', { summary: 'Missing tasks after recovery.' });
+  } });
+  await assert.rejects(runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Update the headline.', languageModel: model, validateDraft, retryState }), error => {
+    assert.equal(error.code, 'AI_STAGE_SCHEMA_INVALID'); assert.match(error.message, /project is unchanged/i); return true;
+  });
+  assert.equal(model.doGenerateCalls.length, 2, 'neither schema correction nor transport retry can add a third call');
+  assert.equal(retryState.attempted, true);
+});
+
+for (const stage of ['submit_plan', 'submit_review']) test(`the streaming OpenRouter adapter corrects invalid ${stage} input and retains opaque reasoning history`, async () => {
+  const initial = setup(), requests = [], details = [{ type: 'reasoning.encrypted', data: 'opaque-stage-analysis', format: 'google-gemini-v1', index: 0 }];
+  let stageAttempts = 0, writerCalls = 0;
+  const fetchImpl = async (_url, init) => {
+    const body = JSON.parse(init.body); requests.push(body);
+    const names = body.tools.map(tool => tool.function.name);
+    let response;
+    const submitting = names.includes(stage);
+    if (submitting && stageAttempts++ === 0) response = call(stage, stage === 'submit_plan' ? { summary: 'Missing tasks.' } : { approved: true, summary: 'Missing issues.' });
+    else if (names.includes('submit_plan')) response = plan();
+    else if (names.includes('submit_review')) response = review();
+    else response = writerCalls++ ? call('validate_draft', {}) : call('set_values', { values: { headline: 'Completed streamed content' } });
+    const part = response.content[0];
+    const payload = { id: 'gen-stage-schema-test', model: body.model, choices: [{ index: 0,
+      delta: { role: 'assistant', tool_calls: [{ index: 0, id: part.toolCallId, type: 'function', function: { name: part.toolName, arguments: part.input } }], ...(submitting && stageAttempts === 1 ? { reasoning_details: details } : {}) }, finish_reason: 'tool_calls' }] };
+    return new Response(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+  };
+  const result = await runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Update the headline.', apiKey: 'mock-schema-key', model: 'qwen/qwen3.8-flash', stream: true, fetchImpl, validateDraft });
+  assert.equal(result.valid, true); assert.equal(result.values.headline, 'Completed streamed content');
+  const submissions = requests.filter(request => request.tools.some(tool => tool.function.name === stage));
+  assert.equal(submissions.length, 2);
+  assert.ok(submissions[1].messages.some(message => message.role === 'tool'), 'a schema-invalid streamed tool call retains its validation feedback');
+  assert.ok(submissions[1].messages.some(message => message.role === 'assistant' && JSON.stringify(message.reasoning_details) === JSON.stringify(details)), 'opaque reasoning is returned exactly as received');
+  assert.ok(submissions.every(request => request.tool_choice === 'auto'), 'repair does not require an unsupported named tool choice');
 });
 
 test('a shared deadline stops the workflow before another stage even when the provider ignores abort', async t => {
