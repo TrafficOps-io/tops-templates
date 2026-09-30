@@ -73,7 +73,8 @@ try {
     await page.evaluate(outcome => { Object.assign(window.aiTest, { step: 0, requests: [], outcome }); }, outcome);
     await page.locator('.ai-prompt textarea').fill('Replace the page and remove its obsolete stylesheet.');
     await page.getByRole('button', { name: 'Generate changes', exact: true }).click();
-    await page.getByLabel('Live file changes', { exact: true }).filter({ hasText: 'First title' }).waitFor();
+    await page.locator('.ai-live-file > summary').click();
+  await page.getByLabel('Live file changes', { exact: true }).filter({ hasText: 'First title' }).waitFor();
     assert.equal(await page.getByRole('button', { name: 'Apply changes', exact: true }).count(), 0);
     await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'First title', exact: true }).waitFor();
   };

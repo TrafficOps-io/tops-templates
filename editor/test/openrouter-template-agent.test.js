@@ -655,3 +655,131 @@ test('parallel saved field updates in Edit project preserve every completed sect
   assert.equal(result.values.description, 'Polski opis');
   assert.equal(model.doGenerateCalls.length, 2);
 });
+
+test('rejected oversized entry input can recover through a compact entry and full field copy without replaying its photo', async () => {
+  const photo = new Uint8Array([137, 80, 78, 71]), events = [];
+  let images = 0;
+  const initial = toolCall('generate_image', { path: 'images/doctor.png', prompt: 'A fictional doctor in an operating room.' }, 'photo');
+  initial.content.push(...toolCall('set_file', { path: 'styles.css', content: 'body { color: #123; }' }, 'css').content,
+    ...toolCall('set_file', { path: 'index.tpl', content: 'x'.repeat(12001) }, 'oversized').content);
+  const source = `@section content "Content"
+  @param article Text = "" label="Article"
+@endsection
+@layout
+<!doctype html><html lang="pl"><body><img src="images/doctor.png" alt="Przykładowy lekarz"><article>{{ article }}</article></body></html>
+@endlayout`;
+  const article = 'Pełny polski artykuł edukacyjny, bez skracania zamówionej treści. '.repeat(250);
+  const model = new MockLanguageModelV4({ doGenerate: [initial,
+    toolCall('set_file', { path: 'index.tpl', content: source }, 'entry'),
+    toolCall('set_values', { values: { article } }, 'copy'), toolCall('validate_draft', {}, 'validate')] });
+  const result = await generateTemplateWithOpenRouterAgent({ validateDraft, languageModel: model,
+    prompt: 'Create a Polish educational page with one fictional doctor photo and an article of at least 12,000 characters.',
+    generateImage: async () => { images++; return photo; }, onProgress: event => events.push(event) });
+  assert.equal(result.valid, true); assert.equal(result.steps, 4);
+  assert.equal(images, 1); assert.deepEqual(result.files['images/doctor.png'], photo);
+  assert.equal(result.files['styles.css'], 'body { color: #123; }');
+  assert.equal(result.values.article, article); assert.ok(article.length > 12000);
+  assert.match(generateProject(result.files, result.values)['index.html'], /Pełny polski artykuł/);
+  const rejection = events.find(event => event.type === 'tool-validation');
+  assert.deepEqual([rejection.tool, rejection.issueField, rejection.issueCode, rejection.inputChars, rejection.limit], ['set_file', 'content', 'too_big', 12001, 12000]);
+  assert.equal(events.some(event => event.type === 'file-set' && event.files?.['index.tpl'] === 'x'.repeat(12001)), false);
+  assert.ok(model.doGenerateCalls[1].prompt.some(message => message.role === 'tool' && message.content.some(part => part.toolCallId === 'oversized' && part.output.type === 'error-text')), 'the SDK rejection stays in conversation history');
+  assert.ok(model.doGenerateCalls[1].prompt.some(message => message.role === 'user' && JSON.stringify(message.content).includes('12001')));
+});
+
+for (const [label, input, expectedCode] of [
+  ['missing content', { path: 'index.tpl' }, 'invalid_type'],
+  ['wrong content type', { path: 'index.tpl', content: 42 }, 'invalid_type'],
+  ['oversized content', { path: 'index.tpl', content: 'x'.repeat(12001) }, 'too_big'],
+  ['malformed JSON', undefined, 'invalid_json'],
+]) test(`repeated ${label} stops after one correction and retains completed assets`, async () => {
+  let images = 0;
+  const photo = new Uint8Array([137, 80, 78, 71]);
+  const invalid = id => {
+    const response = toolCall('set_file', input, id);
+    if (input === undefined) response.content[0].input = '{"path":"index.tpl","content":';
+    return response;
+  };
+  const initial = toolCall('generate_image', { path: 'images/doctor.png', prompt: 'One requested doctor photo.' }, 'photo');
+  initial.content.push(...toolCall('set_file', { path: 'styles.css', content: 'body { margin: 0; }' }, 'css').content, ...invalid('first-rejection').content);
+  const model = new MockLanguageModelV4({ doGenerate: [initial, invalid('second-rejection'), finalOutput('Should never run.')] });
+  const events = [];
+  const result = await generateTemplateWithOpenRouterAgent({ validateDraft, languageModel: model, prompt: 'Create a Polish page with exactly one photo.',
+    generateImage: async () => { images++; return photo; }, onProgress: event => events.push(event) });
+  assert.equal(result.valid, false); assert.equal(result.steps, 2); assert.equal(model.doGenerateCalls.length, 2);
+  assert.match(result.error, /tool arguments.*retained/i);
+  assert.equal(images, 1); assert.deepEqual(result.files['images/doctor.png'], photo);
+  assert.equal(result.files['styles.css'], 'body { margin: 0; }'); assert.equal('index.tpl' in result.files, false);
+  assert.ok(events.some(event => event.type === 'tool-validation' && event.issueCode === expectedCode));
+  assert.equal(model.doGenerateCalls[1].prompt.filter(message => message.role === 'user' && JSON.stringify(message.content).includes('Tool input failed local schema validation')).length, 1);
+});
+
+test('a committed revision allows further schema correction while read-only calls do not reset a rejection', async () => {
+  const progressed = toolCall('set_file', { path: 'styles.css', content: 'body { color: blue; }' }, 'css');
+  progressed.content.push(...toolCall('set_file', { path: 'index.tpl' }, 'rejected-again').content);
+  const model = new MockLanguageModelV4({ doGenerate: [toolCall('set_file', { path: 'index.tpl' }, 'rejected'), progressed,
+    toolCall('set_file', { path: 'index.tpl', content: starterProject(true)['index.tpl'] }, 'entry'), toolCall('validate_draft', {}, 'validate')] });
+  const result = await generateTemplateWithOpenRouterAgent({ validateDraft, languageModel: model, prompt: 'Create a page with blue text.' });
+  assert.equal(result.valid, true); assert.equal(result.steps, 4);
+  assert.equal(result.files['styles.css'], 'body { color: blue; }');
+  const readOnly = new MockLanguageModelV4({ doGenerate: [toolCall('set_file', { path: 'index.tpl' }, 'rejected'),
+    toolCall('list_files', {}, 'read'), toolCall('set_file', { path: 'index.tpl' }, 'repeated')] });
+  const stopped = await generateTemplateWithOpenRouterAgent({ validateDraft, languageModel: readOnly, prompt: 'Create a page.' });
+  assert.equal(stopped.valid, false); assert.equal(stopped.steps, 3);
+});
+
+test('early Create entry feedback permits include-first assembly and host-approved plain HTML', async () => {
+  const files = { 'shared/fields.tpl': '@param title String = "Polski tytuł"', 'styles.css': 'body { color: blue; }',
+    'index.tpl': '@include "shared/fields.tpl"\n@include "shared/layout.tpl"',
+    'shared/layout.tpl': '@layout\n<!doctype html><html lang="pl"><body><h1>{{ title }}</h1></body></html>\n@endlayout' };
+  const responses = Object.entries(files).map(([path, content], index) => toolCall('set_file', { path, content }, `write-${index}`));
+  responses.push(toolCall('validate_draft', {}, 'validate'));
+  const model = new MockLanguageModelV4({ doGenerate: responses }), inspections = [];
+  const result = await generateTemplateWithOpenRouterAgent({ validateDraft: options => { inspections.push({ files: structuredClone(options.files), schemaOnly: options.schemaOnly }); return validateDraft(options); },
+    languageModel: model, prompt: 'Create a complete Polish page through reusable includes.' });
+  assert.equal(result.valid, true); assert.equal(result.steps, 5);
+  assert.match(generateProject(result.files, result.values)['index.html'], /Polski tytuł/);
+  assert.ok(inspections.some(inspection => inspection.schemaOnly && Object.keys(inspection.files).length === 1), 'entry analysis happens during assembly, before the final repair reserve');
+  assert.equal(model.doGenerateCalls.at(-1).prompt.filter(message => message.role === 'user' && JSON.stringify(message.content).includes('host cannot yet find a renderable entry')).length, 1);
+  assert.ok(model.doGenerateCalls.every(call => call.tools.some(tool => tool.name === 'set_file') && call.tools.some(tool => tool.name === 'edit_file')));
+  const plain = new MockLanguageModelV4({ doGenerate: [toolCall('set_file', { path: 'index.html', content: '<!doctype html><html lang="pl"><body>Polski tekst</body></html>' }, 'plain'), toolCall('validate_draft', {}, 'validate')] });
+  const plainResult = await generateTemplateWithOpenRouterAgent({ validateDraft, languageModel: plain, prompt: 'Create a plain HTML page in Polish.' });
+  assert.equal(plainResult.valid, true);
+  assert.equal(plain.doGenerateCalls[1].prompt.some(message => message.role === 'user' && JSON.stringify(message.content).includes('host cannot yet find a renderable entry')), false);
+});
+
+for (const boundary of ['abort', 'deadline']) test(`early entry checking respects ${boundary} before another provider call`, async () => {
+  const controller = new AbortController();
+  const model = new MockLanguageModelV4({ doGenerate: [toolCall('set_file', { path: 'styles.css', content: 'body {}' }, 'css')] });
+  await assert.rejects(() => generateTemplateWithOpenRouterAgent({ languageModel: model, prompt: 'Create a page.', signal: controller.signal,
+    deadline: boundary === 'deadline' ? Date.now() + 40 : Infinity,
+    validateDraft: async options => {
+      if (options.schemaOnly) {
+        if (boundary === 'abort') controller.abort(new Error('Cancelled during source analysis.'));
+        else await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      return validateDraft(options);
+    } }), /cancelled|timed out/i);
+  assert.equal(model.doGenerateCalls.length, 1);
+});
+
+test('real OpenRouter streaming tool rejection preserves signed history and recovers without a photo replay', async () => {
+  const requests = [], events = [], details = [{ type: 'reasoning.encrypted', data: 'opaque-writer-analysis', format: 'google-gemini-v1', index: 0 }];
+  let images = 0;
+  const initial = toolCall('generate_image', { path: 'images/doctor.png', prompt: 'One requested doctor photo.' }, 'photo');
+  initial.content.push(...toolCall('set_file', { path: 'styles.css', content: 'body { margin: 0; }' }, 'css').content,
+    ...toolCall('set_file', { path: 'index.tpl', content: 'x'.repeat(12001) }, 'oversized').content);
+  const responses = [initial, toolCall('set_file', { path: 'index.tpl', content: starterProject(true)['index.tpl'] }, 'entry'), toolCall('validate_draft', {}, 'validate')];
+  const result = await generateTemplateWithOpenRouterAgent({ validateDraft, apiKey: 'sk-or-test-writer', model: 'test/model', stream: true,
+    prompt: 'Create one page and exactly one doctor photo.', onProgress: event => events.push(event),
+    generateImage: async () => { images++; return new Uint8Array([137, 80, 78, 71]); }, fetchImpl: async (_url, options) => {
+      requests.push(JSON.parse(options.body)); const response = responses[requests.length - 1];
+      const chunk = { choices: [{ index: 0, delta: { role: 'assistant', tool_calls: response.content.map((part, index) => ({ index, id: part.toolCallId, type: 'function', function: { name: part.toolName, arguments: part.input } })), ...(requests.length === 1 ? { reasoning_details: details } : {}) }, finish_reason: 'tool_calls' }] };
+      return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+    } });
+  assert.equal(result.valid, true); assert.equal(requests.length, 3); assert.equal(images, 1);
+  assert.ok(requests[1].messages.some(message => message.role === 'assistant' && JSON.stringify(message.reasoning_details) === JSON.stringify(details)));
+  assert.ok(requests[1].messages.some(message => message.role === 'tool' && message.tool_call_id === 'oversized'), 'SDK schema feedback is sent back intact');
+  assert.ok(events.some(event => event.type === 'tool-validation' && event.issueCode === 'too_big' && event.issueField === 'content'));
+  assert.deepEqual(Object.keys(result.files).sort(), ['images/doctor.png', 'index.tpl', 'styles.css']);
+});

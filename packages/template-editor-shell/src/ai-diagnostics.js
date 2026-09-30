@@ -1,6 +1,7 @@
 import { normalizeAiProviderError } from './ai-provider-errors.js';
+import { aiDiagnosticToolName, sanitizeAiToolValidationEvent } from './ai-tool-validation.js';
 
-const recordedTypes = new Set(['phase', 'step', 'step-finished', 'tool-start', 'validation', 'image-start', 'image-error', 'provider-error', 'provider-recovery', 'timeout-recovery', 'request-start', 'request-finished', 'run-finished', 'run-error']);
+const recordedTypes = new Set(['phase', 'step', 'step-finished', 'tool-start', 'tool-validation', 'validation', 'image-start', 'image-error', 'provider-error', 'provider-recovery', 'timeout-recovery', 'request-start', 'request-finished', 'run-finished', 'run-error']);
 const stringFields = ['phase', 'tool', 'model', 'provider', 'generationId', 'code', 'outcome'];
 const numericFields = ['step', 'request', 'requestBytes', 'seconds', 'status', 'statusCode', 'delayMs', 'retryAfterMs'];
 
@@ -14,10 +15,18 @@ export function createAiDiagnostics({ model, imageModel, mode, apiKey } = {}) {
   return {
     record(event) {
       if (!recordedTypes.has(event.type)) return false;
+      if (event.type === 'tool-validation') {
+        const safe = sanitizeAiToolValidationEvent(event);
+        if (!safe) return false;
+        event = safe;
+      }
       if (event.type === 'phase') phase = clean(event.phase);
       const entry = { atSeconds: Math.round((Date.now() - started) / 10) / 100, type: event.type, ...(phase ? { phase } : {}) };
-      for (const name of stringFields) if (event[name] !== undefined) entry[name] = clean(event[name]);
+      for (const name of stringFields) if (event[name] !== undefined) entry[name] = name === 'tool' ? aiDiagnosticToolName(event[name]) : clean(event[name]);
       for (const name of numericFields) if (Number.isFinite(event[name])) entry[name] = event[name];
+      if (event.type === 'tool-validation') {
+        for (const name of ['issueField', 'issueCode', 'inputChars', 'limit']) if (event[name] !== undefined) entry[name] = event[name];
+      }
       for (const name of ['valid', 'retryable', 'terminal']) if (typeof event[name] === 'boolean') entry[name] = event[name];
       if (event.usage) entry.usage = Object.fromEntries(['inputTokens', 'outputTokens', 'totalTokens', 'reasoningTokens'].filter(name => Number.isFinite(event.usage[name])).map(name => [name, event.usage[name]]));
       // Provider messages can echo private input. Keep the detailed explanation

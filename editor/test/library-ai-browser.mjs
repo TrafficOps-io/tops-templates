@@ -130,6 +130,7 @@ try {
   const page = await openTestPage(); await configureTestKey(page);
   const prompt = 'Create a studio launch landing with a clear heading and introductory copy.';
   await createAiProject(page, 'AI launch', prompt, true);
+  await page.locator('.ai-live-file > summary').click();
   await page.getByLabel('Live file changes', { exact: true }).filter({ hasText: 'AI studio launch' }).waitFor();
   assert.equal(providerCalls.length, 2);
   const claimed = providerCalls[0].records.find(record => record.name === 'AI launch');
@@ -158,6 +159,7 @@ try {
   await page.getByRole('button', { name: 'Library', exact: true }).first().click();
   await page.evaluate(() => { Object.assign(window.libraryAiTest, { step: 0, outcome: 'cancel' }); });
   await createAiProject(page, 'Cancelled creation', 'A project whose creation will be cancelled.');
+  await page.locator('.ai-live-file > summary').click();
   await page.getByLabel('Live file changes', { exact: true }).filter({ hasText: 'AI studio launch' }).waitFor();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('alert').filter({ hasText: 'Generation cancelled. Your project is unchanged.' }).waitFor();
@@ -170,6 +172,7 @@ try {
   await page.getByRole('button', { name: 'Library', exact: true }).first().click();
   await page.evaluate(() => { Object.assign(window.libraryAiTest, { step: 0, outcome: 'error' }); });
   await createAiProject(page, 'Recovered creation', 'Keep completed files when the mocked provider fails.');
+  await page.locator('.ai-live-file > summary').click();
   await page.getByLabel('Live file changes', { exact: true }).filter({ hasText: 'AI studio launch' }).waitFor();
   await page.evaluate(() => window.libraryAiTest.release());
   await page.getByText('Draft needs attention', { exact: true }).waitFor();

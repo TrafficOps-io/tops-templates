@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { join, extname, resolve } from 'node:path';
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const { zipSync, strToU8, unzipSync } = require('fflate');
 const root = resolve(process.argv[2] || 'editor/dist');
 const types = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.svg':'image/svg+xml', '.png':'image/png', '.json':'application/json', '.webmanifest':'application/manifest+json', '.woff2':'font/woff2' };
 const server = createServer(async (req,res) => { try { const path=decodeURIComponent(new URL(req.url,'http://localhost').pathname); const file=resolve(join(root,path==='/'?'index.html':path)); if(!file.startsWith(root+'/'))throw Error('path'); const value=await readFile(file); res.writeHead(200,{'Content-Type':types[extname(file)]||'application/octet-stream'}); res.end(value); } catch {res.writeHead(404);res.end('Not found');} });
@@ -13,6 +14,8 @@ let browser;
 try {
  browser=await chromium.launch({headless:true,...(process.platform==='darwin'?{executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'}:{})});
  const page=await browser.newPage({viewport:{width:1600,height:1100}}), errors=[];
+ let blockedProviderCalls=0;
+ await page.route('https://openrouter.ai/**',route=>{blockedProviderCalls++;return route.abort();});
  page.on('pageerror',error=>errors.push(error.message));
  await page.goto(`http://127.0.0.1:${server.address().port}`);
  await page.getByRole('button', { name: 'New project', exact: true }).click();
@@ -46,7 +49,38 @@ try {
  await page.keyboard.press('Escape'); assert.equal(await page.locator('.editor-shell.is-expanded').count(),0);assert.equal(await page.evaluate(()=>document.body.style.overflow),'auto');
  await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-label')==='More actions');
  await page.getByRole('button',{name:'Export project',exact:true}).click();
+ await page.getByText('Backup or reopen this editable project in Studio.',{exact:true}).waitFor();
  const download=page.waitForEvent('download');await page.getByRole('button',{name:'Download',exact:true}).click();assert.match((await download).suggestedFilename(),/source\.zip$/);
+ // A static landing imported for GEO/link edits offers direct authoring actions,
+ // rather than empty parameter controls. Both ZIP formats preserve its assets.
+ await page.getByRole('button',{name:'Library',exact:true}).first().click();
+ const staticHtml='<!doctype html><html lang="pl"><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="styles.css"></head><body><h1>Statyczna strona GEO</h1><a href="#offer">Oferta</a><section id="offer">Przykład</section></body></html>';
+ const importChooser=page.waitForEvent('filechooser');
+ await page.getByRole('button',{name:'Import ZIP',exact:true}).click();
+ await(await importChooser).setFiles({name:'Static-traffic-page.zip',mimeType:'application/zip',buffer:Buffer.from(zipSync({'index.html':strToU8(staticHtml),'styles.css':strToU8('body { margin: 0; padding: 24px; }')}))});
+ await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading',{name:'Statyczna strona GEO',exact:true}).waitFor();
+ if(await page.locator('.editor-shell.is-expanded').count())await page.getByRole('button',{name:'Collapse editor',exact:true}).click();
+ await page.getByRole('tab',{name:'Content',exact:true}).click();
+ await page.getByText('This project has no editable fields.',{exact:true}).waitFor();
+ assert.equal(await page.getByRole('button',{name:'Reset defaults',exact:true}).count(),0);
+ await page.getByRole('button',{name:'Open files',exact:true}).click();
+ assert.equal(await page.getByRole('tab',{name:'Files',exact:true}).getAttribute('aria-selected'),'true');
+ await page.getByRole('tab',{name:'Content',exact:true}).click();
+ await page.getByRole('button',{name:'Open AI assistant',exact:true}).click();
+ assert.equal(await page.getByRole('tab',{name:'AI assistant',exact:true}).getAttribute('aria-selected'),'true');
+ await page.getByRole('button',{name:'Export project',exact:true}).click();
+ await page.getByText('Backup or reopen this editable project in Studio.',{exact:true}).waitFor();
+ const sourceDownload=page.waitForEvent('download');await page.getByRole('button',{name:'Download',exact:true}).click();
+ const sourceFiles=unzipSync(new Uint8Array(await readFile(await(await sourceDownload).path())));
+ assert.equal(new TextDecoder().decode(sourceFiles['index.html']),staticHtml);
+ assert.ok(sourceFiles['styles.css']);
+ await page.getByRole('button',{name:'Export project',exact:true}).click();
+ await page.getByRole('combobox',{name:'Archive format',exact:true}).selectOption('html');
+ await page.getByText('Extract this archive and upload its files to your hosting.',{exact:true}).waitFor();
+ const htmlDownload=page.waitForEvent('download');await page.getByRole('button',{name:'Download',exact:true}).click();
+ const htmlFiles=unzipSync(new Uint8Array(await readFile(await(await htmlDownload).path())));
+ assert.match(new TextDecoder().decode(htmlFiles['index.html']),/Statyczna strona GEO/);assert.ok(htmlFiles['styles.css']);
+ assert.equal(blockedProviderCalls,0,'opening the AI assistant never starts a paid request');
  assert.deepEqual(errors,[]);
- console.log('PASS: Studio common shell, browser-tab capability limits, installed-PWA AI settings, transformed-ancestor viewport overlay, menu and modal Escape, focus restoration, 375px mobile preview, source ZIP export.');
-} finally {await browser?.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
+ console.log('PASS: Studio shell, PWA capabilities, viewport overlay/focus, mobile preview, static HTML import→Files/AI actions without paid calls, editable backup and hosting ZIP assets.');
+} catch(error) { const failed=browser?.contexts()[0]?.pages()[0]; await failed?.screenshot({path:'/tmp/studio-import-export-ui-error.png'}).catch(()=>{}); if(failed)console.error((await failed.locator('body').innerText()).slice(-3500));throw error; } finally {await browser?.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
