@@ -193,7 +193,9 @@ export function createTemplateDraftAgent({ model, onProgress, initialFiles = {},
   // Omit streamRetries: even 0 enables callback retries and buffers all tool input
   // until the provider finishes when onError is supplied (AI SDK 7).
   const imageInstructions = generateImage ? '\nUse generate_image for images explicitly requested in the brief. Create the image before referencing its returned path. Failed image calls are not successful assets: report the issue or repair it; never invent an image path. Attached photos marked Use on page are already local assets. Reference-only screenshots guide layout, not page content.' : '\nImage generation is disabled. Use supplied local assets; do not claim to have generated images.';
-  const agent = new ToolLoopAgent({ model, instructions: AGENT_INSTRUCTIONS + imageInstructions, tools, prepareStep: () => ({ activeTools: Object.keys(tools).filter(name => !compactWrites || name !== 'set_files') }), stopWhen: stepCountIs(1), maxOutputTokens: 16000, maxRetries: 0, telemetry: { isEnabled: false }, temperature: 0.3 });
+  // Leave sampling parameters unset: reasoning models such as GPT-5 Mini do
+  // not accept temperature, and strict routing would exclude every endpoint.
+  const agent = new ToolLoopAgent({ model, instructions: AGENT_INSTRUCTIONS + imageInstructions, tools, prepareStep: () => ({ activeTools: Object.keys(tools).filter(name => !compactWrites || name !== 'set_files') }), stopWhen: stepCountIs(1), maxOutputTokens: 16000, maxRetries: 0, telemetry: { isEnabled: false } });
   return { async generate({ prompt, abortSignal, timeout = AI_RUN_TIMEOUT_MS, stream = false } = {}) {
     const manifest = [...draft].map(([path, content]) => ({ path, bytes: byteSize(content), text: typeof content === 'string' }));
     const sources = Object.create(null);

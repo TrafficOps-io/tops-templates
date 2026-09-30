@@ -37,12 +37,12 @@ async function openTestPage() {
     window.fetch = async (url, options = {}) => {
       if (!String(url).includes('openrouter.ai/api/v1/')) return realFetch(url, options);
       if (!String(url).endsWith('/chat/completions')) return Response.json({ data: {} });
-      const test = window.libraryAiTest, body = JSON.parse(options.body), stageName = body.tool_choice?.function?.name;
+      const test = window.libraryAiTest, body = JSON.parse(options.body), stageName = body.tools?.length === 1 ? body.tools[0].function.name : null;
       const step = stageName || ++test.step;
       const records = await window.readStudioRecords();
       await window.captureProviderCall({ step, outcome: test.outcome, body, records });
 
-      const stage = body.tool_choice?.function?.name;
+      const stage = stageName;
       if (stage === 'submit_plan' || stage === 'submit_review') {
         const value = stage === 'submit_plan' ? { summary: 'Plan the requested changes.', tasks: ['Make the requested changes', 'Review the result'] } : { approved: true, summary: 'The requested changes are present.', issues: [] };
         const payload = { id: stage, model: 'test/model', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: stage, type: 'function', function: { name: stage, arguments: JSON.stringify(value) } }] }, finish_reason: 'tool_calls' }] };

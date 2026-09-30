@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { MockLanguageModelV4 } from 'ai/test';
 import { parseProject, getDefaults } from '@trafficops/template-runtime';
-import { runStudioAiWorkflow } from '@trafficops/template-editor-shell/studio-ai-workflow';
+import { generateContentDraft, runStudioAiWorkflow } from '@trafficops/template-editor-shell/studio-ai-workflow';
 import { attachmentAssets, attachmentMessage, readImageAttachments, validateAttachments } from '@trafficops/template-editor-shell/ai-attachments';
 import { validateDraft } from './support/ai-validator.js';
 import { starterProject } from '../src/starter.js';
@@ -26,7 +26,7 @@ test('Fill Content writes fields in separate calls, independently reviews, repai
   assert.equal(result.values.description, 'A revised complete article with all requested details.');
   assert.deepEqual(result.files, initial.files); assert.notEqual(initial.values.headline, result.values.headline);
   assert.deepEqual(events.filter(event => event.type === 'phase').map(event => event.phase), ['plan', 'generate', 'review', 'revise', 'review', 'ready']);
-  const reviews = model.doGenerateCalls.filter(input => input.toolChoice?.toolName === 'submit_review');
+  const reviews = model.doGenerateCalls.filter(input => input.tools?.some(tool => tool.name === 'submit_review'));
   assert.equal(reviews.length, 2);
   assert.ok(JSON.stringify(reviews[1].prompt).includes(result.values.description), 'review sees the actual revised content');
 });
@@ -86,8 +86,8 @@ test('Fill Content preserves an existing remote image while updating other field
 test('cancelling before reviewer completes rejects without altering project content', async () => {
   const initial = setup(), controller = new AbortController();
   const model = new MockLanguageModelV4({ doGenerate: async input => {
-    if (input.toolChoice?.toolName === 'submit_plan') return plan();
-    if (input.toolChoice?.toolName === 'submit_review') { controller.abort(); throw new DOMException('Cancelled', 'AbortError'); }
+    if (input.tools?.some(tool => tool.name === 'submit_plan')) return plan();
+    if (input.tools?.some(tool => tool.name === 'submit_review')) { controller.abort(); throw new DOMException('Cancelled', 'AbortError'); }
     return model.doGenerateCalls.length === 2 ? call('set_values', { values: { headline: 'Draft only' } }) : done();
   } });
   await assert.rejects(runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Fill', languageModel: model, validateDraft, signal: controller.signal }));
@@ -101,6 +101,75 @@ test('a streamed planner provider failure rejects once, redacts the key and pres
     fetchImpl: async () => { requests++; throw new Error('Provider unavailable: mock-secret'); } }), /Provider unavailable: \[redacted\]/);
   assert.equal(requests, 1, 'a provider failure must not repeat paid requests');
   assert.deepEqual(initial, original);
+});
+
+// Endpoint capabilities from /api/v1/models/{model}/endpoints: GPT-5 Mini
+// omits temperature; Qwen3.8 Flash supports auto/none, not required/function.
+for (const model of ['openai/gpt-5-mini', 'qwen/qwen3.8-flash']) for (const mode of ['content', 'edit', 'create']) test(`${model} streams ${mode} planning, writing and review through its supported request parameters`, async () => {
+  const initial = setup(), requests = [];
+  let writerSteps = 0;
+  const result = await runStudioAiWorkflow({ ...initial, mode, prompt: 'Update the landing.', attachments: [attachment()], apiKey: 'mock-key', model, stream: true, validateDraft,
+    fetchImpl: async (_url, init) => {
+      const body = JSON.parse(init.body); requests.push(body);
+      if (model === 'openai/gpt-5-mini' && Object.hasOwn(body, 'temperature')) return Response.json({ error: { message: 'No endpoints found that can handle the requested parameters.', code: 404 } }, { status: 404 });
+      if (model === 'qwen/qwen3.8-flash' && !['auto', 'none'].includes(body.tool_choice)) return Response.json({ error: { message: "No endpoints found that support the provided 'tool_choice' value.", code: 404 } }, { status: 404 });
+      const names = body.tools.map(tool => tool.function.name);
+      let response;
+      if (names.includes('submit_plan')) response = plan();
+      else if (names.includes('submit_review')) response = review();
+      else if (writerSteps++) response = done();
+      else if (mode === 'content') response = call('set_values', { values: { headline: 'Updated headline' } });
+      else if (mode === 'edit') response = call('edit_file', { path: 'index.tpl', search: '</body>', replace: '<footer>Updated footer</footer></body>' });
+      else response = call('set_file', { path: 'index.tpl', content: starterProject(true)['index.tpl'] });
+      const content = response.content[0];
+      const delta = content.type === 'tool-call' ? { role: 'assistant', tool_calls: [{ index: 0, id: content.toolCallId, type: 'function', function: { name: content.toolName, arguments: content.input } }] } : { content: content.text };
+      const chunk = { id: 'compatibility-test', model, choices: [{ index: 0, delta, finish_reason: response.finishReason.raw }] };
+      return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+    } });
+  assert.equal(result.valid, true); assert.equal(result.review.approved, true);
+  assert.equal(requests.length, 4, 'no fallback requests are needed');
+  for (const request of requests) {
+    assert.equal(request.model, model); assert.equal(request.tool_choice, 'auto');
+    assert.equal(Object.hasOwn(request, 'temperature'), false);
+    assert.deepEqual(request.provider, { require_parameters: true, data_collection: 'deny' });
+    assert.ok(request.messages.some(message => Array.isArray(message.content) && message.content.some(part => part.type === 'image_url')), 'references still reach each stage');
+  }
+  assert.equal(mode === 'content' ? result.values.headline === 'Updated headline' : result.files['index.tpl'].includes(mode === 'edit' ? 'Updated footer' : '@template'), true);
+});
+
+test('automatic tool selection cannot complete planning or review with a prose-only response', async () => {
+  const initial = setup();
+  const noPlan = new MockLanguageModelV4({ doGenerate: [done()] });
+  await assert.rejects(runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Fill', languageModel: noPlan, validateDraft }), /did not submit a plan/);
+  assert.equal(noPlan.doGenerateCalls.length, 1);
+  const noReview = new MockLanguageModelV4({ doGenerate: [plan(), call('set_values', { values: { headline: 'Draft only' } }), done(), done()] });
+  await assert.rejects(runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Fill', languageModel: noReview, validateDraft }), /did not submit a review/);
+  assert.notEqual(initial.values.headline, 'Draft only');
+});
+
+test('Fill Content recovers once from a prose-only response and requires actual validated field changes', async () => {
+  const initial = setup(), events = [];
+  const model = new MockLanguageModelV4({ doGenerate: [plan(), done(), call('set_values', { values: { headline: 'Completed after clarification' } }), done(), review()] });
+  const result = await runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Fill', languageModel: model, validateDraft, onProgress: event => events.push(event) });
+  assert.equal(result.valid, true); assert.equal(result.values.headline, 'Completed after clarification');
+  assert.equal(events.filter(event => event.type === 'content-recovery').length, 1);
+  assert.match(JSON.stringify(model.doGenerateCalls[2].prompt), /calling set_values now/);
+  assert.deepEqual(result.files, initial.files);
+});
+
+test('a repeated response with no content changes stops after one recovery without blaming tool capabilities', async () => {
+  const initial = setup(), events = [];
+  const model = new MockLanguageModelV4({ doGenerate: [done(), done()] });
+  await assert.rejects(generateContentDraft({ ...initial, prompt: 'Fill', languageModel: model, validateDraft, onProgress: event => events.push(event) }), error => /without completing any content changes/.test(error.message) && !/tool calling support/.test(error.message));
+  assert.equal(model.doGenerateCalls.length, 2);
+  assert.equal(events.filter(event => event.type === 'content-recovery').length, 1);
+});
+
+test('exhausting the output token budget before any content changes reports the limit without a blind retry', async () => {
+  const initial = setup();
+  const model = new MockLanguageModelV4({ doGenerate: [{ ...done(), content: [], finishReason: { unified: 'length', raw: 'length' } }] });
+  await assert.rejects(generateContentDraft({ ...initial, prompt: 'Fill', languageModel: model, validateDraft }), /output token limit/);
+  assert.equal(model.doGenerateCalls.length, 1);
 });
 
 test('attachment validation bounds input, excludes reference-only images from assets and preserves creation handoff', async () => {

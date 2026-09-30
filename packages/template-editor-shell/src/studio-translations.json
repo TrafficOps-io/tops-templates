@@ -1,4 +1,16 @@
 {
+  "The model returned no changes. Asking once for field updates…": [
+    "Модель не внесла изменений. Один раз запрашиваем обновление полей…",
+    "Модель не внесла змін. Один раз запитуємо оновлення полів…"
+  ],
+  "The model reached its output token limit before completing any content changes. Reduce the request to fewer sections and try again.": [
+    "Модель исчерпала лимит токенов ответа, не завершив изменения контента. Сократите запрос до нескольких разделов и повторите.",
+    "Модель вичерпала ліміт токенів відповіді, не завершивши зміни вмісту. Скоротіть запит до кількох розділів і повторіть."
+  ],
+  "The model returned a response without completing any content changes. Fill Content can only update existing fields; use Edit project for new sections or additional review slots.": [
+    "Модель ответила, но не внесла изменений в контент. Заполнение контента обновляет только существующие поля; для новых разделов или дополнительных отзывов используйте Редактирование проекта.",
+    "Модель відповіла, але не внесла змін до вмісту. Заповнення вмісту оновлює лише наявні поля; для нових розділів або додаткових відгуків використовуйте Редагування проєкту."
+  ],
   "Content fields updated": [
     "Поля контента обновлены",
     "Поля вмісту оновлено"

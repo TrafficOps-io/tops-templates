@@ -29,7 +29,9 @@ async function runCall(agent, options, onProgress) {
 
 async function structuredStage({ model, name, schema, instructions, prompt, attachments, signal, stream, onProgress }) {
   let submitted;
-  const agent = new ToolLoopAgent({ model, instructions, tools: { [name]: tool({ description: 'Submit the completed result.', inputSchema: schema, execute: async value => { submitted = value; return { ok: true }; } }) }, toolChoice: { type: 'tool', toolName: name }, stopWhen: stepCountIs(1), maxOutputTokens: 4000, maxRetries: 0, telemetry: { isEnabled: false }, temperature: 0.2 });
+  // Some tool-capable providers only support auto, not required/named choices.
+  // The sole tool and validated submission enforce the stage's result locally.
+  const agent = new ToolLoopAgent({ model, instructions: `${instructions}\nFinish by calling ${name} with the completed result. Do not return the result as prose or JSON text.`, tools: { [name]: tool({ description: 'Submit the completed result.', inputSchema: schema, execute: async value => { submitted = value; return { ok: true }; } }) }, toolChoice: 'auto', stopWhen: stepCountIs(1), maxOutputTokens: 4000, maxRetries: 0, telemetry: { isEnabled: false } });
   await runCall(agent, { messages: [{ role: 'user', content: attachmentMessage(prompt, attachments) }], signal, stream }, onProgress);
   signal?.throwIfAborted();
   if (!submitted) throw new Error(`The AI did not submit ${name === 'submit_review' ? 'a review' : 'a plan'}. Choose a model with tool calling and image input when attaching references.`);
@@ -63,6 +65,7 @@ function checkContentImages(definition, values, files) {
 
 export async function generateContentDraft(options) {
   let files = { ...options.files }, values = structuredClone(options.values || {}), revision = 0;
+  let emptyResponseRecovered = false;
   const notify = event => options.onProgress?.(event);
   const validate = () => { checkContentImages(options.definition, values, files); return options.validateDraft({ files, values, mode: 'edit', signal: options.signal }); };
   const tools = {
@@ -87,7 +90,7 @@ export async function generateContentDraft(options) {
   };
   if (options.generateImage) tools.generate_image = draftImageTool({ generateImage: options.generateImage, getFiles: () => files, signal: options.signal, onProgress: notify, commit(next, path) { files = next; revision++; notify({ type: 'file-set', path, paths: [path], files, values }); } });
   const images = options.generateImage ? 'Use generate_image for images explicitly requested by the user, then use its returned path in the content. Reference IDs from the brief can guide generation. Do not pretend an unsuccessful image generation produced an asset.' : 'Image generation is disabled; preserve existing images or use attached page assets.';
-  const agent = new ToolLoopAgent({ model: options.languageModel, instructions: CONTENT_INSTRUCTIONS + '\n' + images, tools, stopWhen: stepCountIs(1), maxRetries: 0, maxOutputTokens: 12000, telemetry: { isEnabled: false }, temperature: 0.3 });
+  const agent = new ToolLoopAgent({ model: options.languageModel, instructions: CONTENT_INSTRUCTIONS + '\n' + images, tools, stopWhen: stepCountIs(1), maxRetries: 0, maxOutputTokens: 12000, telemetry: { isEnabled: false } });
   const messages = [{ role: 'user', content: attachmentMessage(`${options.prompt}\n\nTemplate and current content:\n${context(files, values, options.definition)}`, options.attachments) }];
   for (let step = 1; step <= 12; step++) {
     options.signal?.throwIfAborted();
@@ -100,7 +103,16 @@ export async function generateContentDraft(options) {
     for (const completed of result.steps) messages.push(...completed.response.messages);
     notify({ type: 'step-finished', step, seconds: Math.max(0, (Date.now() - started) / 1000) });
     if (result.steps.at(-1)?.toolCalls.length) continue;
-    if (!revision || JSON.stringify(values) === JSON.stringify(options.values || {}) && Object.keys(files).length === Object.keys(options.files).length) throw new Error('The model did not fill any content. Choose a model with tool calling support or refine the brief.');
+    if (!revision || JSON.stringify(values) === JSON.stringify(options.values || {}) && Object.keys(files).length === Object.keys(options.files).length) {
+      if (result.steps.at(-1)?.finishReason === 'length') throw new Error('The model reached its output token limit before completing any content changes. Reduce the request to fewer sections and try again.');
+      if (!emptyResponseRecovered && step < 12) {
+        emptyResponseRecovered = true;
+        notify({ type: 'content-recovery' });
+        messages.push({ role: 'user', content: 'Your previous response did not change any content. Continue the original request by calling set_values now with a small group of declared fields and their completed content, then continue in small calls. A plan or text summary does not update the page. Fill Content cannot change template source or add fields: fill the existing fields only, and report any request that requires Edit project. This is the only recovery attempt for a response with no changes.' });
+        continue;
+      }
+      throw new Error('The model returned a response without completing any content changes. Fill Content can only update existing fields; use Edit project for new sections or additional review slots.');
+    }
     const checked = await validate();
     return { ...checked, valid: true, summary: result.text, steps: step };
   }

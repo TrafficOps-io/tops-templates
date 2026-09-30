@@ -51,7 +51,7 @@ try {
   await page.addInitScript(({ png }) => {
     Object.defineProperty(navigator, 'standalone', { configurable: true, value: true });
     const realFetch = window.fetch.bind(window);
-    window.fillAi = { requests: [], writer: 0, reviews: 0, holdReview: true, releaseReview: null };
+    window.fillAi = { requests: [], writer: 0, reviews: 0, emptyWriter: true, holdReview: true, releaseReview: null };
     const response = (name, value) => {
       const payload = { id: name || 'content-response', model: 'test/model', choices: [{ index: 0, delta: name ? { role: 'assistant', tool_calls: [{ index: 0, id: `${name}-${Date.now()}`, type: 'function', function: { name, arguments: JSON.stringify(value) } }] } : { content: 'Content completed.' }, finish_reason: name ? 'tool_calls' : 'stop' }] };
       return new Response(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
@@ -60,13 +60,14 @@ try {
       if (!String(url).includes('openrouter.ai/api/v1/')) return realFetch(url, init);
       const state = window.fillAi, body = JSON.parse(init.body); state.requests.push({ url: String(url), body });
       if (String(url).endsWith('/images')) return Response.json({ data: [{ b64_json: png, media_type: 'image/png' }] });
-      const stage = body.tool_choice?.function?.name;
+      const stage = body.tools?.length === 1 ? body.tools[0].function.name : null;
       if (stage === 'submit_plan') return response(stage, { summary: 'Write a 2600-character Polish article, add images and seven sample reviews.', tasks: ['Fill fields', 'Generate an illustration', 'Review and correct the article length'] });
       if (stage === 'submit_review') {
         const count = ++state.reviews;
         if (state.holdReview && count === 1) await new Promise((resolve, reject) => { state.releaseReview = resolve; init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true }); });
         return response(stage, { approved: count > 1, summary: count > 1 ? 'Polish article, all images and seven samples verified.' : 'The article is too short.', issues: count > 1 ? [] : ['Expand the article to 2600 characters.'] });
       }
+      if (state.emptyWriter) { state.emptyWriter = false; return response(null); }
       const step = state.writer++;
       if (step === 0) return response('generate_image', { path: 'images/article.png', prompt: 'An editorial illustration for the article.', referenceIds: [] });
       if (step === 1) {
@@ -119,7 +120,13 @@ try {
   await page.locator('.ai-review').scrollIntoViewIfNeeded();
   await page.screenshot({ path: '/tmp/studio-fill-content-review.png' });
   const requests = await page.evaluate(() => window.fillAi.requests);
-  const vision = requests.find(request => request.body.tool_choice?.function?.name === 'submit_plan');
+  for (const { body } of requests.filter(request => request.url.endsWith('/chat/completions'))) {
+    assert.equal(body.tool_choice, 'auto', 'tool-capable providers may not support a named choice');
+    assert.equal(Object.hasOwn(body, 'temperature'), false, 'reasoning endpoints may not support sampling parameters');
+    assert.deepEqual(body.provider, { require_parameters: true, data_collection: 'deny' });
+  }
+  assert.ok(requests.some(({ body }) => body.messages?.some(message => typeof message.content === 'string' && message.content.includes('only recovery attempt for a response with no changes'))), 'a prose-only writer response receives a bounded request for actual field updates');
+  const vision = requests.find(request => request.body.tools?.[0].function.name === 'submit_plan');
   assert.equal(vision.body.messages.flatMap(message => Array.isArray(message.content) ? message.content : []).filter(part => part.type === 'image_url').length, 2, 'attachments reach the real OpenRouter adapter as vision inputs');
   await page.getByRole('button', { name: 'Apply changes', exact: true }).click();
   const deadline = Date.now() + 20000;
