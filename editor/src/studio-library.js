@@ -1,3 +1,4 @@
+import { validateAttachments } from '@trafficops/template-editor-shell/ai-attachments';
 import { ConflictError } from '@trafficops/template-editor-core';
 import { LIMITS, projectFolders, validateProject } from './project.js';
 
@@ -67,6 +68,8 @@ export function validateStudioProject(record) {
     if (typeof record.aiPrompt !== 'string' || record.aiPrompt.length > 6000) throw new Error('The AI prompt must contain at most 6000 characters.');
     result.aiPrompt = record.aiPrompt;
   }
+  if (record.aiAttachments !== undefined) result.aiAttachments = validateAttachments(record.aiAttachments);
+  if (record.aiGenerateImages !== undefined) result.aiGenerateImages = record.aiGenerateImages === true;
   if (record.aiStarted !== undefined) {
     if (typeof record.aiStarted !== 'boolean') throw new Error('Invalid AI generation state.');
     result.aiStarted = record.aiStarted;
@@ -82,7 +85,7 @@ export function createStudioProject(snapshot, { id = globalThis.crypto.randomUUI
 export function cloneStudioProject(source, { kind = source.kind, name = `${source.name} copy`, id = globalThis.crypto.randomUUID(), now = Date.now() } = {}) {
   const original = validateStudioProject(source);
   if (id === original.id) throw new Error('A project copy needs a new ID.');
-  const { aiPrompt, aiStarted, sourceTemplateId, ...snapshot } = original;
+  const { aiPrompt, aiStarted, aiAttachments, aiGenerateImages, sourceTemplateId, ...snapshot } = original;
   return createStudioProject({ ...snapshot, kind, name, ...(kind === 'landing' && original.kind === 'template' ? { sourceTemplateId: original.id } : sourceTemplateId && kind === 'landing' ? { sourceTemplateId } : {}) }, { id, now });
 }
 

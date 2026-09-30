@@ -155,7 +155,7 @@ export default function App() {
       refreshSaved(saved); await setActiveStudioProjectId(saved.id); await clearRecovery(); connectLibrary(saved);
     });
   }
-  async function createProject({ kind, mode, name, prompt, source }) {
+  async function createProject({ kind, mode, name, prompt, source, attachments = [], generateImages = false }) {
     if (busyRef.current) return;
     if (mode === 'ai' && !installedDisplayMode()) throw new Error('AI is available only in the installed Studio app.');
     if (!name) throw new Error('Give your project a name.');
@@ -165,7 +165,7 @@ export default function App() {
     try {
       if (mode === 'template' && !source.builtin) { source = await getStudioProject(source.id); if (!source || source.kind !== 'template') throw new Error('This template is no longer available. Choose another starting point.'); }
       await preserveCurrent();
-      const candidate = mode === 'template' ? cloneStudioProject(source, { kind, name }) : createStudioProject({ kind, name, files: starterProject(true), folders: [], settings: {}, ...(mode === 'ai' ? { aiPrompt: prompt, aiStarted: false } : {}) });
+      const candidate = mode === 'template' ? cloneStudioProject(source, { kind, name }) : createStudioProject({ kind, name, files: starterProject(true), folders: [], settings: {}, ...(mode === 'ai' ? { aiPrompt: prompt, aiStarted: false, aiAttachments: attachments, aiGenerateImages: generateImages } : {}) });
       const saved = await saveStudioProject(candidate, { expectedRevision: null }); refreshSaved(saved);
       await setActiveStudioProjectId(saved.id); await clearRecovery();
       connectLibrary(saved, mode === 'ai'); setCreating(null);

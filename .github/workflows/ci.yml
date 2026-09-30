@@ -79,6 +79,7 @@ jobs:
       - run: node editor/test/pwa-access-browser.mjs editor/dist
       - run: node editor/test/library-browser.mjs editor/dist
       - run: node editor/test/library-ai-browser.mjs editor/dist
+      - run: node editor/test/fill-content-browser.mjs editor/dist
       - run: node editor/test/recovery-browser.mjs editor/dist
       - run: node editor/test/agent-browser.mjs editor/dist
       - run: node editor/test/autosave-browser.mjs

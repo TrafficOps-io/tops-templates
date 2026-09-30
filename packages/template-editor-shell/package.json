@@ -25,7 +25,10 @@
     "./studio-i18n": "./src/studio-i18n.js",
     "./studio-translations": "./src/studio-translations.json",
     "./validate-ai-draft": "./src/validate-ai-draft.js",
-    "./translation": "./src/translation.js"
+    "./translation": "./src/translation.js",
+    "./PromptImages": "./src/PromptImages.jsx",
+    "./ai-attachments": "./src/ai-attachments.js",
+    "./studio-ai-workflow": "./src/studio-ai-workflow.js"
   },
   "files": [
     "src",

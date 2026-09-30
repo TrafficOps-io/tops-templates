@@ -37,9 +37,17 @@ async function openTestPage() {
     window.fetch = async (url, options = {}) => {
       if (!String(url).includes('openrouter.ai/api/v1/')) return realFetch(url, options);
       if (!String(url).endsWith('/chat/completions')) return Response.json({ data: {} });
-      const test = window.libraryAiTest, step = ++test.step, body = JSON.parse(options.body);
+      const test = window.libraryAiTest, body = JSON.parse(options.body), stageName = body.tool_choice?.function?.name;
+      const step = stageName || ++test.step;
       const records = await window.readStudioRecords();
       await window.captureProviderCall({ step, outcome: test.outcome, body, records });
+
+      const stage = body.tool_choice?.function?.name;
+      if (stage === 'submit_plan' || stage === 'submit_review') {
+        const value = stage === 'submit_plan' ? { summary: 'Plan the requested changes.', tasks: ['Make the requested changes', 'Review the result'] } : { approved: true, summary: 'The requested changes are present.', issues: [] };
+        const payload = { id: stage, model: 'test/model', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: stage, type: 'function', function: { name: stage, arguments: JSON.stringify(value) } }] }, finish_reason: 'tool_calls' }] };
+        return new Response(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+      }
       if (test.outcome === 'error' && step === 2) return Response.json({ error: { message: 'Mock provider unavailable after completed file', code: 503 } }, { status: 503 });
       const content = '@template "AI studio"\n@section content "Content"\n@param title String = "AI studio launch" label="Title" required\n@endsection\n@layout\n<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{title}}</title></head><body><main><h1>{{title}}</h1><p>Created from the saved brief.</p></main></body></html>\n@endlayout\n';
       const call = step === 1 ? ['set_file', { path: 'index.tpl', content }] : step === 2 ? ['validate_draft', {}] : null;
@@ -62,11 +70,15 @@ async function openTestPage() {
   await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
   return page;
 }
-async function createAiProject(page, name, prompt) {
+async function createAiProject(page, name, prompt, withAttachment = false) {
   await page.getByRole('button', { name: 'Create with AI Describe it. Build it together.', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
   await dialog.getByRole('textbox', { name: 'Project name', exact: true }).fill(name);
   await dialog.getByRole('textbox', { name: /^Describe your project/ }).fill(prompt);
+  if (withAttachment) {
+    await dialog.getByLabel('Reference images', { exact: true }).setInputFiles({ name: 'brand-reference.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4n+DwHwAGoAKfr+/eKAAAAABJRU5ErkJggg==', 'base64') });
+    await dialog.getByRole('checkbox', { name: 'Use on page', exact: true }).check();
+  }
   await dialog.getByRole('button', { name: 'Create with AI', exact: true }).click();
   await dialog.waitFor({ state: 'hidden' });
   await page.locator('.ai-prompt textarea').waitFor({ state: 'attached' });
@@ -117,10 +129,11 @@ try {
   // The creation handoff claims storage before the first provider fetch.
   const page = await openTestPage(); await configureTestKey(page);
   const prompt = 'Create a studio launch landing with a clear heading and introductory copy.';
-  await createAiProject(page, 'AI launch', prompt);
+  await createAiProject(page, 'AI launch', prompt, true);
   await page.getByLabel('Live file changes', { exact: true }).filter({ hasText: 'AI studio launch' }).waitFor();
-  assert.equal(providerCalls.length, 1);
+  assert.equal(providerCalls.length, 2);
   const claimed = providerCalls[0].records.find(record => record.name === 'AI launch');
+  assert.equal(claimed.aiAttachments.length, 1); assert.equal(claimed.aiAttachments[0].useOnPage, true);
   assert.equal(claimed.aiStarted, true); assert.equal(claimed.revision, 2); assert.equal(claimed.aiPrompt, prompt);
   assert.ok(providerCalls[0].body.messages.some(message => JSON.stringify(message.content).includes(prompt)));
   assert.equal(await page.getByRole('dialog', { name: 'Create new project', exact: true }).count(), 0);
@@ -129,14 +142,15 @@ try {
   await page.evaluate(() => window.libraryAiTest.release());
   await page.getByText('Changes ready', { exact: true }).waitFor();
   await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'AI studio launch', exact: true }).waitFor();
-  assert.equal(providerCalls.length, 3);
+  assert.equal(providerCalls.length, 5);
+  assert.ok(providerCalls[0].body.messages.some(message => message.content?.some?.(part => part.type === 'image_url')));
   await page.getByRole('button', { name: 'Apply changes', exact: true }).click();
   const saved = await waitForSaved(page, 'AI launch', 'AI studio launch'); assert.equal(saved.revision, 3);
   await page.reload();
   await page.getByRole('button', { name: 'Collapse editor', exact: true }).click();
   await page.locator('.ai-prompt textarea').waitFor();
   await page.waitForTimeout(800);
-  assert.equal(providerCalls.length, 3, 'reload never restarts a paid generation');
+  assert.equal(providerCalls.length, 5, 'reload never restarts a paid generation');
   assert.equal(await page.locator('.ai-prompt textarea').inputValue(), prompt);
   await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'AI studio launch', exact: true }).waitFor();
 
@@ -150,7 +164,7 @@ try {
   const cancelled = (await records(page)).find(record => record.name === 'Cancelled creation');
   assert.equal(cancelled.aiStarted, true); assert.equal(cancelled.revision, 2);
   assert.ok(cancelled.files['index.tpl'].includes('Your next idea'));
-  assert.equal(providerCalls.length, 4);
+  assert.equal(providerCalls.length, 7);
 
   // A later provider failure retains completed generated source for review.
   await page.getByRole('button', { name: 'Library', exact: true }).first().click();
@@ -163,7 +177,7 @@ try {
   assert.ok((await records(page)).find(record => record.name === 'Recovered creation').files['index.tpl'].includes('Your next idea'));
   await page.getByRole('button', { name: 'Keep draft in editor', exact: true }).click();
   await waitForSaved(page, 'Recovered creation', 'AI studio launch');
-  assert.equal(providerCalls.length, 6, 'provider failures do not automatically repeat requests');
+  assert.equal(providerCalls.length, 10, 'provider failures do not automatically repeat requests');
   assert.deepEqual(errors, []);
   console.log('PASS: library AI creation, persisted one-shot claim before fetch, streamed review/apply/autosave, reload without requests, missing-key Settings recovery, cancel and retained failed draft.');
 } catch (error) {

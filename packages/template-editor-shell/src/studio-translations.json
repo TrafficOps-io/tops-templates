@@ -1,4 +1,108 @@
 {
+  "Content fields updated": [
+    "Поля контента обновлены",
+    "Поля вмісту оновлено"
+  ],
+  "Generating image {path}": [
+    "Генерирую изображение {path}",
+    "Генерую зображення {path}"
+  ],
+  "Generate images requested in the brief": [
+    "Генерировать изображения из задания",
+    "Генерувати зображення із завдання"
+  ],
+  "Uses your image model and credits · up to 4 images per run": [
+    "Использует вашу модель и баланс · до 4 изображений за запуск",
+    "Використовує вашу модель і баланс · до 4 зображень за запуск"
+  ],
+  "Choose an image model in AI connection settings to enable this.": [
+    "Выберите модель изображений в настройках AI.",
+    "Виберіть модель зображень у налаштуваннях AI."
+  ],
+  "Plan → Generate → Review → Revise if needed. Review the final draft before applying.": [
+    "План → Генерация → Проверка → Исправления при необходимости. Просмотрите черновик перед применением.",
+    "План → Генерація → Перевірка → Виправлення за потреби. Перегляньте чернетку перед застосуванням."
+  ],
+  "Your prompt, current values and source files read by the assistant are sent to OpenRouter and the selected provider. Only attached reference images are sent; other binary assets are not sent.": [
+    "Ваш запрос, текущие значения и прочитанные ассистентом исходники отправляются OpenRouter и выбранному провайдеру. Из изображений передаются только прикреплённые референсы.",
+    "Ваш запит, поточні значення та прочитані асистентом вихідні файли надсилаються OpenRouter і вибраному провайдеру. Із зображень передаються лише прикріплені референси."
+  ],
+  "Generation stages": [
+    "Этапы генерации",
+    "Етапи генерації"
+  ],
+  "Reviewer": [
+    "Проверка результата",
+    "Перевірка результату"
+  ],
+  "Reference images": [
+    "Изображения-референсы",
+    "Зображення-референси"
+  ],
+  "Screenshots, design references or photos · up to 4 images, 4 MiB each": [
+    "Скриншоты, референсы дизайна или фото · до 4 изображений по 4 МиБ",
+    "Скриншоти, референси дизайну або фото · до 4 зображень по 4 МіБ"
+  ],
+  "Use on page": [
+    "Использовать на странице",
+    "Використовувати на сторінці"
+  ],
+  "Remove image {name}": [
+    "Убрать изображение {name}",
+    "Прибрати зображення {name}"
+  ],
+  "Attached images are sent to the selected AI provider. Choose a text model with image input. Only images marked “Use on page” become project assets when you apply the draft.": [
+    "Прикреплённые изображения отправляются AI-провайдеру. Выберите текстовую модель с поддержкой изображений. При применении черновика в проект попадают только фото с отметкой «Использовать на странице».",
+    "Прикріплені зображення надсилаються AI-провайдеру. Виберіть текстову модель з підтримкою зображень. Після застосування чернетки до проєкту потрапляють лише фото з позначкою «Використовувати на сторінці»."
+  ],
+  "Plan": [
+    "План",
+    "План"
+  ],
+  "Generate": [
+    "Генерация",
+    "Генерація"
+  ],
+  "Review": [
+    "Проверка",
+    "Перевірка"
+  ],
+  "Revise": [
+    "Исправления",
+    "Виправлення"
+  ],
+  "Ready": [
+    "Готово",
+    "Готово"
+  ],
+  "Attach images": [
+    "Прикрепить изображения",
+    "Прикріпити зображення"
+  ],
+  "Reading images…": [
+    "Читаю изображения…",
+    "Читаю зображення…"
+  ],
+  "Attach up to 4 reference images.": [
+    "Прикрепите не более 4 изображений.",
+    "Прикріпіть не більше 4 зображень."
+  ],
+  "Each reference image must be at most 4 MiB.": [
+    "Размер одного изображения — не более 4 МиБ.",
+    "Розмір одного зображення — не більше 4 МіБ."
+  ],
+  "Attach PNG, JPEG or WebP images, at most 4 MiB each.": [
+    "Прикрепите PNG, JPEG или WebP размером до 4 МиБ.",
+    "Прикріпіть PNG, JPEG або WebP розміром до 4 МіБ."
+  ],
+  "Reference images must total at most 12 MiB.": [
+    "Общий размер изображений — не более 12 МиБ.",
+    "Загальний розмір зображень — не більше 12 МіБ."
+  ],
+  "The image could not be opened. Choose a valid PNG, JPEG or WebP.": [
+    "Не удалось открыть изображение. Выберите корректный PNG, JPEG или WebP.",
+    "Не вдалося відкрити зображення. Виберіть коректний PNG, JPEG або WebP."
+  ],
   "Replace key": ["Заменить ключ", "Замінити ключ"],
   "An OpenRouter key is saved on this device.": ["На этом устройстве сохранён ключ OpenRouter.", "На цьому пристрої збережено ключ OpenRouter."],
   "Save your changes before checking the connection.": [

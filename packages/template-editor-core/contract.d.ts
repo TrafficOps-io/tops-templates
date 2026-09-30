@@ -78,7 +78,8 @@ export interface AiConnection extends AiSettings { apiKey: string; fetchImpl: ty
 export interface AiSettingsBase { load(options?: OperationOptions): Promise<AiSettings>; test(options?: OperationOptions): Promise<{ message: string }> }
 export interface UserAiSettings extends AiSettingsBase { owner: 'user'; save(settings: AiSettings, options?: OperationOptions): Promise<AiSettings>; remove(options?: OperationOptions): Promise<void> }
 export interface HostAiSettings extends AiSettingsBase { owner: 'host'; url?: string }
-export interface InitialAiRequest { id: string; prompt: string; mode: 'create' | 'edit'; autoStart: boolean; claim(options?: OperationOptions): Promise<boolean> }
+export interface AiAttachment { id: string; name: string; mime: string; dataUrl: string; useOnPage: boolean }
+export interface InitialAiRequest { attachments?: AiAttachment[]; generateImages?: boolean; id: string; prompt: string; mode: 'create' | 'edit'; autoStart: boolean; claim(options?: OperationOptions): Promise<boolean> }
 export interface AiPort { begin(options?: OperationOptions): Promise<AiConnection>; finish(options?: OperationOptions): Promise<void>; settings: UserAiSettings | HostAiSettings; initialRequest?: InitialAiRequest }
 export interface Capabilities {
   inlinePreview: boolean; preview: boolean; lifecycle: boolean; ai: boolean;

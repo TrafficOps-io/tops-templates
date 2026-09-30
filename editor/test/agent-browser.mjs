@@ -26,7 +26,14 @@ try {
     window.aiTest = { step: 0, requests: [], outcome: 'success', release: null };
     window.fetch = async (url, options) => {
       if (!String(url).includes('openrouter.ai/api/v1/')) return realFetch(url, options);
-      const state = window.aiTest, body = JSON.parse(options.body); state.requests.push(body);
+      const state = window.aiTest, body = JSON.parse(options.body);
+      const stage = body.tool_choice?.function?.name;
+      if (stage === 'submit_plan' || stage === 'submit_review') {
+        const value = stage === 'submit_plan' ? { summary: 'Plan the requested changes.', tasks: ['Make the requested changes', 'Review the result'] } : { approved: true, summary: 'The requested changes are present.', issues: [] };
+        const payload = { id: stage, model: 'test/model', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: stage, type: 'function', function: { name: stage, arguments: JSON.stringify(value) } }] }, finish_reason: 'tool_calls' }] };
+        return new Response(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+      }
+      state.requests.push(body);
       const step = ++state.step;
       const call = step === 1 ? ['edit_file', { path: 'index.tpl', search: '<h1>{{ headline }}</h1>', replace: '<h1>First title</h1>' }]
         : step === 2 ? ['edit_file', { path: 'index.tpl', search: 'First title', replace: 'Corrected title' }]

@@ -107,7 +107,7 @@ export function createLibraryHost({ record, ai, autoStart = false, language = 'e
   };
   /** @type {import('@trafficops/template-editor-core').AiPort | undefined} */
   const assistant = ai && { ...ai, ...(record.aiPrompt ? { initialRequest: {
-    id, prompt: record.aiPrompt, mode: autoStart && !record.aiStarted ? 'create' : 'edit', autoStart: Boolean(autoStart && !record.aiStarted),
+    id, prompt: record.aiPrompt, attachments: record.aiAttachments || [], generateImages: record.aiGenerateImages || false, mode: autoStart && !record.aiStarted ? 'create' : 'edit', autoStart: Boolean(autoStart && !record.aiStarted),
     claim({ signal } = {}) {
       return enqueue(signal, async () => {
         if (!autoStart || metadata.aiStarted || storageRevision !== creationRevision) return false;

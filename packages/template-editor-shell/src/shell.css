@@ -275,6 +275,21 @@ textarea:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 3px
 .crop-dialog h2 { display: flex; align-items: center; gap: .75rem; font-size: 1.15rem; margin-bottom: 1.25rem; }
 .ai-review-banner { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: .5rem 1rem; font-size: .75rem; border-bottom: 1px solid var(--ui-border); background: color-mix(in srgb, var(--color-primary) 8%, var(--ui-surface)); }
 .ai-progress { display: flex; align-items: center; gap: .5rem; margin-block: .75rem; font-size: .75rem; color: var(--color-primary); }
+.ai-attachments { display: grid; gap: .6rem; margin-block: .75rem; min-width: 0; }
+.ai-attachments > button { justify-self: start; }
+.ai-attachments small, .ai-image-option small { color: var(--ui-muted); font-size: .72rem; }
+.ai-attachment-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr)); gap: .5rem; list-style: none; padding: 0; margin: 0; }
+.ai-attachment-list li { display: flex; align-items: center; gap: .6rem; border: 1px solid var(--ui-border); padding: .5rem; border-radius: .5rem; min-width: 0; }
+.ai-attachment-list img { width: 3rem; height: 3rem; object-fit: cover; border-radius: .25rem; }
+.ai-attachment-list li > div { flex: 1; min-width: 0; }
+.ai-attachment-list span { display: block; font-size: .75rem; overflow-wrap: anywhere; }
+.ai-attachment-list label { display: flex; align-items: center; gap: .35rem; font-size: .72rem; }
+.ai-image-option { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; font-size: .8rem; margin-block: .75rem; }
+.ai-image-option small { flex-basis: 100%; }
+.ai-workflow { display: flex; flex-wrap: wrap; gap: .5rem; list-style: none; padding: 0; margin-block: .8rem; font-size: .75rem; }
+.ai-workflow li { padding: .35rem .65rem; border: 1px solid var(--ui-border); border-radius: 1rem; color: var(--ui-muted); }
+.ai-workflow li[aria-current="step"] { border-color: var(--color-primary); color: var(--color-primary); font-weight: 600; }
+.ai-review { border: 1px solid var(--ui-border); border-radius: .5rem; padding: .75rem; margin-block: .75rem; font-size: .8rem; overflow-wrap: anywhere; }
 .ai-activity { max-height: 10rem; overflow: auto; padding-left: 1.25rem; font-size: .72rem; line-height: 1.7; color: var(--ui-muted); overflow-wrap: anywhere; }
 .ai-panel .ai-mode { margin-bottom: .5rem; }
 .ai-panel .ai-mode button { font-size: .72rem; }

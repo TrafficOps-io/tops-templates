@@ -13,12 +13,12 @@ export function imageFromResponse(payload) {
   if (!bytes.length || bytes.length > LIMITS.file) throw new Error('The generated image is empty or too large.');
   return new File([bytes], `ai-image-${Date.now()}.${extension}`, { type });
 }
-export async function generateImageWithOpenRouter({ apiKey, imageModel, prompt, field = {}, signal, fetchImpl = globalThis.fetch }) {
+export async function generateImageWithOpenRouter({ apiKey, imageModel, prompt, references = [], field = {}, signal, fetchImpl = globalThis.fetch }) {
   if (!apiKey?.trim() || !imageModel?.trim()) throw new Error('Set an OpenRouter API key and image model in Settings first.');
   const key = validateOpenRouterApiKey(apiKey);
   if (!prompt?.trim() || prompt.length > 6000) throw new Error('Describe your image in 1–6,000 characters.');
   try {
-    const response = await fetchImpl(OPENROUTER_IMAGE_ENDPOINT, { method: 'POST', signal, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'X-OpenRouter-Title': 'Landing Studio by TrafficOps' }, body: JSON.stringify({ model: imageModel.trim(), prompt: `Create an image for a landing page. ${field.label ? `Image role: ${field.label}.` : ''} ${field.help || ''}\n${prompt.trim()}${field.sizes?.[0] ? `\nCompose for a ${field.sizes[0].width}x${field.sizes[0].height} crop.` : field.aspect_ratio ? `\nCompose for width/height ratio ${field.aspect_ratio}.` : ''}`, n: 1, output_format: 'png' }) });
+    const response = await fetchImpl(OPENROUTER_IMAGE_ENDPOINT, { method: 'POST', signal, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'X-OpenRouter-Title': 'Landing Studio by TrafficOps' }, body: JSON.stringify({ model: imageModel.trim(), prompt: `Create an image for a landing page. ${field.label ? `Image role: ${field.label}.` : ''} ${field.help || ''}\n${prompt.trim()}${field.sizes?.[0] ? `\nCompose for a ${field.sizes[0].width}x${field.sizes[0].height} crop.` : field.aspect_ratio ? `\nCompose for width/height ratio ${field.aspect_ratio}.` : ''}`, n: 1, output_format: 'png', ...(references.length ? { input_references: references.map(url => ({ type: 'image_url', image_url: { url } })) } : {}) }) });
     const payload = await response.json().catch(() => null);
     if (!response.ok) throw new Error(`OpenRouter: ${payload?.error?.message || `Image generation failed (${response.status}).`}`);
     return imageFromResponse(payload);

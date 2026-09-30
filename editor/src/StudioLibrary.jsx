@@ -1,3 +1,4 @@
+import PromptImages from '@trafficops/template-editor-shell/PromptImages';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, Copy, FileCode2, FolderOpen, LayoutTemplate, Plus, Search, Sparkles, Trash2, Upload, X } from 'lucide-react';
 import { generateProject } from '@trafficops/template-runtime';
@@ -34,14 +35,16 @@ export default function StudioLibrary({ projects, busy, aiEnabled = false, onCre
 
 export function CreateProjectDialog({ initial = {}, templates, busy, aiEnabled = false, onCreate, onClose }) {
   const [kind, setKind] = useState(initial.kind || 'landing'), [mode, setMode] = useState(initial.mode === 'ai' && !aiEnabled ? 'template' : initial.mode || 'template');
+  const [readingAttachments, setReadingAttachments] = useState(false);
+  const [attachments, setAttachments] = useState([]), [generateImages, setGenerateImages] = useState(false);
   const [name, setName] = useState(initial.source ? `${initial.source.name} landing` : ''), [prompt, setPrompt] = useState('');
   const [sourceId, setSourceId] = useState(initial.source?.id || studioStarters[0].id), [error, setError] = useState('');
   const dialog = useRef(null), choices = [...templates, ...studioStarters];
   useEffect(() => { dialog.current.showModal(); }, []);
   useEffect(() => { if (!aiEnabled) setMode(value => value === 'ai' ? 'template' : value); }, [aiEnabled]);
   async function submit(event) {
-    event.preventDefault(); setError('');
-    try { await onCreate({ kind, mode, name: name.trim(), prompt: prompt.trim(), source: choices.find(item => item.id === sourceId) }); }
+    event.preventDefault(); if (busy || readingAttachments) return; setError('');
+    try { await onCreate({ kind, mode, name: name.trim(), prompt: prompt.trim(), attachments, generateImages, source: choices.find(item => item.id === sourceId) }); }
     catch (cause) { setError(cause.message); }
   }
   return <dialog ref={dialog} className="modal" aria-labelledby="create-project-title" onCancel={event => { if (busy) event.preventDefault(); else onClose(); }}><form className="modal-box create-project-modal" onSubmit={submit}><div className="dialog-heading"><div><span className="section-kicker">START SOMETHING</span><h2 id="create-project-title">New project</h2></div><button type="button" className="btn btn-ghost btn-sm btn-square" aria-label="Close new project" disabled={busy} onClick={onClose}><X size={18} /></button></div><fieldset disabled={busy}>
@@ -51,5 +54,6 @@ export function CreateProjectDialog({ initial = {}, templates, busy, aiEnabled =
     {mode === 'template' && <label className="field"><span>Starting template</span><select className="select w-full" value={sourceId} onChange={event => setSourceId(event.target.value)}>{choices.map(item => <option key={item.id} value={item.id}>{item.name}{item.builtin ? ' · Starter' : ' · Your template'}</option>)}</select><small>Creates an independent copy, including content and assets.</small></label>}
     {mode === 'blank' && <p className="create-explanation">Start with a minimal editable page. Add files and make it yours.</p>}
     {mode === 'ai' && <label className="field"><span>Describe your project</span><textarea className="textarea w-full" required rows={5} maxLength={6000} value={prompt} onChange={event => setPrompt(event.target.value)} placeholder="A landing for a ceramics studio. Warm colors, large typography, a collection section and a booking link…" /><small>Uses your OpenRouter connection and credits. Review the generated code before applying. If you haven't connected a key, you can do so in the editor.</small></label>}
-    </fieldset>{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-action"><button type="button" className="btn btn-ghost" disabled={busy} onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={busy}>{busy ? 'Creating…' : mode === 'ai' ? 'Create with AI' : `Create ${kind === 'template' ? 'template' : 'landing'}`}</button></div></form></dialog>;
+    {mode === "ai" && <><PromptImages attachments={attachments} onChange={setAttachments} onBusyChange={setReadingAttachments} disabled={busy} /><label className="ai-image-option"><input type="checkbox" checked={generateImages} onChange={event => setGenerateImages(event.target.checked)} />Generate images requested in the brief<small>Requires an image model in AI settings. Uses your credits · up to 4 images.</small></label></>}
+    </fieldset>{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-action"><button type="button" className="btn btn-ghost" disabled={busy} onClick={onClose}>Cancel</button><button className="btn btn-primary" disabled={busy || readingAttachments}>{busy ? 'Creating…' : mode === 'ai' ? 'Create with AI' : `Create ${kind === 'template' ? 'template' : 'landing'}`}</button></div></form></dialog>;
 }
