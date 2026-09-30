@@ -3,8 +3,15 @@ import test from 'node:test';
 import { createOpenRouterTemplateModel } from '@trafficops/template-editor-shell/openrouter-template-agent';
 
 const modelCases = [
-  ['google/gemini-3.8-flash', 'low'],
-  ['  google/gemini-3.8-flash  ', 'low'],
+  ['google/gemini-3.8-flash', { effort: 'low' }],
+  ['  google/gemini-3.8-flash  ', { effort: 'low' }],
+  ['xiaomi/mimo-v2.6-flash', { enabled: false }],
+  ['  xiaomi/mimo-v2.6-flash  ', { enabled: false }],
+  ['~xiaomi/mimo-flash-latest'],
+  ['xiaomi/mimo-v2.6-flash-20260921'],
+  ['xiaomi/mimo-v2.6-flash:batch'],
+  ['xiaomi/mimo-v2.6-pro'],
+  ['qwen/qwen3.8-flash'],
   ['~google/gemini-flash-latest'],
   ['google/gemini-3.8-flash-20260902'],
   ['google/gemini-3.8-flash:batch'],
@@ -23,8 +30,8 @@ const reasoningDetails = ['first', 'second'].map((label, index) => ({
 }));
 
 for (const stream of [false, true]) {
-  for (const [selectedModel, effort] of modelCases) {
-    test(`${stream ? 'streaming' : 'completion'} reasoning effort is model-bound for ${JSON.stringify(selectedModel)}`, async () => {
+  for (const [selectedModel, reasoning] of modelCases) {
+    test(`${stream ? 'streaming' : 'completion'} reasoning preference is model-bound for ${JSON.stringify(selectedModel)}`, async () => {
       const requests = [];
       const model = createOpenRouterTemplateModel({
         apiKey: 'dummy-free-fixture', model: selectedModel,
@@ -65,7 +72,7 @@ for (const stream of [false, true]) {
       const { url, body } = requests[0];
       assert.equal(url, 'https://openrouter.ai/api/v1/chat/completions');
       assert.equal(body.model, selectedModel.trim());
-      if (effort) assert.deepEqual(body.reasoning, { effort });
+      if (reasoning) assert.deepEqual(body.reasoning, reasoning);
       else assert.equal(Object.hasOwn(body, 'reasoning'), false, 'other models must keep their existing provider reasoning defaults');
       assert.equal(Object.hasOwn(body, 'reasoning_effort'), false);
       assert.deepEqual(body.provider, { require_parameters: true, data_collection: 'deny' });
