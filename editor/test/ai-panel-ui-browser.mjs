@@ -64,7 +64,7 @@ try {
     await page.goto(origin); await page.getByRole('heading',{name:'Ideas become pages.',exact:true}).waitFor();
     await page.evaluate(async ({fixture,model}) => {
       async function open(name,initialize) { return new Promise((resolve,reject) => { const request=indexedDB.open(name,1); request.onupgradeneeded=()=>initialize?.(request.result); request.onsuccess=()=>resolve(request.result); request.onerror=()=>reject(request.error); }); }
-      const library = await open('trafficops-studio-library'); await new Promise((resolve,reject) => { const tx=library.transaction(['projects','preferences'],'readwrite'); tx.objectStore('projects').put(fixture); tx.objectStore('preferences').put(fixture.id,'active-project'); tx.oncomplete=resolve; tx.onerror=()=>reject(tx.error); }); library.close();
+      const library = await open('trafficops-studio-library'); await new Promise((resolve,reject) => { const tx=library.transaction(['projects','preferences'],'readwrite'); tx.objectStore('projects').put({...fixture,revision:1}); tx.objectStore('preferences').put(fixture.id,'active-project'); tx.oncomplete=resolve; tx.onerror=()=>reject(tx.error); }); library.close();
       const connection = await open('trafficops-template-studio-ai',db=>db.createObjectStore('settings',{keyPath:'id'})); await new Promise((resolve,reject) => { const tx=connection.transaction('settings','readwrite'); tx.objectStore('settings').put({id:'openrouter',apiKey:'mock-ui-key-no-paid-requests',model,imageModel:''}); tx.oncomplete=resolve; tx.onerror=()=>reject(tx.error); }); connection.close();
     },{fixture,model});
     await page.reload();
@@ -125,6 +125,7 @@ try {
     await capture('ready','Apply changes');
     await summary.getByRole('button',{name:'Apply changes',exact:true}).click();
     await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading',{name:'Polski tytuł',exact:true}).waitFor();
+    await summary.getByRole('button',{name:'Apply changes',exact:true}).waitFor({state:'detached'});
     expect(!(await page.getByRole('button',{name:'Apply changes',exact:true}).count()),'Apply closes reviewed draft actions',{width});
     await context.close();
   }

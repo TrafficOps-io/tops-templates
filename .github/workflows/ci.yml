@@ -85,6 +85,7 @@ jobs:
       - run: node editor/test/recovery-browser.mjs editor/dist
       - run: node editor/test/agent-browser.mjs editor/dist
       - run: node editor/test/retained-draft-settings-browser.mjs
+      - run: node editor/test/durable-ai-recovery-browser.mjs
       - run: node editor/test/ai-panel-ui-browser.mjs editor/dist
       - run: node editor/test/autosave-browser.mjs
       - run: npm run build:embed --workspace=@trafficops/template-studio

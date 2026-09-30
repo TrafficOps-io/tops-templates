@@ -114,6 +114,7 @@ try {
   await page.evaluate(() => Object.assign(window.fillAi, { writer: 0, reviews: 0, holdReview: false }));
   await page.getByRole('button', { name: 'Generate changes', exact: true }).click();
   await page.getByText('Content ready', { exact: true }).waitFor();
+  await page.getByText('Review content changes', { exact: true }).click();
   const previewValues = JSON.parse(await page.locator('.ai-values-preview').innerText());
   assert.equal(previewValues.article.replace(/<[^>]+>/g, '').length, 2600);
   await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'Polski artykuł', exact: true }).waitFor();

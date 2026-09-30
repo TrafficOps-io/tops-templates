@@ -80,7 +80,19 @@ export interface UserAiSettings extends AiSettingsBase { owner: 'user'; save(set
 export interface HostAiSettings extends AiSettingsBase { owner: 'host'; url?: string }
 export interface AiAttachment { id: string; name: string; mime: string; dataUrl: string; useOnPage: boolean }
 export interface InitialAiRequest { attachments?: AiAttachment[]; generateImages?: boolean; id: string; prompt: string; mode: 'create' | 'edit'; autoStart: boolean; claim(options?: OperationOptions): Promise<boolean> }
-export interface AiPort { begin(options?: OperationOptions): Promise<AiConnection>; finish(options?: OperationOptions): Promise<void>; settings: UserAiSettings | HostAiSettings; initialRequest?: InitialAiRequest }
+/** Completed draft data only; connections and provider diagnostics never enter recovery. */
+export interface AiRecoveryDraft { token: string; kind: 'create' | 'edit' | 'content'; prompt: string; clarifications?: string[]; generateImages?: boolean; attachments: AiAttachment[]; files: ProjectFiles; values: Values; valid: boolean; steps: number; summary: string }
+export interface AiRecoveryRecord extends AiRecoveryDraft { projectId: string; baseRevision: number }
+export interface AiRecoveryPort {
+  load(): Promise<{ record: AiRecoveryRecord; conflict: boolean } | null>;
+  save(draft: AiRecoveryDraft): Promise<AiRecoveryRecord>;
+  applied(token: string): Promise<void>;
+  discard(token: string): Promise<void>;
+  export(token: string): Promise<Download>;
+  download(draft: AiRecoveryDraft): Promise<Download>;
+  subscribe?(listener: (message: string) => void): () => void;
+}
+export interface AiPort { begin(options?: OperationOptions): Promise<AiConnection>; finish(options?: OperationOptions): Promise<void>; settings: UserAiSettings | HostAiSettings; initialRequest?: InitialAiRequest; recovery?: AiRecoveryPort }
 export interface Capabilities {
   inlinePreview: boolean; preview: boolean; lifecycle: boolean; ai: boolean;
   locales: boolean; entrypoint: boolean; autosave: boolean; sourceExport: boolean; htmlExport: boolean;

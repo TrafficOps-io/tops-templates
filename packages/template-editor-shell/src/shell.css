@@ -521,3 +521,5 @@ fieldset:disabled { opacity: .65; }
 .empty-content-actions { padding: 1rem; border: 1px solid var(--ui-border); border-radius: var(--radius-box); background: var(--ui-page); }.empty-content-actions > p:first-child { margin: 0 0 .5rem; font-size: .875rem; }.empty-content-actions .btn { min-height: 2.75rem; height: auto; white-space: normal; }.export-purpose { margin: .75rem 0; font-size: .8125rem; line-height: 1.5; color: var(--color-base-content); }
 
 .ai-panel-heading > .btn { width: 2.75rem; min-width: 2.75rem; height: 2.75rem; min-height: 2.75rem; }.ai-current-request > summary, .ai-diagnostics > summary { min-height: 2.75rem; padding-block: .625rem; cursor: pointer; }.ai-file-changes button { min-height: 2.75rem; padding: .5rem .25rem; overflow-wrap: anywhere; }
+
+.ai-panel > .ai-message .btn { min-height: 44px; min-width: 44px; white-space: normal; }

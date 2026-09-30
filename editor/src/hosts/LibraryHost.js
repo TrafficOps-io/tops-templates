@@ -3,23 +3,28 @@ import { ConflictError, PolicyError, ValidationError, runOperation, throwIfAbort
 import { translateStudio } from '@trafficops/template-editor-shell/translation';
 import { createStudioHost } from './StudioHost.js';
 import { cloneStudioProject, getStudioProject, saveStudioProject, validateStudioProject } from '../studio-library.js';
+import { deleteAiRecovery, getAiRecovery, saveAiRecovery, validateAiRecovery } from '../studio-ai-recovery.js';
 
 /** @typedef {ReturnType<typeof validateStudioProject>} LibraryRecord */
 const defaultStorage = { get: getStudioProject, save: saveStudioProject };
+const defaultRecoveryStorage = { get: getAiRecovery, save: saveAiRecovery, delete: deleteAiRecovery };
 
 /**
  * Local library persistence with the same compiler, archives and AI ports as
  * folder projects. A host owns one record; template copies get separate IDs.
- * @param {{record:LibraryRecord, ai?:import('@trafficops/template-editor-core').AiPort, autoStart?:boolean, language?:string, messages?:Record<string,string>, onSaved?:(record:LibraryRecord)=>unknown, storage?:typeof defaultStorage}} options
+ * @param {{record:LibraryRecord, ai?:import('@trafficops/template-editor-core').AiPort, autoStart?:boolean, language?:string, messages?:Record<string,string>, onSaved?:(record:LibraryRecord)=>unknown, storage?:typeof defaultStorage, recoveryStorage?:typeof defaultRecoveryStorage}} options
  * @returns {import('@trafficops/template-editor-core').EditorHost}
  */
-export function createLibraryHost({ record, ai, autoStart = false, language = 'en', messages = {}, onSaved, storage = defaultStorage }) {
+export function createLibraryHost({ record, ai, autoStart = false, language = 'en', messages = {}, onSaved, storage = defaultStorage, recoveryStorage = defaultRecoveryStorage }) {
   const base = createStudioHost({ language, messages, ai });
   const t = text => messages[text] || translateStudio(text, language);
   const id = record.id;
   let metadata = structuredClone(record), stateRevision = record.revision, storageRevision = record.revision;
   let queue = Promise.resolve();
   const creationRevision = record.revision;
+  let clearAfterSave = null;
+  const recoveryListeners = new Set();
+  function reportRecovery(error) { for (const listener of recoveryListeners) { try { listener(error.message); } catch { /* View may have unmounted. */ } } }
 
   // Serialize claim/open/save within a host; the database's expected revision
   // also protects against another tab, deletion and stale gallery operations.
@@ -79,6 +84,10 @@ export function createLibraryHost({ record, ai, autoStart = false, language = 'e
         throwIfAborted(signal);
         const saved = await storage.save(pending, { expectedRevision: storageRevision });
         metadata = saved; stateRevision = saved.revision; storageRevision = saved.revision;
+        if (clearAfterSave) {
+          try { await recoveryStorage.delete(id, { expectedToken: clearAfterSave }); clearAfterSave = null; reportRecovery(new Error('')); }
+          catch (error) { reportRecovery(error); } // The project write is already durable.
+        }
         notify(saved);
         return unpack(saved);
       });
@@ -105,8 +114,44 @@ export function createLibraryHost({ record, ai, autoStart = false, language = 'e
       });
     },
   };
+  /** @type {import('@trafficops/template-editor-core').AiRecoveryPort} */
+  const recovery = {
+    subscribe(listener) { recoveryListeners.add(listener); return () => recoveryListeners.delete(listener); },
+    load() {
+      return enqueue(undefined, async () => {
+        const pending = await recoveryStorage.get(id);
+        if (!pending) return null;
+        const current = await storage.get(id);
+        return { record: pending, conflict: !current || pending.baseRevision !== current.revision };
+      });
+    },
+    save(draft) {
+      // Detach immediately, before waiting behind a project or recovery write.
+      const pending = validateAiRecovery({ ...draft, projectId: id, baseRevision: storageRevision });
+      return enqueue(undefined, async () => {
+        const current = await storage.get(id), previous = await recoveryStorage.get(id);
+        if (!current || current.revision !== storageRevision || previous && (previous.token !== pending.token || previous.baseRevision !== storageRevision)) throw new ConflictError('The saved project or AI recovery changed in another tab. Reopen it before continuing.');
+        return recoveryStorage.save({ ...pending, baseRevision: previous?.baseRevision ?? storageRevision }, { expectedToken: previous?.token ?? null });
+      });
+    },
+    applied(token) { return enqueue(undefined, async () => { const pending = await recoveryStorage.get(id); if (pending && pending.token !== token) throw new ConflictError('A newer AI recovery draft exists. Reopen it before applying.'); clearAfterSave = token; }); },
+    discard(token) { return enqueue(undefined, async () => { await recoveryStorage.delete(id, { expectedToken: token }); if (clearAfterSave === token) clearAfterSave = null; }); },
+    export(token) {
+      return enqueue(undefined, async () => {
+        const pending = await recoveryStorage.get(id);
+        if (!pending || pending.token !== token) throw new ConflictError('The AI recovery draft changed. Reopen the project before downloading it.');
+        const state = unpack(metadata);
+        return base.project.export({ ...state, name: `${metadata.name}-recovered-draft`, files: pending.files, folders: [], translations: { [language]: pending.values } }, { format: 'source', locale: language });
+      });
+    },
+    download(draft) {
+      const pending = validateAiRecovery({ ...draft, projectId: id, baseRevision: storageRevision });
+      const state = unpack(metadata);
+      return base.project.export({ ...state, name: `${metadata.name}-ai-draft`, files: pending.files, folders: [], translations: { [language]: pending.values } }, { format: 'source', locale: language });
+    },
+  };
   /** @type {import('@trafficops/template-editor-core').AiPort | undefined} */
-  const assistant = ai && { ...ai, ...(record.aiPrompt ? { initialRequest: {
+  const assistant = ai && { ...ai, recovery, ...(record.aiPrompt ? { initialRequest: {
     id, prompt: record.aiPrompt, attachments: record.aiAttachments || [], generateImages: record.aiGenerateImages || false, mode: autoStart && !record.aiStarted ? 'create' : 'edit', autoStart: Boolean(autoStart && !record.aiStarted),
     claim({ signal } = {}) {
       return enqueue(signal, async () => {

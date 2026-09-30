@@ -542,3 +542,59 @@ test('document language metadata distinguishes literal attributes from dynamic f
   assert.equal(JSON.stringify(context).includes('PRIVATE SOURCE TEXT'), false);
   assert.equal(JSON.stringify(context).includes('Unrelated documentation'), false);
 });
+
+test('restored clarifications reach planning before source-mode selection and preserve the full original brief', async () => {
+  const initial = setup(), clarification = 'RESTORED_REQUIREMENT: translate the entire document to Polish, including its hardcoded language.';
+  const tail = 'ORIGINAL-BRIEF-TAIL', prompt = 'ORIGINAL-BEGIN'.padEnd(6000 - tail.length, '.') + tail;
+  const queue = [clarification], events = [];
+  const model = new MockLanguageModelV4({ doGenerate: async options => {
+    const request = options.prompt.filter(message => message.role === 'user').flatMap(message => message.content).map(part => part.text || '').join('');
+    return call('submit_plan', { summary: 'The complete page translation needs source edits.', tasks: ['Translate the hardcoded document language'], requiresSourceChanges: request.includes(clarification) });
+  } });
+  await assert.rejects(runStudioAiWorkflow({ ...initial, mode: 'content', prompt, languageModel: model, validateDraft,
+    takeInstructions: () => queue.splice(0), onProgress: event => events.push(event) }), /needs Edit project/);
+  assert.equal(model.doGenerateCalls.length, 1, 'the source requirement is caught before invoking a content writer');
+  const request = JSON.stringify(model.doGenerateCalls[0].prompt);
+  assert.ok(request.includes(prompt)); assert.equal(request.split(clarification).length - 1, 1);
+  assert.equal(queue.length, 0); assert.equal(events.filter(event => event.type === 'instructions-received').length, 1);
+  assert.deepEqual(initial.files, starterProject());
+});
+
+test('initial and later user clarifications reach the writer and reviewer once each', async () => {
+  const initial = setup(), initialInstruction = 'INITIAL_RESTORED: change the headline using the retained draft.', laterInstruction = 'LATER_REQUEST: update the description while preserving existing assets.';
+  const queue = [initialInstruction]; let laterQueued = false;
+  const model = new MockLanguageModelV4({ doGenerate: [plan(), call('set_values', { values: { headline: 'Polski tytuł', description: 'Updated complete description' } }), call('validate_draft', {}), review()] });
+  const result = await runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Continue the original page request.', languageModel: model, validateDraft,
+    takeInstructions: () => queue.splice(0), onProgress(event) { if (event.type === 'phase' && event.phase === 'generate' && !laterQueued) { queue.push(laterInstruction); laterQueued = true; } } });
+  assert.equal(result.valid, true); assert.equal(result.values.headline, 'Polski tytuł'); assert.equal(result.values.description, 'Updated complete description');
+  const requestText = call => JSON.stringify(call.prompt);
+  assert.equal(requestText(model.doGenerateCalls[0]).split(initialInstruction).length - 1, 1);
+  assert.equal(requestText(model.doGenerateCalls[0]).includes(laterInstruction), false);
+  for (const request of [model.doGenerateCalls[1], model.doGenerateCalls.at(-1)]) {
+    assert.equal(requestText(request).split(initialInstruction).length - 1, 1);
+    assert.equal(requestText(request).split(laterInstruction).length - 1, 1);
+  }
+  assert.equal(queue.length, 0); assert.equal(model.doGenerateCalls.length, 4);
+});
+
+for (const choice of ['images-off', 'existing-path', 'missing-photo']) test(`retained source continuation ${choice} preserves the completed photo without replaying its image request`, async () => {
+  const photo = Uint8Array.from(atob(png), c => c.charCodeAt(0)), original = starterProject(true);
+  original['index.tpl'] = original['index.tpl'].replace('</body>', '<img src="images/doctor.png" alt="Completed doctor photo"></body>');
+  original['images/doctor.png'] = photo;
+  const responses = [plan()];
+  if (choice !== 'images-off') responses.push(call('generate_image', { path: choice === 'existing-path' ? 'images/doctor.png' : 'images/second.png', prompt: 'The remaining requested second photo.', referenceIds: [] }));
+  responses.push(call('set_values', { values: { title: 'Completed Polish copy' } }));
+  if (choice === 'missing-photo') responses.push(call('edit_file', { path: 'index.tpl', search: '</body>', replace: '<img src="images/second.png" alt="Second requested photo"></body>' }));
+  responses.push(call('validate_draft', {}), review());
+  const model = new MockLanguageModelV4({ doGenerate: responses }), imageRequests = [], events = [];
+  const result = await runStudioAiWorkflow({ mode: 'edit', files: original, values: { title: 'Retained title' },
+    prompt: `Continue the retained page. Preserve the completed doctor photo and finish the copy.${choice === 'missing-photo' ? ' Also generate the originally requested second photo, which is still missing.' : ''}`,
+    languageModel: model, validateDraft, generateImages: choice !== 'images-off', imageModel: 'fake/image', apiKey: 'fake-key', onProgress: event => events.push(event),
+    fetchImpl: async (_url, options) => { imageRequests.push(JSON.parse(options.body)); return Response.json({ data: [{ b64_json: png, media_type: 'image/png' }] }); } });
+  assert.equal(result.valid, true); assert.equal(result.values.title, 'Completed Polish copy');
+  assert.deepEqual(result.files['images/doctor.png'], photo); assert.deepEqual(original['images/doctor.png'], photo);
+  assert.equal(imageRequests.length, choice === 'missing-photo' ? 1 : 0);
+  if (choice === 'images-off') assert.equal(model.doGenerateCalls.some(request => request.tools.some(tool => tool.name === 'generate_image')), false);
+  if (choice === 'existing-path') assert.ok(events.some(event => event.type === 'image-error' && /already exists/.test(event.error)), 'existing-path rejection happens before an image API request');
+  if (choice === 'missing-photo') { assert.ok(result.files['images/second.png'] instanceof Uint8Array); assert.match(result.files['index.tpl'], /images\/second\.png/); }
+});
