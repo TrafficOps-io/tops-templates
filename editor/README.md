@@ -241,6 +241,7 @@ PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/project-folder-b
 node editor/test/support/build-legacy-studio.mjs /tmp/studio-legacy-conversations
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/file-ai-browser.mjs editor/dist
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/block-ai-browser.mjs editor/dist
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright node packages/studio-ui/test/primitives-browser.mjs .
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/preview-block-selection-browser.mjs
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/fill-content-browser.mjs /tmp/studio-legacy-conversations
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/optiheart-ai-browser.mjs /tmp/studio-legacy-conversations
