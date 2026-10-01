@@ -1,0 +1,1 @@
+{ "compilerOptions": { "strict": true, "noEmit": true, "lib": ["ES2022", "DOM"], "types": [] }, "files": ["chat/port.d.ts"] }
