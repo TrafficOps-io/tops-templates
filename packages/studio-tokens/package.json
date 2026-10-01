@@ -1,0 +1,15 @@
+{
+  "name": "@trafficops/studio-tokens",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Semantic design tokens and light/dark themes for TrafficOps studios",
+  "license": "MIT",
+  "exports": {
+    "./tokens.css": "./tokens.css",
+    "./themes.css": "./themes.css",
+    "./tokens.json": "./tokens.json"
+  },
+  "files": ["tokens.css", "themes.css", "tokens.json", "README.md", "LICENSE"],
+  "scripts": { "test": "node --test test/*.test.js" },
+  "publishConfig": { "access": "public" }
+}
