@@ -1,0 +1,57 @@
+/* Семантический слой студий. Объявляется на корне студии, а не на :root,
+   чтобы одинаково работать в документе и в shadow root. */
+.studio-root {
+  --ui-page: var(--color-base-200);
+  --ui-surface: var(--color-base-100);
+  --ui-surface-raised: var(--studio-surface-raised, color-mix(in srgb, var(--color-base-100) 94%, var(--color-base-content)));
+  --ui-overlay: var(--studio-overlay, var(--color-base-100));
+  --ui-border: var(--color-base-300);
+  --ui-border-strong: var(--studio-border-strong, color-mix(in srgb, var(--color-base-300) 70%, var(--color-base-content)));
+  --ui-text: var(--color-base-content);
+  --ui-muted: var(--color-secondary);
+  --ui-text-on-accent: var(--color-primary-content);
+  --ui-accent: var(--color-primary);
+  --ui-accent-hover: var(--studio-accent-hover, color-mix(in srgb, var(--color-primary) 85%, var(--color-base-content)));
+  --ui-focus: var(--studio-focus, var(--color-primary));
+  --ui-success: var(--color-success);
+  --ui-warning: var(--color-warning);
+  --ui-danger: var(--color-error);
+  --ui-info: var(--color-info);
+  --ui-success-surface: color-mix(in srgb, var(--ui-success) 8%, var(--ui-surface));
+  --ui-warning-surface: color-mix(in srgb, var(--ui-warning) 10%, var(--ui-surface));
+  --ui-danger-surface: color-mix(in srgb, var(--ui-danger) 10%, var(--ui-surface));
+  --ui-info-surface: color-mix(in srgb, var(--ui-info) 10%, var(--ui-surface));
+
+  --ui-space-1: 4px; --ui-space-2: 8px; --ui-space-3: 12px; --ui-space-4: 16px; --ui-space-5: 20px;
+  --ui-space-6: 24px; --ui-space-7: 32px; --ui-space-8: 40px; --ui-space-9: 48px; --ui-space-10: 64px;
+
+  --ui-font-sans: var(--font-sans, 'Onest Variable', ui-sans-serif, system-ui, sans-serif);
+  --ui-font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --ui-text-xs: 12px; --ui-text-xs--line-height: 16px;
+  --ui-text-sm: 13px; --ui-text-sm--line-height: 18px;
+  --ui-text-md: 14px; --ui-text-md--line-height: 20px;
+  --ui-text-lg: 16px; --ui-text-lg--line-height: 24px;
+  --ui-text-xl: 20px; --ui-text-xl--line-height: 28px;
+
+  --ui-radius-sm: 6px;
+  --ui-radius-md: var(--radius-field, .55rem);
+  --ui-radius-lg: var(--radius-box, .75rem);
+  --ui-radius-full: 999px;
+
+  --ui-motion-fast: 120ms; --ui-motion-base: 180ms; --ui-motion-slow: 240ms;
+  --ui-ease: cubic-bezier(.2, .8, .2, 1);
+
+  --ui-z-sticky: 10; --ui-z-menu: 30; --ui-z-overlay: 50; --ui-z-toast: 60;
+
+  --ui-shadow-menu: 0 8px 24px rgb(0 0 0 / 28%);
+  --ui-shadow-overlay: 0 16px 48px rgb(0 0 0 / 40%);
+
+  color: var(--ui-text);
+  font-family: var(--ui-font-sans);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .studio-root { --ui-motion-fast: 0ms; --ui-motion-base: 0ms; --ui-motion-slow: 0ms; }
+}
+
+.studio-root :focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
