@@ -2,40 +2,7 @@
 @import "@trafficops/template-editor-shell/shell.css";
 @source "../../packages/template-editor-shell/src";
 
-@plugin "daisyui/theme" {
-  name: "trafficops";
-  default: true;
-  prefersdark: true;
-  color-scheme: dark;
-  --color-base-100: #262220;
-  --color-base-200: #1d1a19;
-  --color-base-300: #3b3430;
-  --color-base-content: #f7f0eb;
-  --color-primary: #ff8068;
-  --color-primary-content: #241f1d;
-  --color-secondary: #b7aaa2;
-  --color-secondary-content: #241f1d;
-  --color-accent: #ff8068;
-  --color-accent-content: #241f1d;
-  --color-neutral: #f7f0eb;
-  --color-neutral-content: #241f1d;
-  --color-info: #537588;
-  --color-info-content: #fff;
-  --color-success: #58b887;
-  --color-success-content: #1d1a19;
-  --color-warning: #e6a256;
-  --color-warning-content: #1d1a19;
-  --color-error: #f07979;
-  --color-error-content: #1d1a19;
-  --radius-selector: .55rem;
-  --radius-field: .55rem;
-  --radius-box: .75rem;
-  --size-selector: .25rem;
-  --size-field: .25rem;
-  --border: 1px;
-  --depth: 0;
-  --noise: 0;
-}
+@import "@trafficops/studio-tokens/themes.css";
 @theme {
   --font-sans: 'Onest Variable', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
 }
@@ -58,14 +25,16 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 }
-html { color-scheme: dark; background: var(--ui-page); }
+html { background: var(--ui-page); }
 body { margin: 0; min-width: 320px; background: var(--ui-page); }
 .topbar { position: sticky; top: 0; z-index: 30; border-bottom: 1px solid color-mix(in srgb, var(--ui-border) 80%, transparent); background: color-mix(in srgb, var(--ui-page) 92%, transparent); backdrop-filter: blur(14px); }
 .topbar-inner { width: 100%; max-width: var(--container-page); height: 4rem; margin-inline: auto; padding-inline: 2rem; display: flex; align-items: center; gap: .75rem; }
 .brand { display: flex; min-width: 0; align-items: center; gap: .625rem; text-decoration: none; }
 .brand img { width: 2.25rem; height: 2.25rem; color: var(--color-base-content); }
 .brand-wordmark { display: inline-block; color: var(--color-base-content); font-size: 1.5rem; font-weight: 700; letter-spacing: -.055em; line-height: 1.1; white-space: nowrap; }
-.brand-wordmark > span { color: var(--ui-brand-accent); }
+.brand-wordmark > span { color: #f04426; }
+[data-theme="studio-dark"] .brand-wordmark > span { color: #ff7857; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme]) .brand-wordmark > span { color: #ff7857; } }
 .brand-divider { height: 1.5rem; width: 1px; background: var(--ui-border); margin-left: .25rem; }
 .product-name { font-size: .875rem; font-weight: 600; line-height: 1.25; }.version { color: var(--ui-muted); font-size: .625rem; border-color: var(--ui-border); border-radius: var(--radius-selector); letter-spacing: .05em; }
 .topbar-right { margin-left: auto; display: flex; gap: .75rem; align-items: center; }.privacy { color: var(--ui-muted); display: flex; gap: .5rem; align-items: center; font-size: .75rem; }.privacy svg { color: var(--color-success); }.docs-link { border-radius: .5rem; padding: .5rem .65rem; color: var(--ui-muted); font-size: .875rem; font-weight: 500; text-decoration: none; }.docs-link:hover { color: var(--color-primary); }
@@ -133,7 +102,7 @@ h1 { font-size: clamp(2.25rem, 4.5vw, 4.4rem); line-height: 1.02; letter-spacing
   isolation: isolate;
   overflow: clip;
   background:
-    linear-gradient(180deg, color-mix(in srgb, var(--ui-brand-accent) 4%, transparent), transparent 27rem),
+    linear-gradient(180deg, color-mix(in srgb, var(--ui-accent) 4%, transparent), transparent 27rem),
     var(--ui-page);
 }
 .studio::before {
@@ -173,7 +142,6 @@ h1 { font-size: clamp(2.25rem, 4.5vw, 4.4rem); line-height: 1.02; letter-spacing
 .topbar-inner { height: 4.5rem; }
 .brand img { width: 2.125rem; height: 2.125rem; }
 .brand-wordmark { color: var(--color-base-content); }
-.brand-wordmark > span { color: var(--color-primary); }
 .product-name { color: var(--color-base-content); }
 .version { background: color-mix(in srgb, var(--ui-surface) 60%, transparent); }
 .privacy svg { color: var(--color-success); }
@@ -187,13 +155,13 @@ h1 { font-size: clamp(2.25rem, 4.5vw, 4.4rem); line-height: 1.02; letter-spacing
   border: 1px solid var(--color-primary);
   font-weight: 600;
 }
-.docs-link:hover { color: var(--color-primary-content); background: var(--ui-brand-highlight); border-color: var(--ui-brand-highlight); }
+.docs-link:hover { color: var(--color-primary-content); background: var(--ui-accent-hover); border-color: var(--ui-accent-hover); }
 .workspace { padding-top: clamp(2.75rem, 5vw, 4.75rem); }
 .workspace-heading { min-height: 13.5rem; align-items: center; margin-bottom: 2.5rem; }
 .workspace-heading > div:first-child { max-width: 48rem; }
 .workspace-heading p { max-width: 36rem; }
 .project-actions .btn-outline { color: var(--color-primary-content); border-color: var(--color-primary); background: var(--color-primary); font-weight: 600; }
-.project-actions .btn-outline:hover { color: var(--color-primary-content); border-color: var(--ui-brand-highlight); background: var(--ui-brand-highlight); }
+.project-actions .btn-outline:hover { color: var(--color-primary-content); border-color: var(--ui-accent-hover); background: var(--ui-accent-hover); }
 .site-footer > span:first-child {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: .625rem;

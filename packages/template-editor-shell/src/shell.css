@@ -1,19 +1,7 @@
 @import "tailwindcss";
 @plugin "daisyui" { themes: false; }
-.editor-root {
-  --ui-page: var(--color-base-200);
-  --ui-surface: var(--color-base-100);
-  --ui-border: var(--color-base-300);
-  --ui-muted: var(--color-secondary);
-  --ui-brand-accent: #ff8068;
-  --ui-brand-highlight: #ff9677;
-  --ui-focus: color-mix(in srgb, var(--color-primary) 72%, var(--color-base-content));
-  --ui-danger-surface: color-mix(in srgb, var(--color-error) 10%, var(--ui-surface));
-  --ui-success-surface: color-mix(in srgb, var(--color-success) 8%, var(--ui-surface));
-  font: inherit;
-  color: var(--color-base-content);
-  background: transparent;
-}
+@import "@trafficops/studio-tokens/tokens.css";
+.editor-root { font: inherit; background: transparent; }
 * { box-sizing: border-box; }
 /* Preserve component font sizes and line heights while inheriting the host typeface. */
 button { font-family: inherit; }

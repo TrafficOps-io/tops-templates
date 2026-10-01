@@ -244,7 +244,7 @@ function Shell({ host, onSnapshot, onNewProject, onImportProject, newProjectCrea
     editor.setLocale(issue.locale); setSection(issue.section); setTab('content');
     requestAnimationFrame(() => { const node = root.current?.querySelector(`[id="setting-${issue.path.replaceAll('.', '-')}"]`); node?.scrollIntoView({ block: 'center' }); node?.focus(); });
   }
-  if (!state) return <div className={`editor-root ${className}`} role="status">{editor.error || t('Opening project…')}</div>;
+  if (!state) return <div className={`studio-root editor-root ${className}`} role="status">{editor.error || t('Opening project…')}</div>;
   const sections = analysis?.definition?.sections || [], shownSection = sections.find(item => item.id === section) || sections[0];
   const issues = analysis?.diagnostics || [], sourceIssues = analysis?.sourceDiagnostics || [];
   const pages = (editor.previewPages || analysis?.pages || []).map(name => ({ name, isEntry: name === state.entrypoint }));
@@ -270,7 +270,7 @@ function Shell({ host, onSnapshot, onNewProject, onImportProject, newProjectCrea
   const exportButtons = (host.capabilities.sourceExport || host.capabilities.htmlExport) && <Menu className="studio-export-menu" label={t('Export')} triggerClassName="btn btn-primary btn-sm" disabled={locked} trigger={<><ArrowDownToLine size={14} />{t('Export')}</>}>
     {({ close }) => <>{host.capabilities.htmlExport && <button type="button" role="menuitem" onClick={() => { close(); setExporting({ format: 'html' }); }}><strong>{t('Landing for hosting')}</strong><small>{t('HTML and images ready to upload')}</small></button>}{host.capabilities.sourceExport && <button type="button" role="menuitem" onClick={() => { close(); setExporting({ format: 'source', includeHistory: Boolean(host.conversations) }); }}><strong>{t('Editable project')}</strong><small>{t('Source files and a portable project backup')}</small></button>}</>}
   </Menu>;
-  return <StudioHostContext.Provider value={context}><div ref={root} className={`editor-root ${className}`}>
+  return <StudioHostContext.Provider value={context}><div ref={root} className={`studio-root editor-root ${className}`}>
     {!isApp && <header className="hosted-heading">
       <div className="hosted-identity">
         <div className="hosted-title"><h1>{state.name}</h1><button type="button" className="btn btn-ghost btn-sm btn-square" aria-label={t('Rename project')} title={t('Rename project')} disabled={locked} onClick={() => openDialog('project-name')}><Pencil size={16} /></button></div>
