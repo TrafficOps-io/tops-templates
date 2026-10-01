@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { parse } from '@babel/parser';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import messages from '../src/studio-translations.json' with { type: 'json' };
+import messages from '@trafficops/studio-ui/i18n/studio-translations' with { type: 'json' };
 import { translateStudio, useStudioText } from '../src/studio-i18n.js';
 import { StudioHostContext } from '../src/host-context.js';
 

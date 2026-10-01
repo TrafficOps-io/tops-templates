@@ -1,0 +1,30 @@
+{
+  "name": "@trafficops/studio-ui",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Primitives, workspace, i18n and chat contract shared by TrafficOps studios",
+  "license": "MIT",
+  "exports": {
+    "./primitives": "./src/primitives/index.js",
+    "./workspace": "./src/workspace/index.js",
+    "./i18n": "./src/i18n/index.js",
+    "./i18n/translation": "./src/i18n/translation.js",
+    "./i18n/studio-translations": "./src/i18n/studio-translations.json",
+    "./chat/port": { "types": "./chat/port.d.ts" },
+    "./styles.css": "./styles.css"
+  },
+  "files": ["src", "chat", "styles.css", "README.md", "LICENSE"],
+  "scripts": { "test": "node --test test/*.test.js" },
+  "dependencies": {
+    "@trafficops/studio-tokens": "0.1.0",
+    "lucide-react": "^0.468.0"
+  },
+  "peerDependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "@assistant-ui/react": "^0.15.0"
+  },
+  "peerDependenciesMeta": { "@assistant-ui/react": { "optional": true } },
+  "devDependencies": { "@babel/parser": "^7.29.8", "esbuild": "^0.25.0", "typescript": "^5.9.3" },
+  "publishConfig": { "access": "public" }
+}

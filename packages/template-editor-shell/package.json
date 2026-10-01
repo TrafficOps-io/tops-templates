@@ -28,7 +28,6 @@
     "./openrouter-template-agent": "./src/openrouter-template-agent.js",
     "./preview": "./src/preview.js",
     "./studio-i18n": "./src/studio-i18n.js",
-    "./studio-translations": "./src/studio-translations.json",
     "./validate-ai-draft": "./src/validate-ai-draft.js",
     "./translation": "./src/translation.js",
     "./PromptImages": "./src/PromptImages.jsx",
@@ -61,7 +60,8 @@
     "lucide-react": "^0.468.0",
     "parse5": "^8.0.1",
     "zod": "^4.6.5",
-    "@trafficops/studio-tokens": "0.1.0"
+    "@trafficops/studio-tokens": "0.1.0",
+    "@trafficops/studio-ui": "0.1.0"
   },
   "peerDependencies": {
     "daisyui": "^5.5.0",

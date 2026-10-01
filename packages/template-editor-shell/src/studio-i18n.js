@@ -1,10 +1,9 @@
 import { useStudioHost } from './host-context.js';
-import { translateStudio } from './translation.js';
-export { translateStudio } from './translation.js';
+import { translateStudio, interpolate } from '@trafficops/studio-ui/i18n/translation';
+export { translateStudio };
+// Хост shell ещё не оборачивается в StudioUiProvider; язык и перекрытие берутся из порта хоста.
+// Импорт из подпути без JSX: node --test в shell не загружает StudioUiProvider.jsx.
 export function useStudioText() {
   const host = useStudioHost();
-  return (text, values = {}) => {
-    const translated = host?.messages?.[text] ?? translateStudio(text, host?.language);
-    return translated.replace(/\{([A-Za-z]+)\}/g, (match, key) => values[key] ?? match);
-  };
+  return (text, values = {}) => interpolate(host?.messages?.[text] ?? translateStudio(text, host?.language), values);
 }
