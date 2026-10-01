@@ -52,7 +52,7 @@ const bundle = await build({ stdin:{ contents:entry, resolveDir:repository, sour
 const script = bundle.outputFiles[0].contents;
 const server = createServer(async (request,response)=>{
   if (request.url==='/check.js') { response.writeHead(200,{ 'Content-Type':'text/javascript' }); response.end(script); }
-  else if (request.url==='/') { response.writeHead(200,{ 'Content-Type':'text/html' }); response.end(`<!doctype html><html data-theme="trafficops"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="${cssPath}"><style>${sourceStyles}</style></head><body><div id="root"></div><script type="module" src="/check.js"></script></body></html>`); }
+  else if (request.url==='/') { response.writeHead(200,{ 'Content-Type':'text/html' }); response.end(`<!doctype html><html data-theme="studio-dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="${cssPath}"><style>${sourceStyles}</style></head><body><div id="root"></div><script type="module" src="/check.js"></script></body></html>`); }
   else if (request.url?.startsWith('/assets/')) {
     try { const file=resolve(productionDist,'.'+request.url); if (!file.startsWith(productionDist+'/assets/')) throw new Error('Invalid asset path'); response.writeHead(200,{ 'Content-Type':extname(file)==='.css'?'text/css':extname(file)==='.woff2'?'font/woff2':'application/octet-stream' }); response.end(await readFile(file)); }
     catch { response.writeHead(404); response.end('Not found'); }

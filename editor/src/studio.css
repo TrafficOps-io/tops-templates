@@ -245,3 +245,4 @@ h1 { font-size: clamp(2.25rem, 4.5vw, 4.4rem); line-height: 1.02; letter-spacing
 .creation-shortcuts.manual-only, .creation-mode.manual-only { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .library-install-note { margin-top: 1.5rem; padding: .9rem 1rem; border: 1px solid var(--ui-border); border-radius: .6rem; color: var(--ui-muted); font-size: .8rem; line-height: 1.6; background: var(--ui-surface); }
 @media (max-width: 640px) { .creation-shortcuts.manual-only { grid-template-columns: 1fr; } }
+.theme-toggle { display: inline-flex; gap: var(--ui-space-1); } .theme-toggle [aria-checked="true"] { color: var(--ui-accent); }
