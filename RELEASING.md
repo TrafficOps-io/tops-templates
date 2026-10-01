@@ -13,7 +13,7 @@ The CLI and Composer package are public OSS packages. Do not create production t
 
 ## Cut a release
 
-Update versions in root `package.json`, `tops-cli/package.json`, `vscode-extension/package.json`, all four manifests in `packages/`, and internal workspaces/dependencies together, then run `npm install --package-lock-only`. Record changes in `CHANGELOG.md`.
+Update versions in root `package.json`, `tops-cli/package.json`, `vscode-extension/package.json`, all six manifests in `packages/`, and internal workspaces/dependencies together, then run `npm install --package-lock-only`. Record changes in `CHANGELOG.md`.
 
 ```sh
 npm ci
@@ -29,7 +29,7 @@ git tag -a v0.1.0 -m 'TrafficOps Templates 0.1.0'
 git push origin v0.1.0
 ```
 
-The `Release` workflow runs the complete reusable CI on the tagged commit. Only after it passes does it publish language, Monaco, core, shell and CLI using explicit workspace names and create a GitHub Release with their tarballs, Composer archive and VSIX. Packagist discovers the tag through its GitHub integration. Never move a published tag. npm package versions are immutable; review partial failures before retrying a release.
+The `Release` workflow runs the complete reusable CI on the tagged commit. Only after it passes does it publish language, Monaco, core, studio-tokens, studio-ui, shell and CLI using explicit workspace names and create a GitHub Release with their tarballs, Composer archive and VSIX. Packagist discovers the tag through its GitHub integration. Never move a published tag. npm package versions are immutable; review partial failures before retrying a release.
 
 `CI` builds downloadable artifacts for every main push/PR without publishing a version. The VS Code extension is distributed as VSIX; a Marketplace account/token is not required.
 
@@ -53,4 +53,6 @@ of React, Monaco, language-core and template-runtime dependencies.
 `@trafficops/template-editor-shell` is the public React shell. Its CSS and translations
 ship in the same tarball. The private Studio app and the prebundled embed artifact
 are not registry publication targets. Verify the clean consumer in `editor/README.md`
-before publishing the four public editor packages.
+before publishing the six public editor packages.
+
+`@trafficops/studio-tokens` and `@trafficops/studio-ui` are public packages consumed by the shell and by other studios. Publication order follows dependencies: language, Monaco, core, studio-tokens, studio-ui, shell, CLI. `studio-ui` depends on `studio-tokens` at the same version; shell depends on both.

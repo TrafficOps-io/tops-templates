@@ -48,7 +48,7 @@ jobs:
       - run: npm run test:pack --workspace=@trafficops/cli
       - run: npm run build:vsix
       - run: mkdir -p dist
-      - run: npm pack --workspace=@trafficops/cli --workspace=@trafficops/template-language --workspace=@trafficops/template-editor-monaco --workspace=@trafficops/template-editor-core --workspace=@trafficops/template-editor-shell --pack-destination=dist
+      - run: npm pack --workspace=@trafficops/cli --workspace=@trafficops/template-language --workspace=@trafficops/template-editor-monaco --workspace=@trafficops/template-editor-core --workspace=@trafficops/studio-tokens --workspace=@trafficops/studio-ui --workspace=@trafficops/template-editor-shell --pack-destination=dist
       - uses: actions/upload-artifact@v7
         if: matrix.node == '22'
         with:
