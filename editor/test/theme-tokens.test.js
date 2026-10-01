@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync, readdirSync } from 'node:fs';
 
-const styleDirectories = ['../src/', '../../packages/template-editor-shell/src/', '../embedded/src/'];
+const styleDirectories = ['../src/', '../../packages/template-editor-shell/src/', '../embedded/src/', '../../packages/studio-ui/'];
 const files = styleDirectories.flatMap(directory => readdirSync(new URL(directory, import.meta.url)).filter(name => name.endsWith('.css')).map(name => ({ name: directory + name, css: readFileSync(new URL(directory + name, import.meta.url), 'utf8') })));
 
 // Literals are allowed only where the colour is not an interface surface (spec 8.1):

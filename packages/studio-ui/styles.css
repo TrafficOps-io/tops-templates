@@ -1,0 +1,18 @@
+/* Base styles of @trafficops/studio-ui primitives. Colours, radii, shadows and layers are --ui-* variables from @trafficops/studio-tokens; the consumer imports tokens.css first. */
+
+/* Menu */
+.studio-menu, .editor-menu { position: relative; }
+.studio-menu > button, .editor-menu > button { display: inline-flex; align-items: center; gap: .35rem; }
+.studio-menu [role=menu], .editor-menu [role=menu] { position: absolute; z-index: var(--ui-z-menu); top: calc(100% + .5rem); right: 0; min-width: 12rem; max-height: 55vh; max-width: 80vw; overflow: auto; padding: .35rem; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); background: var(--ui-surface); box-shadow: var(--ui-shadow-menu); }
+.studio-menu [role=menuitem], .editor-menu [role=menuitem] { display: flex; width: 100%; min-height: 2rem; justify-content: flex-start; align-items: center; gap: .5rem; padding: .45rem .6rem; border: 0; border-radius: .25rem; font-size: .75rem; font-weight: 400; color: var(--ui-text); text-align: left; background: transparent; }
+.studio-menu [role=menuitem]:hover, .studio-menu [role=menuitem]:focus-visible, .editor-menu [role=menuitem]:hover, .editor-menu [role=menuitem]:focus-visible { background: var(--ui-page); }
+.studio-menu [role=menuitem][aria-current], .editor-menu [role=menuitem][aria-current] { color: var(--ui-accent); }
+.studio-menu [role=menuitem] > span:first-child, .editor-menu [role=menuitem] > span:first-child { flex: 1; }
+.studio-menu hr, .editor-menu hr { margin-block: .25rem; border-color: var(--ui-border); }
+
+/* Modal */
+.studio-modal, .hosted-modal { position: fixed; inset: 0; z-index: var(--ui-z-overlay); background: rgb(0 0 0 / 60%); display: grid; place-items: center; padding: 1rem; }
+.studio-dialog, .hosted-dialog { width: min(32rem, 100%); max-height: 90vh; overflow: auto; display: grid; gap: 1rem; background: var(--ui-surface); padding: 1.5rem; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-lg); }
+.studio-dialog h2, .hosted-dialog h2 { font-size: 1.3rem; font-weight: 600; }
+.studio-dialog label, .hosted-dialog label { display: grid; gap: .5rem; }
+.studio-dialog-description { color: var(--ui-muted); font-size: var(--ui-text-md); line-height: var(--ui-text-md--line-height); margin: 0; }
