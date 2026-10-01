@@ -14,10 +14,19 @@ test('Tabs is a WAI-ARIA tablist with roving arrow keys', () => {
 test('Button exposes variants, sizes and a width-preserving loading state', () => {
   const source = read('Button.jsx');
   for (const token of ['primary', 'secondary', 'ghost', 'danger', "size = 'md'", 'loading', 'aria-busy']) assert.ok(source.includes(token), token);
+  assert.doesNotMatch(source, /studio-button-content"[^>]*aria-hidden/, 'label stays the accessible name while loading');
+  assert.ok(source.indexOf('{...attributes}') < source.indexOf('disabled={'), 'consumer attributes cannot override disabled/aria-busy');
+  const css = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
+  assert.doesNotMatch(css, /studio-button-content\s*\{[^}]*visibility:\s*hidden/, 'visibility:hidden would drop the accessible name');
+});
+test('Tabs keeps a tab stop when value is missing or disabled', () => {
+  const source = read('Tabs.jsx');
+  assert.ok(source.includes('enabled[0]?.id') && source.includes('!enabled.length'), 'fallback tab stop and empty list guard');
 });
 test('notices and toasts use alert for errors and status otherwise', () => {
   for (const name of ['InlineNotice.jsx', 'Toast.jsx']) { const source = read(name); assert.ok(source.includes("'alert'") && source.includes("'status'"), name); }
   assert.ok(read('Toast.jsx').includes('5000'), 'success toasts dismiss after 5 s');
+  assert.match(read('Toast.jsx'), /useEffect\(\(\) => \(\) => \{[^}]*clearTimeout/, 'provider clears timers on unmount');
 });
 test('chips have an accessible remove action and mention chips are buttons', () => {
   const source = read('Chips.jsx');

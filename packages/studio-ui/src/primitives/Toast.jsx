@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { useStudioText } from '../i18n/StudioUiProvider.jsx';
 const ToastContext = createContext(null);
@@ -6,6 +6,7 @@ const ToastContext = createContext(null);
 export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]), timers = useRef(new Map()), counter = useRef(0), t = useStudioText();
   const dismiss = useCallback(id => { clearTimeout(timers.current.get(id)); timers.current.delete(id); setToasts(current => current.filter(item => item.id !== id)); }, []);
+  useEffect(() => () => { timers.current.forEach(clearTimeout); timers.current.clear(); }, []);
   const push = useCallback(({ tone = 'info', title, description, action }) => {
     const id = `toast-${++counter.current}`; setToasts(current => [...current, { id, tone, title, description, action }]);
     if (tone !== 'danger') timers.current.set(id, setTimeout(() => dismiss(id), 5000));
