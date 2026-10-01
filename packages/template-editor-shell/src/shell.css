@@ -69,7 +69,7 @@ textarea:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 3px
 .eyebrow { display: flex; align-items: center; gap: .5rem; color: var(--color-primary); font-size: .72rem; font-weight: 600; letter-spacing: .11em; text-transform: uppercase; margin-bottom: .75rem; }.eyebrow > span { display: block; width: .375rem; height: .375rem; background: var(--color-primary); border-radius: 999px; }
 .editor-shell { display: grid; --sidebar-width: 13.5rem; --sidebar-collapsed-width: 3.25rem; grid-template-columns: var(--sidebar-width) clamp(22.5rem, 27vw, 30rem) minmax(0, 1fr); min-height: 590px; height: min(72vh, 760px); border: 1px solid var(--ui-border); border-radius: var(--radius-box); overflow: hidden; background: var(--ui-surface); transition: grid-template-columns .2s ease; }
 .editor-shell.files-collapsed { grid-template-columns: var(--sidebar-collapsed-width) clamp(22.5rem, 27vw, 30rem) minmax(0, 1fr); }
-.editor-shell.is-expanded { position: fixed; inset: 0; z-index: 50; grid-template-columns: var(--sidebar-width) clamp(22.5rem, 27vw, 30rem) minmax(0, 1fr); width: 100vw; height: 100dvh; min-height: 0; max-height: none; border: 0; border-radius: 0; }
+.editor-shell.is-expanded { position: fixed; inset: 0; z-index: var(--ui-z-overlay); grid-template-columns: var(--sidebar-width) clamp(22.5rem, 27vw, 30rem) minmax(0, 1fr); width: 100vw; height: 100dvh; min-height: 0; max-height: none; border: 0; border-radius: 0; }
 .editor-shell.is-expanded.files-collapsed { grid-template-columns: var(--sidebar-collapsed-width) clamp(22.5rem, 27vw, 30rem) minmax(0, 1fr); }
 .editor-shell.is-expanded.preview-collapsed { grid-template-columns: var(--sidebar-width) minmax(0, 1fr); }
 .editor-shell.is-expanded.preview-collapsed.files-collapsed { grid-template-columns: var(--sidebar-collapsed-width) minmax(0, 1fr); }
@@ -301,7 +301,7 @@ textarea:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 3px
   .editor-shell.is-expanded.preview-collapsed.files-collapsed { grid-template-columns: 1fr; }
 }
 [hidden] { display: none !important; }
-.studio-toolbar { display: flex; gap: 1rem; align-items: center; min-height: 4rem; padding: .5rem 1rem; border-bottom: 1px solid var(--ui-border); background: var(--ui-surface); z-index: 60; }
+.studio-toolbar { display: flex; gap: 1rem; align-items: center; min-height: 4rem; padding: .5rem 1rem; border-bottom: 1px solid var(--ui-border); background: var(--ui-surface); z-index: var(--ui-z-sticky); }
 .studio-title { color: var(--ui-muted); font-size: .85rem; font-weight: 600; white-space: nowrap; }
 .studio-toolbar-actions { display: flex; gap: .375rem; align-items: center; margin-left: auto; }
 .source-export { display: flex; width: 100%; justify-content: flex-start; flex-wrap: nowrap; gap: .5rem; padding-inline: .625rem; font-size: .75rem; white-space: nowrap; height: 2rem; min-height: 2rem; }
@@ -620,7 +620,7 @@ fieldset:disabled { opacity: .65; }
 .hosted-status.is-dirty > span { background: var(--color-warning); opacity: 1; }
 .hosted-actions { gap: .5rem; flex: 0 1 auto; }
 .hosted-more { position: relative; }
-.hosted-more[open] { z-index: 80; }
+.hosted-more[open] { z-index: var(--ui-z-menu); }
 .hosted-more summary { list-style: none; }
 .hosted-more summary::-webkit-details-marker { display: none; }
 .hosted-more-menu { position: absolute; right: 0; top: calc(100% + .4rem); width: 16rem; max-width: calc(100vw - 3rem); display: grid; padding: .4rem; border: 1px solid var(--ui-border); border-radius: var(--radius-field); background: var(--ui-surface); box-shadow: 0 8px 24px #0003; }

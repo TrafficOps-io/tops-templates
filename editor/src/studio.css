@@ -70,7 +70,7 @@ h1 { font-size: clamp(2.25rem, 4.5vw, 4.4rem); line-height: 1.02; letter-spacing
 .save-indicator.saving { background: var(--color-warning); }
 .save-indicator.error { background: var(--color-error); }
 .update-banner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; padding: .75rem 1rem; border: 1px solid color-mix(in srgb, var(--color-primary) 35%, var(--ui-border)); border-radius: var(--radius-field); background: color-mix(in srgb, var(--color-primary) 8%, var(--ui-surface)); font-size: .875rem; }
-.pwa-update-toast { z-index: 70; }
+.pwa-update-toast { z-index: var(--ui-z-toast); }
 .update-notice { display: flex; align-items: center; gap: .75rem; padding: .75rem; border: 1px solid color-mix(in srgb, var(--color-primary) 35%, var(--ui-border)); border-radius: var(--radius-box); background: var(--ui-surface); box-shadow: 0 .3125rem 1.25rem rgb(0 0 0 / 24%); font-size: .8rem; }
 .projects-modal { max-width: 34rem; }
 .projects-intro { margin: -.25rem 0 1.25rem; }
@@ -192,7 +192,7 @@ h1 { font-size: clamp(2.25rem, 4.5vw, 4.4rem); line-height: 1.02; letter-spacing
 .project-switcher strong { font-size: .8rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-switcher small { font-size: .7rem; color: var(--ui-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-switcher svg { flex-shrink: 0; }
-.project-switcher-menu { position: absolute; z-index: 80; inset: calc(100% + .5rem) auto auto 0; width: min(28rem, 90vw); max-height: 65vh; overflow: auto; padding: .75rem; border: 1px solid var(--ui-border); border-radius: .625rem; background: var(--ui-surface); box-shadow: 0 1rem 3rem #0006; }
+.project-switcher-menu { position: absolute; z-index: var(--ui-z-menu); inset: calc(100% + .5rem) auto auto 0; width: min(28rem, 90vw); max-height: 65vh; overflow: auto; padding: .75rem; border: 1px solid var(--ui-border); border-radius: .625rem; background: var(--ui-surface); box-shadow: 0 1rem 3rem #0006; }
 .project-switcher-menu button { display: flex; align-items: center; gap: .75rem; padding: .65rem .5rem; width: 100%; text-align: left; border-radius: .375rem; font-size: .8rem; }
 .project-switcher-menu button:hover { background: var(--ui-page); }
 .project-switcher-menu button:focus-visible { background: var(--ui-page); }
@@ -200,7 +200,7 @@ h1 { font-size: clamp(2.25rem, 4.5vw, 4.4rem); line-height: 1.02; letter-spacing
 .project-list-row { flex-wrap: wrap; }
 .project-path-field { order: 3; width: 100%; padding: 0 .75rem .75rem; }
 .project-path-field input { width: 100%; font-size: .75rem; }
-.restore-overlay { position: absolute; inset: 0; z-index: 90; display: flex; justify-content: center; align-items: center; gap: .75rem; background: var(--ui-page); }
+.restore-overlay { position: absolute; inset: 0; z-index: var(--ui-z-overlay); display: flex; justify-content: center; align-items: center; gap: .75rem; background: var(--ui-page); }
 .reconnect-banner { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: .5rem 1rem; font-size: .75rem; border-bottom: 1px solid var(--ui-border); background: color-mix(in srgb, var(--color-primary) 8%, var(--ui-surface)); }
 @media (max-width: 640px) {
   .project-switcher { flex: 1; width: auto; min-width: 8rem; }
