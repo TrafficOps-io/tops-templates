@@ -4,6 +4,11 @@
   "type": "module",
   "license": "MIT",
   "exports": {
+    "./ConversationComposer": "./src/ConversationComposer.jsx",
+    "./conversation-runtime": "./src/conversation-runtime.js",
+    "./conversation-changes": "./src/conversation-changes.js",
+    "./block-edit-scope": "./src/block-edit-scope.js",
+    "./block-ai-workflow": "./src/block-ai-workflow.js",
     ".": "./src/EditorShell.jsx",
     "./shell.css": "./src/shell.css",
     "./AiSettings": "./src/AiSettings.jsx",
@@ -28,7 +33,12 @@
     "./translation": "./src/translation.js",
     "./PromptImages": "./src/PromptImages.jsx",
     "./ai-attachments": "./src/ai-attachments.js",
-    "./studio-ai-workflow": "./src/studio-ai-workflow.js"
+    "./ai-image-choice": "./src/ai-image-choice.js",
+    "./studio-ai-workflow": "./src/studio-ai-workflow.js",
+    "./FileAiPanel": "./src/FileAiPanel.jsx",
+    "./PromptAttachments": "./src/PromptAttachments.jsx",
+    "./file-ai-workflow": "./src/file-ai-workflow.js",
+    "./file-ai-attachments": "./src/file-ai-attachments.js"
   },
   "files": [
     "src",
@@ -36,20 +46,28 @@
     "README.md"
   ],
   "dependencies": {
+    "@openrouter/ai-sdk-provider": "^3.0.0",
+    "@tiptap/core": "^3.31.4",
+    "@tiptap/extension-image": "^3.31.4",
+    "@tiptap/markdown": "^3.31.4",
+    "@tiptap/pm": "^3.31.4",
+    "@tiptap/react": "^3.31.4",
+    "@tiptap/starter-kit": "^3.31.4",
     "@trafficops/template-editor-core": "0.1.0",
     "@trafficops/template-editor-monaco": "0.1.0",
-    "@openrouter/ai-sdk-provider": "^3.0.0",
+    "@trafficops/template-runtime": "^0.1.0",
     "ai": "^7.0.105",
     "image-size": "^2.0.4",
     "lucide-react": "^0.468.0",
+    "parse5": "^8.0.1",
     "zod": "^4.6.5"
   },
   "peerDependencies": {
+    "daisyui": "^5.5.0",
+    "monaco-editor": "^0.56.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "monaco-editor": "^0.56.0",
-    "tailwindcss": "^4.1.0",
-    "daisyui": "^5.5.0"
+    "tailwindcss": "^4.1.0"
   },
   "publishConfig": {
     "access": "public"

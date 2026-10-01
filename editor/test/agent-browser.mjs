@@ -60,10 +60,11 @@ try {
   });
   await page.goto(`http://127.0.0.1:${server.address().port}`);
   await page.getByRole('button', { name: 'New project', exact: true }).click();
+  await page.getByRole('button', { name: 'From template', exact: true }).click();
   await page.getByRole('textbox', { name: 'Project name', exact: true }).fill('Browser test');
   await page.getByRole('button', { name: 'Create landing', exact: true }).click();
   await page.locator('.browser-frame iframe.is-visible').waitFor();
-  await page.getByRole('button', { name: 'Collapse editor', exact: true }).click();
+  const collapse = page.getByRole('button', { name: 'Collapse editor', exact: true }); if (await collapse.count()) await collapse.click();
   await page.getByRole('tab', { name: 'AI assistant', exact: true }).click();
   await page.getByRole('button', { name: 'AI connection settings', exact: true }).click();
   await page.locator('.ai-settings input[type=password]').fill('mock-key-no-paid-calls');

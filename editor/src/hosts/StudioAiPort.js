@@ -5,7 +5,10 @@ import { loadOpenRouterSettings, saveOpenRouterSettings, clearOpenRouterSettings
 
 /** @returns {import('@trafficops/template-editor-core').AiPort} */
 export function createStudioAiPort({ fetchImpl = globalThis.fetch, storage = { load: loadOpenRouterSettings, save: saveOpenRouterSettings, remove: clearOpenRouterSettings }, isEnabled = () => true } = {}) {
-  let active = null;
+  // Addressed runs never share a cancellation slot. Legacy callers retain
+  // their exclusive slot because they finish without an identifier.
+  const active = new Set();
+  const legacy = Symbol('legacy-ai-request');
   function assertEnabled() {
     if (!isEnabled()) throw new PolicyError('AI is available only in the installed Studio app.');
   }
@@ -62,18 +65,20 @@ export function createStudioAiPort({ fetchImpl = globalThis.fetch, storage = { l
   };
   return {
     settings,
-    begin({ signal } = {}) {
-      const token = {};
+    begin({ signal, runId } = {}) {
+      if (runId !== undefined && (typeof runId !== 'string' || !runId.trim() || runId.length > 160)) return Promise.reject(new ConflictError('Invalid AI run ID.'));
+      const token = runId ?? legacy;
+      let acquired = false;
       return runOperation(signal, async () => {
         assertEnabled();
-        if (active) throw new ConflictError('An AI request is already running.');
-        active = token;
+        if (active.has(token) || active.has(legacy) || token === legacy && active.size) throw new ConflictError('An AI request is already running.');
+        active.add(token); acquired = true;
         const connection = await storage.load();
         assertEnabled();
         if (!connection.apiKey) throw new PolicyError('Add your OpenRouter connection in Settings first.');
         return { ...configured(connection), apiKey: validateOpenRouterApiKey(connection.apiKey), fetchImpl: guardedFetch };
-      }).catch(error => { if (active === token) active = null; throw error; });
+      }).catch(error => { if (acquired) active.delete(token); throw error; });
     },
-    async finish() { active = null; },
+    async finish({ runId } = {}) { active.delete(runId ?? legacy); },
   };
 }

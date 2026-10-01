@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 
-const css = ['../src/studio.css', '../../packages/template-editor-shell/src/shell.css', '../embedded/src/embed.css'].map(path => readFileSync(new URL(path, import.meta.url), 'utf8')).join('\n');
+const styleDirectories = ['../src/', '../../packages/template-editor-shell/src/', '../embedded/src/'];
+const css = styleDirectories.flatMap(directory => readdirSync(new URL(directory, import.meta.url))
+  .filter(name => name.endsWith('.css')).map(name => readFileSync(new URL(directory + name, import.meta.url), 'utf8'))).join('\n');
 
 // Literal panel colours turn into dark patches when the host uses its light theme.
 // Shadows and modal scrims deliberately darken both themes; they use rgba().

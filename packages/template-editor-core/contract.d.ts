@@ -37,6 +37,7 @@ export interface HistoryAction extends ActionDescriptor { operation: 'preview' |
 export interface HistoryRow { id: string; title: string; badge?: string; meta: string[]; actions: HistoryAction[] }
 export interface HistoryGroup { id: string; label: string; count: number; rows: HistoryRow[]; empty: { title: string; description: string } }
 export interface ProjectState {
+  projectId?: string; contentRevision?: number; appliedAiRuns?: string[];
   name: string; revision: Revision; files: ProjectFiles; folders: string[];
   entrypoint: string | null; locale: string; translations: Record<string, Values>;
   status: string; availability: { inlinePreview: boolean; externalPreview: boolean; ai: boolean };
@@ -44,8 +45,13 @@ export interface ProjectState {
 }
 export interface OperationOptions { signal?: AbortSignal }
 export interface LocaleOptions extends OperationOptions { locale: string }
-export interface ImportedProject { files: ProjectFiles; folders: string[]; settings: Values; entrypoint?: string | null }
-export interface ExportOptions extends LocaleOptions { format: 'source' | 'html'; continueUrl?: string; history?: HistoryTarget }
+export interface PortableMetadata { schema: 1; projectId: string; kind: 'landing' | 'template'; name: string; contentRevision: number; metadataRevision: number; createdAt?: number; sourceTemplateId?: string; appliedAiRuns?: string[]; contentHash?: string }
+export interface ConversationEntry { id: string; [key: string]: any }
+export interface ConversationDocument { schema: 1; projectId: string; revision: number; threads: ConversationEntry[]; runs: ConversationEntry[]; storageWarning?: string; [key: string]: any }
+/** Conversation revisions are independent of project content and published versions. */
+export interface ConversationPort { readonly projectId: string; load(): Promise<ConversationDocument>; save(document: ConversationDocument, options: { expectedRevision: number }): Promise<ConversationDocument>; subscribe?(listener: (document: ConversationDocument) => void): () => void }
+export interface ImportedProject { files: ProjectFiles; folders: string[]; settings: Values; entrypoint?: string | null; metadata?: PortableMetadata; conversations?: ConversationDocument }
+export interface ExportOptions extends LocaleOptions { format: 'source' | 'html'; continueUrl?: string; history?: HistoryTarget; includeHistory?: boolean }
 export interface Download { name: string; bytes: Uint8Array; mime: string }
 export interface ProjectPort {
   open(options?: OperationOptions): Promise<ProjectState>;
@@ -58,8 +64,21 @@ export interface AnalyzerPort {
   render(state: ProjectState, options: LocaleOptions): Promise<ProjectFiles>;
 }
 export interface SharedPreview { id: string; url: string; expiresAt?: string }
+export type ValuePath = (string | number)[];
+export interface PreviewBlockSource { id: string; label: string; path: string; start: number; end: number; content: string }
+export interface PreviewBlockInstance { id: string; sourceId: string; label: string; page: string; parentId?: string; valuePaths: ValuePath[] }
+export interface PreviewValueUse { path: ValuePath; instanceIds: string[]; page: string; control?: boolean }
+/** Source/value provenance stays in the parent; only display identifiers enter the iframe. */
+export interface PreviewSelection { version: 1; token: string; blockSources: PreviewBlockSource[]; blockInstances: PreviewBlockInstance[]; valueUses: PreviewValueUse[] }
+export interface BlockEditScope {
+  version: 1; page: string; locale: string; blockSources: PreviewBlockSource[];
+  blockInstances: (Omit<PreviewBlockInstance, 'valuePaths'> & { valuePaths: (ValuePath | string)[] })[];
+  valueUses: (Omit<PreviewValueUse, 'path'> & { path: ValuePath | string })[];
+  selectedInstanceIds: string[]; baselineFiles?: ProjectFiles; baselineRawValues?: Values;
+  baselineEffectiveValues?: Values; intent?: 'source' | 'content' | 'mixed';
+}
 /** A host-owned interactive frame. It never runs with the editor's origin. */
-export interface PreviewFrame { html?: string; url?: string; id?: string; page: string; readyToken?: string; dispose?(): void }
+export interface PreviewFrame { html?: string; url?: string; id?: string; page: string; readyToken?: string; selection?: PreviewSelection; dispose?(): void }
 export interface LivePreviewPort {
   render(state: ProjectState, options: LocaleOptions & { page?: string; keepRevisionId?: string }): Promise<PreviewFrame>;
   dispose?(): void | Promise<void>;
@@ -81,7 +100,7 @@ export interface HostAiSettings extends AiSettingsBase { owner: 'host'; url?: st
 export interface AiAttachment { id: string; name: string; mime: string; dataUrl: string; useOnPage: boolean }
 export interface InitialAiRequest { attachments?: AiAttachment[]; generateImages?: boolean; id: string; prompt: string; mode: 'create' | 'edit'; autoStart: boolean; claim(options?: OperationOptions): Promise<boolean> }
 /** Completed draft data only; connections and provider diagnostics never enter recovery. */
-export interface AiRecoveryDraft { token: string; kind: 'create' | 'edit' | 'content'; prompt: string; clarifications?: string[]; generateImages?: boolean; attachments: AiAttachment[]; files: ProjectFiles; values: Values; valid: boolean; steps: number; summary: string }
+export interface AiRecoveryDraft { token: string; kind: 'create' | 'edit' | 'content'; prompt: string; clarifications?: string[]; generateImages?: boolean; editScope?: BlockEditScope; attachments: AiAttachment[]; files: ProjectFiles; values: Values; valid: boolean; steps: number; summary: string }
 export interface AiRecoveryRecord extends AiRecoveryDraft { projectId: string; baseRevision: number }
 export interface AiRecoveryPort {
   load(): Promise<{ record: AiRecoveryRecord; conflict: boolean } | null>;
@@ -92,7 +111,8 @@ export interface AiRecoveryPort {
   download(draft: AiRecoveryDraft): Promise<Download>;
   subscribe?(listener: (message: string) => void): () => void;
 }
-export interface AiPort { begin(options?: OperationOptions): Promise<AiConnection>; finish(options?: OperationOptions): Promise<void>; settings: UserAiSettings | HostAiSettings; initialRequest?: InitialAiRequest; recovery?: AiRecoveryPort }
+export interface AiOperationOptions extends OperationOptions { runId?: string }
+export interface AiPort { begin(options?: AiOperationOptions): Promise<AiConnection>; finish(options?: AiOperationOptions): Promise<void>; settings: UserAiSettings | HostAiSettings; initialRequest?: InitialAiRequest; recovery?: AiRecoveryPort }
 export interface Capabilities {
   inlinePreview: boolean; preview: boolean; lifecycle: boolean; ai: boolean;
   locales: boolean; entrypoint: boolean; autosave: boolean; sourceExport: boolean; htmlExport: boolean;
@@ -101,6 +121,7 @@ export interface EditorHost {
   language: string; messages: Record<string, string>; capabilities: Readonly<Capabilities>;
   dialect: DialectDescriptor; project: ProjectPort; analyzer: AnalyzerPort;
   preview?: PreviewPort; livePreview?: LivePreviewPort; lifecycle?: LifecyclePort; ai?: AiPort;
+  conversations?: ConversationPort;
   dispose?(): void | Promise<void>;
 }
 export type HostFactory = () => EditorHost | Promise<EditorHost>;
@@ -119,7 +140,13 @@ export function projectFolders(files: ProjectFiles, folders?: string[]): string[
 export function readZip(bytes: Uint8Array): ProjectFiles;
 export function readZipProject(bytes: Uint8Array): ImportedProject;
 export function inspectZip(bytes: Uint8Array): Map<string, { size: number; directory: boolean }>;
-export function createZip(files: ProjectFiles, options?: { generated?: boolean; directories?: string[]; settings?: Values }): Uint8Array;
+export const CONVERSATION_LIMITS: Readonly<{ threads: number; runs: number; messages: number; total: number; nodes: number; depth: number; encoded: number }>;
+export function clonePortablePayload<T>(value: T): T;
+export function validateConversationDocument(value: unknown, expectedProjectId?: string): ConversationDocument;
+export function validatePortableMetadata(value: unknown): PortableMetadata;
+export function encodePortablePayload(value: unknown): string;
+export function decodePortablePayload(text: string): any;
+export function createZip(files: ProjectFiles, options?: { generated?: boolean; directories?: string[]; settings?: Values; metadata?: PortableMetadata; conversations?: ConversationDocument }): Uint8Array;
 export function renameFile(files: ProjectFiles, from: string, to: string): ProjectFiles;
 export function encodeProject(files: ProjectFiles): Record<string, { text: string } | { base64: string }>;
 export function decodeProject(files: Record<string, { text: string } | { base64: string }>): ProjectFiles;

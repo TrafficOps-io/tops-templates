@@ -5,7 +5,7 @@
   X-Frame-Options: DENY
 
 /sw.js
-  Cache-Control: no-cache
+  Cache-Control: no-store, no-cache, max-age=0, must-revalidate
 
 /index.html
   Cache-Control: no-cache

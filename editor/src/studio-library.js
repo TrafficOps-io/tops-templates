@@ -1,5 +1,5 @@
-import { validateAttachments } from '@trafficops/template-editor-shell/ai-attachments';
-import { ConflictError } from '@trafficops/template-editor-core';
+import { validateFileAiAttachments } from '@trafficops/template-editor-shell/file-ai-attachments';
+import { ConflictError, contentsEqual } from '@trafficops/template-editor-core';
 import { LIMITS, projectFolders, validateProject } from './project.js';
 
 // Keep browser projects separate from directory handles and the legacy recovery copy.
@@ -63,12 +63,21 @@ export function validateStudioProject(record) {
     createdAt: timestamp(record.createdAt ?? now, 'creation time'),
     updatedAt: timestamp(record.updatedAt ?? now, 'update time'),
   };
+  for (const key of ['contentRevision', 'metadataRevision']) {
+    const value = record[key] ?? (key === 'contentRevision' ? revision : 0);
+    if (!Number.isSafeInteger(value) || value < 0) throw new Error(`Invalid project ${key}.`);
+    result[key] = value;
+  }
+  if (record.appliedAiRuns !== undefined) {
+    if (!Array.isArray(record.appliedAiRuns) || record.appliedAiRuns.length > 200) throw new Error('Invalid applied AI run history.');
+    result.appliedAiRuns = [...new Set(record.appliedAiRuns.map(projectId))];
+  }
   if (record.sourceTemplateId !== undefined) result.sourceTemplateId = projectId(record.sourceTemplateId);
   if (record.aiPrompt !== undefined) {
     if (typeof record.aiPrompt !== 'string' || record.aiPrompt.length > 6000) throw new Error('The AI prompt must contain at most 6000 characters.');
     result.aiPrompt = record.aiPrompt;
   }
-  if (record.aiAttachments !== undefined) result.aiAttachments = validateAttachments(record.aiAttachments);
+  if (record.aiAttachments !== undefined) result.aiAttachments = validateFileAiAttachments(record.aiAttachments).map((item, index) => ({ ...item, useOnPage: /^image\//.test(item.mime) && record.aiAttachments[index].useOnPage === true }));
   if (record.aiGenerateImages !== undefined) result.aiGenerateImages = record.aiGenerateImages === true;
   if (record.aiStarted !== undefined) {
     if (typeof record.aiStarted !== 'boolean') throw new Error('Invalid AI generation state.');
@@ -85,8 +94,8 @@ export function createStudioProject(snapshot, { id = globalThis.crypto.randomUUI
 export function cloneStudioProject(source, { kind = source.kind, name = `${source.name} copy`, id = globalThis.crypto.randomUUID(), now = Date.now() } = {}) {
   const original = validateStudioProject(source);
   if (id === original.id) throw new Error('A project copy needs a new ID.');
-  const { aiPrompt, aiStarted, aiAttachments, aiGenerateImages, sourceTemplateId, ...snapshot } = original;
-  return createStudioProject({ ...snapshot, kind, name, ...(kind === 'landing' && original.kind === 'template' ? { sourceTemplateId: original.id } : sourceTemplateId && kind === 'landing' ? { sourceTemplateId } : {}) }, { id, now });
+  const { aiPrompt, aiStarted, aiAttachments, aiGenerateImages, appliedAiRuns, sourceTemplateId, ...snapshot } = original;
+  return createStudioProject({ ...snapshot, contentRevision: 0, metadataRevision: 0, kind, name, ...(kind === 'landing' && original.kind === 'template' ? { sourceTemplateId: original.id } : sourceTemplateId && kind === 'landing' ? { sourceTemplateId } : {}) }, { id, now });
 }
 
 function storageError(error) {
@@ -170,8 +179,12 @@ export async function saveStudioProject(record, { expectedRevision } = {}) {
     request(store.get(snapshot.id), existing => {
       if (expectedRevision === null ? Boolean(existing) : expectedRevision !== undefined && existing?.revision !== expectedRevision) throw new ConflictError('This Studio project changed in another tab. Reopen it before saving your changes.');
       const previous = existing ? validateStudioProject(existing) : null;
-      const saved = { ...snapshot, createdAt: previous?.createdAt ?? snapshot.createdAt, updatedAt: Math.max(Date.now(), (previous?.updatedAt ?? -1) + 1), revision: (previous?.revision ?? 0) + 1 };
-      if (!Number.isSafeInteger(saved.revision) || !Number.isSafeInteger(saved.updatedAt)) throw new Error('Project revision limit reached. Create a copy to continue.');
+      const contentChanged = !previous || Object.keys(previous.files).length !== Object.keys(snapshot.files).length || Object.keys(snapshot.files).some(path => !Object.hasOwn(previous.files, path) || !contentsEqual(snapshot.files[path], previous.files[path])) || JSON.stringify(previous.folders) !== JSON.stringify(snapshot.folders) || JSON.stringify(previous.settings) !== JSON.stringify(snapshot.settings);
+      const metadataChanged = !previous || previous.name !== snapshot.name || previous.kind !== snapshot.kind;
+      const saved = { ...snapshot, createdAt: previous?.createdAt ?? snapshot.createdAt, updatedAt: Math.max(Date.now(), (previous?.updatedAt ?? -1) + 1), revision: (previous?.revision ?? 0) + 1,
+        contentRevision: previous ? previous.contentRevision + Number(contentChanged) : snapshot.contentRevision || 1,
+        metadataRevision: previous ? previous.metadataRevision + Number(metadataChanged) : snapshot.metadataRevision || 1 };
+      if (!Number.isSafeInteger(saved.revision) || !Number.isSafeInteger(saved.contentRevision) || !Number.isSafeInteger(saved.metadataRevision) || !Number.isSafeInteger(saved.updatedAt)) throw new Error('Project revision limit reached. Create a copy to continue.');
       request(store.put(saved), () => result(saved));
     });
   });

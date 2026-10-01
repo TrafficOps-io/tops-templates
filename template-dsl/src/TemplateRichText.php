@@ -30,7 +30,7 @@ final class TemplateRichText
             ->allowRelativeMedias()
             ->allowElement('img', ['src', 'alt', 'title']);
 
-        foreach (['p', 'br', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'b', 'em', 'i', 's', 'u', 'ul', 'li', 'blockquote', 'pre', 'code', 'hr'] as $tag) {
+        foreach (['p', 'br', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'b', 'em', 'i', 's', 'u', 'ul', 'li', 'blockquote', 'pre', 'code', 'hr', 'figure', 'figcaption'] as $tag) {
             $config = $config->allowElement($tag, []);
         }
         $config = $config->allowElement('ol', ['start'])->allowElement('a', ['href', 'title']);

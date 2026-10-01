@@ -24,15 +24,7 @@ try {
  await page.locator('.browser-frame iframe.is-visible').waitFor();
  assert.equal(await page.getByRole('tab',{name:'AI assistant',exact:true}).count(),0);
  assert.equal(await page.getByRole('button',{name:'Manage project folders',exact:true}).count(),0);
- await page.addInitScript(() => Object.defineProperty(navigator, 'standalone', { configurable: true, value: true }));
- await page.reload();
- await page.getByRole('button',{name:'Collapse editor',exact:true}).click();
- await page.getByRole('tab',{name:'AI assistant',exact:true}).click();
- await page.getByRole('button',{name:'AI connection settings',exact:true}).click();
- await page.locator('.ai-settings input[type=password]').waitFor();
- assert.equal(await page.getByRole('tab',{name:'AI assistant',exact:true}).getAttribute('aria-selected'),'true');
- await page.getByRole('button',{name:'Back to assistant',exact:true}).click();
- await page.getByRole('tab',{name:'Content',exact:true}).click();
+ // Browser embedding retains its viewport overlay and focus behaviour.
  await page.evaluate(()=>{document.body.style.overflow='auto';document.querySelector('.workspace').style.transform='translateX(0)';});
  await page.locator('.hosted-more > summary').click();
  const expand=page.getByRole('button',{name:'Expand editor',exact:true}); await expand.click();
@@ -48,18 +40,28 @@ try {
  await page.locator('.editor-shell').screenshot({path:'/tmp/studio-shell-expanded.png'});
  await page.keyboard.press('Escape'); assert.equal(await page.locator('.editor-shell.is-expanded').count(),0);assert.equal(await page.evaluate(()=>document.body.style.overflow),'auto');
  await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-label')==='More actions');
- await page.getByRole('button',{name:'Export project',exact:true}).click();
+ // The installed app is a permanent workspace, including while settings open.
+ await page.addInitScript(() => Object.defineProperty(navigator, 'standalone', { configurable: true, value: true }));
+ await page.reload(); await page.locator('.editor-shell.is-app').waitFor();
+ assert.equal(await page.getByRole('button',{name:'Collapse editor',exact:true}).count(),0);
+ await page.keyboard.press('Escape'); assert.equal(await page.locator('.editor-shell.is-app').count(),1);
+ await page.getByRole('tab',{name:'Conversations',exact:true}).click();
+ await page.getByRole('button',{name:'AI settings',exact:true}).click();
+ await page.locator('.ai-settings input[type=password]').waitFor();
+ assert.equal(await page.getByRole('tab',{name:'Conversations',exact:true}).getAttribute('aria-selected'),'true');
+ await page.getByRole('button',{name:'Back to assistant',exact:true}).click();
+ async function exportProject(format='source') { await page.getByRole('button',{name:'Export',exact:true}).click(); await page.getByRole('menuitem',{name:format==='source'?/Editable project/:/Landing for hosting/}).click(); await page.getByRole('dialog',{name:'Export',exact:true}).waitFor(); }
+ await exportProject();
  await page.getByText('Backup or reopen this editable project in Studio.',{exact:true}).waitFor();
  const download=page.waitForEvent('download');await page.getByRole('button',{name:'Download',exact:true}).click();assert.match((await download).suggestedFilename(),/source\.zip$/);
  // A static landing imported for GEO/link edits offers direct authoring actions,
  // rather than empty parameter controls. Both ZIP formats preserve its assets.
- await page.getByRole('button',{name:'Library',exact:true}).first().click();
+ await page.getByRole('button',{name:'Projects',exact:true}).click();
  const staticHtml='<!doctype html><html lang="pl"><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="styles.css"></head><body><h1>Statyczna strona GEO</h1><a href="#offer">Oferta</a><section id="offer">Przykład</section></body></html>';
  const importChooser=page.waitForEvent('filechooser');
  await page.getByRole('button',{name:'Import ZIP',exact:true}).click();
  await(await importChooser).setFiles({name:'Static-traffic-page.zip',mimeType:'application/zip',buffer:Buffer.from(zipSync({'index.html':strToU8(staticHtml),'styles.css':strToU8('body { margin: 0; padding: 24px; }')}))});
  await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading',{name:'Statyczna strona GEO',exact:true}).waitFor();
- if(await page.locator('.editor-shell.is-expanded').count())await page.getByRole('button',{name:'Collapse editor',exact:true}).click();
  await page.getByRole('tab',{name:'Content',exact:true}).click();
  await page.getByText('This project has no editable fields.',{exact:true}).waitFor();
  assert.equal(await page.getByRole('button',{name:'Reset defaults',exact:true}).count(),0);
@@ -67,20 +69,19 @@ try {
  assert.equal(await page.getByRole('tab',{name:'Files',exact:true}).getAttribute('aria-selected'),'true');
  await page.getByRole('tab',{name:'Content',exact:true}).click();
  await page.getByRole('button',{name:'Open AI assistant',exact:true}).click();
- assert.equal(await page.getByRole('tab',{name:'AI assistant',exact:true}).getAttribute('aria-selected'),'true');
- await page.getByRole('button',{name:'Export project',exact:true}).click();
+ assert.equal(await page.getByRole('tab',{name:'Conversations',exact:true}).getAttribute('aria-selected'),'true');
+ await exportProject();
  await page.getByText('Backup or reopen this editable project in Studio.',{exact:true}).waitFor();
  const sourceDownload=page.waitForEvent('download');await page.getByRole('button',{name:'Download',exact:true}).click();
  const sourceFiles=unzipSync(new Uint8Array(await readFile(await(await sourceDownload).path())));
  assert.equal(new TextDecoder().decode(sourceFiles['index.html']),staticHtml);
  assert.ok(sourceFiles['styles.css']);
- await page.getByRole('button',{name:'Export project',exact:true}).click();
- await page.getByRole('combobox',{name:'Archive format',exact:true}).selectOption('html');
+ await exportProject('html');
  await page.getByText('Extract this archive and upload its files to your hosting.',{exact:true}).waitFor();
  const htmlDownload=page.waitForEvent('download');await page.getByRole('button',{name:'Download',exact:true}).click();
  const htmlFiles=unzipSync(new Uint8Array(await readFile(await(await htmlDownload).path())));
  assert.match(new TextDecoder().decode(htmlFiles['index.html']),/Statyczna strona GEO/);assert.ok(htmlFiles['styles.css']);
  assert.equal(blockedProviderCalls,0,'opening the AI assistant never starts a paid request');
  assert.deepEqual(errors,[]);
- console.log('PASS: Studio shell, PWA capabilities, viewport overlay/focus, mobile preview, static HTML import→Files/AI actions without paid calls, editable backup and hosting ZIP assets.');
+ console.log('PASS: browser overlay/focus, permanent PWA workspace and settings, mobile preview, static HTML import→Files/conversations without paid calls, editable backup and hosting ZIP assets.');
 } catch(error) { const failed=browser?.contexts()[0]?.pages()[0]; await failed?.screenshot({path:'/tmp/studio-import-export-ui-error.png'}).catch(()=>{}); if(failed)console.error((await failed.locator('body').innerText()).slice(-3500));throw error; } finally {await browser?.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}

@@ -3,7 +3,7 @@ import { useStudioText } from './studio-i18n.js';
 import { useEffect, useLayoutEffect, useRef, useId } from 'react';
 import * as monaco from 'monaco-editor/editor/editor.api.js';
 import '@trafficops/template-editor-monaco/setup';
-import { PanelRightClose, PanelRightOpen, WandSparkles } from 'lucide-react';
+import { PanelRightClose, PanelRightOpen, Sparkles, WandSparkles } from 'lucide-react';
 import 'monaco-editor/languages/definitions/html/register.js';
 import 'monaco-editor/languages/definitions/css/register.js';
 import 'monaco-editor/languages/definitions/javascript/register.js';
@@ -41,7 +41,7 @@ monaco.editor.defineTheme('trafficops', {
 
 monaco.editor.defineTheme('trafficops-light', { base: 'vs', inherit: true, rules: [], colors: { 'editor.background': '#FBF7F2', 'editor.foreground': '#241F1D' } });
 
-export default function CodeEditor({ path, value, files, dialect, onChange, onOpenFile, reveal, onError, previewVisible, onTogglePreview, readOnly = false }) {
+export default function CodeEditor({ path, value, files, dialect, onChange, onOpenFile, reveal, onError, previewVisible, onTogglePreview, onEditWithAi, aiEditDisabled = false, aiEditReason = '', readOnly = false }) {
   const t = useStudioText();
   const projectId = useId().replace(/[^a-zA-Z0-9-]/g, '');
   const host = useStudioHost();
@@ -98,6 +98,6 @@ export default function CodeEditor({ path, value, files, dialect, onChange, onOp
     catch (error) { onError?.(error instanceof Error ? error.message : String(error)); }
   }
   const canFormat = ['html', 'css', 'javascript', 'json'].includes(languageFor(path)) || templateFile(path, dialect);
-  return <><div className="source-heading"><span>{path}</span><div className="source-tools">{canFormat && !readOnly && <button className="btn btn-ghost btn-xs" title={t("Format document (Shift+Alt+F)")} onClick={format}><WandSparkles size={13} /> {t("Format")}</button>}{onTogglePreview && <button className="btn btn-ghost btn-xs preview-toggle-button" aria-controls="preview-panel" aria-expanded={previewVisible} onClick={onTogglePreview}>{previewVisible ? <PanelRightClose size={13} /> : <PanelRightOpen size={13} />}{previewVisible ? t("Hide preview") : t("Show preview")}</button>}<span>UTF-8</span></div></div><div ref={container} className="code-editor" /></>;
+  return <><div className="source-heading"><span>{path}</span><div className="source-tools">{onEditWithAi && <button type="button" className="btn btn-ghost btn-xs file-ai-launch" title={aiEditReason ? t(aiEditReason) : undefined} disabled={readOnly || aiEditDisabled} onClick={onEditWithAi}><Sparkles size={13} />{t('Edit file with AI')}</button>}{canFormat && !readOnly && <button className="btn btn-ghost btn-xs" title={t("Format document (Shift+Alt+F)")} onClick={format}><WandSparkles size={13} /> {t("Format")}</button>}{onTogglePreview && <button className="btn btn-ghost btn-xs preview-toggle-button" aria-controls="preview-panel" aria-expanded={previewVisible} onClick={onTogglePreview}>{previewVisible ? <PanelRightClose size={13} /> : <PanelRightOpen size={13} />}{previewVisible ? t("Hide preview") : t("Show preview")}</button>}<span>UTF-8</span></div></div><div ref={container} className="code-editor" /></>;
 
 }

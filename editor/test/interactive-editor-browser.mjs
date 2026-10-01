@@ -34,6 +34,7 @@ try {
   await visible().contentFrame().getByText('module:fetched',{exact:true}).waitFor();
   await visible().contentFrame().getByRole('button',{name:'0',exact:true}).click();
   await visible().contentFrame().getByRole('button',{name:'1',exact:true}).waitFor();
+  await page.getByRole('tab',{name:'Content',exact:true}).click();
   await page.evaluate(()=>{
     window.originalFrame=document.querySelector('.browser-frame iframe.is-visible');window.previewSamples=[];window.samplePreview=true;
     window.buffered=false;window.bufferObserver=new MutationObserver(()=>{if(document.querySelector('iframe.is-preparing')&&document.querySelector('iframe.is-visible')===window.originalFrame)window.buffered=true;});
@@ -73,6 +74,7 @@ try {
   await page.evaluate(()=>navigator.serviceWorker.ready.then(()=>true));
   if (!await page.evaluate(()=>Boolean(navigator.serviceWorker.controller))) {
     await page.reload(); await visible().contentFrame().getByRole('heading',{name:'Resumed',exact:true}).waitFor();
+    await page.getByRole('tab',{name:'Content',exact:true}).click();
   }
   await context.setOffline(true);
   await page.locator('#setting-title').fill('Offline');

@@ -61,7 +61,7 @@ try {
       const state = window.fillAi, body = JSON.parse(init.body); state.requests.push({ url: String(url), body });
       if (String(url).endsWith('/images')) return Response.json({ data: [{ b64_json: png, media_type: 'image/png' }] });
       const stage = body.tools?.length === 1 ? body.tools[0].function.name : null;
-      if (stage === 'submit_plan') return response(stage, { summary: 'Write a 2600-character Polish article, add images and seven sample reviews.', tasks: ['Fill fields', 'Generate an illustration', 'Review and correct the article length'] });
+      if (stage === 'submit_plan') return response(stage, { summary: 'Write a 2600-character Polish article, add images and seven sample reviews.', tasks: ['Fill fields', 'Generate an illustration', 'Review and correct the article length'], imageRequests: ['An editorial illustration for the article.'], requiresSourceChanges: false });
       if (stage === 'submit_review') {
         const count = ++state.reviews;
         if (state.holdReview && count === 1) await new Promise((resolve, reject) => { state.releaseReview = resolve; init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true }); });
@@ -85,7 +85,7 @@ try {
     await new Promise((resolve, reject) => { const transaction = database.transaction(['projects', 'preferences'], 'readwrite'); transaction.objectStore('projects').put(fixture); transaction.objectStore('preferences').put(fixture.id, 'active-project'); transaction.oncomplete = resolve; transaction.onerror = () => reject(transaction.error); }); database.close();
   }, fixture);
   await page.reload();
-  await page.getByRole('button', { name: 'Collapse editor', exact: true }).click();
+  const collapse = page.getByRole('button', { name: 'Collapse editor', exact: true }); if (await collapse.count()) await collapse.click();
   await page.getByRole('tab', { name: 'AI assistant', exact: true }).click();
   await page.getByRole('button', { name: 'AI connection settings', exact: true }).click();
   await page.locator('.ai-settings input[type=password]').fill('mock-key-no-paid-requests');
@@ -138,7 +138,8 @@ try {
   assert.equal(saved.files['index.tpl'], fixture.files['index.tpl']); assert.equal(saved.settings.article.replace(/<[^>]+>/g, '').length, 2600); assert.equal(saved.settings.reviews.length, 7);
   assert.ok(saved.files['images/article.png'] instanceof Uint8Array); assert.ok(saved.files[saved.settings.portrait] instanceof Uint8Array);
   assert.equal(Object.keys(saved.files).length, 3, 'reference-only screenshot is not exported as a page image');
-  await page.getByRole('button', { name: 'Export project', exact: true }).click();
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.getByRole('menuitem').filter({ hasText: 'Editable project' }).click();
   const download = page.waitForEvent('download'); await page.getByRole('button', { name: 'Download', exact: true }).click();
   const archive = unzipSync(new Uint8Array(await readFile(await (await download).path())));
   assert.ok(archive['images/article.png']); assert.equal(JSON.parse(strFromU8(archive['.trafficops/values.json'])).reviews.length, 7);

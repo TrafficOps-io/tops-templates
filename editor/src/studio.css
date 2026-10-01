@@ -59,7 +59,7 @@
   -webkit-font-smoothing: antialiased;
 }
 html { color-scheme: dark; background: var(--ui-page); }
-body { margin: 0; min-width: 360px; background: var(--ui-page); }
+body { margin: 0; min-width: 320px; background: var(--ui-page); }
 .topbar { position: sticky; top: 0; z-index: 30; border-bottom: 1px solid color-mix(in srgb, var(--ui-border) 80%, transparent); background: color-mix(in srgb, var(--ui-page) 92%, transparent); backdrop-filter: blur(14px); }
 .topbar-inner { width: 100%; max-width: var(--container-page); height: 4rem; margin-inline: auto; padding-inline: 2rem; display: flex; align-items: center; gap: .75rem; }
 .brand { display: flex; min-width: 0; align-items: center; gap: .625rem; text-decoration: none; }
@@ -70,6 +70,12 @@ body { margin: 0; min-width: 360px; background: var(--ui-page); }
 .product-name { font-size: .875rem; font-weight: 600; line-height: 1.25; }.version { color: var(--ui-muted); font-size: .625rem; border-color: var(--ui-border); border-radius: var(--radius-selector); letter-spacing: .05em; }
 .topbar-right { margin-left: auto; display: flex; gap: .75rem; align-items: center; }.privacy { color: var(--ui-muted); display: flex; gap: .5rem; align-items: center; font-size: .75rem; }.privacy svg { color: var(--color-success); }.docs-link { border-radius: .5rem; padding: .5rem .65rem; color: var(--ui-muted); font-size: .875rem; font-weight: 500; text-decoration: none; }.docs-link:hover { color: var(--color-primary); }
 .workspace { width: 100%; max-width: var(--container-page); margin-inline: auto; padding: 2rem 2rem 0; }
+/* Installed workspaces use the project toolbar as their only header. */
+.studio.installed-app.is-editor > .workspace { height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+.studio.installed-app.is-editor > .workspace > .editor-root { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+.studio.installed-app.is-editor .editor-shell.is-app { flex: 1; height: auto; min-height: 0; }
+.studio.installed-app.is-editor .reconnect-banner { flex-shrink: 0; }
+@media (max-width: 1050px) { .studio.installed-app.is-editor > .workspace { height: auto; min-height: 100dvh; overflow: visible; }.studio.installed-app.is-editor .editor-shell.is-app { flex: auto; min-height: 100dvh; } }
 .workspace-heading { display: flex; gap: 20px; align-items: flex-end; justify-content: space-between; margin-bottom: 27px; }
 h1 { font-size: clamp(2.25rem, 4.5vw, 4.4rem); line-height: 1.02; letter-spacing: -.052em; font-weight: 600; margin: 0 0 1rem; }.workspace-heading h1 span { color: var(--color-primary); }.workspace-heading p { color: var(--ui-muted); font-size: clamp(.9375rem, 1.2vw, 1.0625rem); line-height: 1.7; margin: 0; }.project-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; padding-bottom: .125rem; }.project-actions .btn { gap: .5rem; }.site-footer { width: 100%; max-width: var(--container-page); margin-inline: auto; padding: 0 2rem 1.5rem; color: var(--ui-muted); display: flex; justify-content: space-between; align-items: center; gap: 1.25rem; font-size: .75rem; }.site-footer > span:first-child { font-size: .72rem; font-weight: 600; letter-spacing: .11em; }.site-footer a { color: var(--color-primary); text-decoration: none; }
 .help-panel { display: flex; gap: 1.25rem; padding: 1.25rem; border: 1px solid var(--ui-border); border-radius: var(--radius-box); margin-bottom: 1.25rem; background: var(--ui-surface); }.help-panel strong { font-size: .875rem; font-weight: 600; }.help-panel p { font-size: .875rem; color: var(--ui-muted); line-height: 1.5; margin: .5rem 0 0; max-width: 60rem; }.help-panel > button { margin-left: auto; flex-shrink: 0; }

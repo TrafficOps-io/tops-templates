@@ -24,6 +24,13 @@ function fixture(options = {}) {
 }
 const ai = { settings: { owner: 'user', load: async () => ({ configured: false, model: '', imageModel: '' }), save: async value => value, remove: async () => {}, test: async () => ({ message: 'OK' }) }, begin: async () => { throw new Error('No provider call should be made.'); }, finish: async () => {} };
 
+test('creation handoff preserves explicit image choices without disabling the default for older briefs', () => {
+  for (const choice of [undefined, false, true]) {
+    const local = fixture({ aiPrompt: 'Create a page with product photos', ...(choice === undefined ? {} : { aiGenerateImages: choice }) });
+    assert.equal(local.host({ ai }).ai.initialRequest.generateImages, choice);
+  }
+});
+
 test('library host conforms and persists exact text, binary assets, folders and field values', async () => {
   const local = fixture();
   const result = await runHostConformance(() => local.host(), { knownIds: ['safe-html-v1', 'fast-landings-v1'], faults: {

@@ -25,13 +25,13 @@ export default function AiRunSummary({ working, phase, review, draft, error, sta
     {review && <div className="ai-review"><strong>{t('Reviewer')}</strong><p>{review.summary}</p>{review.issues.length > 0 && <ul>{review.issues.map((issue, index) => <li key={index}>{issue}</li>)}</ul>}</div>}
     {draft && <div className="ai-draft">
       {draft.summary && <p>{draft.summary}</p>}
-      {draft.valid === false && <p className="field-help">{t('Completed work is retained. Continue with this model or change the model, then continue. No changes are applied until you keep the draft.')}</p>}
+      {draft.valid === false && <p className="field-help">{t(draft.editScope ? 'Completed block changes are retained. Continue generation to validate and review them before applying.' : 'Completed work is retained. Continue with this model or change the model, then continue. No changes are applied until you keep the draft.')}</p>}
       {draft.kind === 'content' ? <details className="ai-run-details"><summary>{t('Review content changes')}</summary><pre className="ai-values-preview">{JSON.stringify(draft.values, null, 2)}</pre></details> : <p className="field-help">{Object.keys(draft.files).length} {t('files ·')} {draft.steps} {t('steps. Inspect Source code and Live preview before applying.')}</p>}
       <div className="ai-actions">
-        {draft.valid === false && <button type="button" className="btn btn-primary btn-sm" onClick={onContinue}>{t('Continue generation')}</button>}
-        <button type="button" className={`btn ${draft.valid === false ? 'btn-outline' : 'btn-primary'} btn-sm`} onClick={onApply}><Check size={14} />{draft.valid === false ? t('Keep draft in editor') : t('Apply changes')}</button>
+        {draft.valid === false && <button type="button" className="btn btn-primary btn-sm" disabled={disabled} onClick={onContinue}>{t('Continue generation')}</button>}
+        {(!draft.editScope || draft.valid === true) && <button type="button" className={`btn ${draft.valid === false ? 'btn-outline' : 'btn-primary'} btn-sm`} disabled={disabled} onClick={onApply}><Check size={14} />{draft.valid === false ? t('Keep draft in editor') : t('Apply changes')}</button>}
         {draft.valid === false && <button type="button" className="btn btn-outline btn-sm" disabled={disabled} onClick={onSettings}><Settings2 size={14} />{t('Change model')}</button>}
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onDiscard}><X size={14} />{t('Discard')}</button>
+        <button type="button" className="btn btn-ghost btn-sm" disabled={disabled} onClick={onDiscard}><X size={14} />{t('Discard')}</button>
       </div>
     </div>}
   </section>;

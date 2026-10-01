@@ -73,7 +73,7 @@ try {
     await new Promise((resolve, reject) => { const transaction = connection.transaction('settings', 'readwrite'); transaction.objectStore('settings').put({ id: 'openrouter', apiKey: key, model: 'xiaomi/mimo-v2.6-flash', imageModel: '' }); transaction.oncomplete = resolve; transaction.onerror = () => reject(transaction.error); }); connection.close();
   }, { fixture, key });
   await page.reload();
-  await page.getByRole('button', { name: 'Collapse editor', exact: true }).click();
+  const collapse = page.getByRole('button', { name: 'Collapse editor', exact: true }); if (await collapse.count()) await collapse.click();
   await page.getByRole('tab', { name: 'AI assistant', exact: true }).click();
   await page.getByRole('button', { name: 'Edit project', exact: true }).click();
   await page.locator('.ai-prompt textarea').fill(OPTIHEART_BRIEF);

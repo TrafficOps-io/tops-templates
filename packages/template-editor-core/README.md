@@ -46,3 +46,10 @@ AnalyzerPort tests and PWApps PHP ProjectAnalyzer tests consume these files.
 Diagnostic parity compares stable code, locale, section, field path, source file
 and line. Localized human messages must exist but are not compared byte for byte.
 PWApps installs this package for its tests; there is no second maintained corpus.
+
+Studio live frames may supply optional `PreviewFrame.selection` metadata with
+version/token, original `blockSources`, rendered `blockInstances` and reverse
+`valueUses`. These are parent-only provenance records; the iframe receives display
+IDs/labels only. `AiRecoveryDraft.editScope` optionally preserves a selected-block
+run's fixed intent, selection and original unsaved baseline. Existing hosts and
+recovery records without these fields remain compatible.

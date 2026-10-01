@@ -1,9 +1,11 @@
 // @ts-check
-import { ConflictError, PolicyError, ValidationError, runOperation, throwIfAborted } from '@trafficops/template-editor-core';
+import { ConflictError, PolicyError, ValidationError, runOperation, throwIfAborted, createZip } from '@trafficops/template-editor-core';
 import { translateStudio } from '@trafficops/template-editor-shell/translation';
 import { createStudioHost } from './StudioHost.js';
 import { cloneStudioProject, getStudioProject, saveStudioProject, validateStudioProject } from '../studio-library.js';
 import { deleteAiRecovery, getAiRecovery, saveAiRecovery, validateAiRecovery } from '../studio-ai-recovery.js';
+import { createConversationPort } from '../studio-conversations.js';
+import { projectMetadata } from '../portable-project.js';
 
 /** @typedef {ReturnType<typeof validateStudioProject>} LibraryRecord */
 const defaultStorage = { get: getStudioProject, save: saveStudioProject };
@@ -19,6 +21,7 @@ export function createLibraryHost({ record, ai, autoStart = false, language = 'e
   const base = createStudioHost({ language, messages, ai });
   const t = text => messages[text] || translateStudio(text, language);
   const id = record.id;
+  const conversations = createConversationPort({ projectId: id, kind: record.kind, name: record.name });
   let metadata = structuredClone(record), stateRevision = record.revision, storageRevision = record.revision;
   let queue = Promise.resolve();
   const creationRevision = record.revision;
@@ -40,7 +43,7 @@ export function createLibraryHost({ record, ai, autoStart = false, language = 'e
   /** @returns {import('@trafficops/template-editor-core').ProjectState} */
   function unpack(saved, revision = saved.revision) {
     return {
-      name: saved.name, revision, files: structuredClone(saved.files), folders: [...saved.folders], entrypoint: null,
+      projectId: id, name: saved.name, revision, contentRevision: saved.contentRevision ?? revision, appliedAiRuns: [...(saved.appliedAiRuns || [])], files: structuredClone(saved.files), folders: [...saved.folders], entrypoint: null,
       locale: language, translations: { [language]: structuredClone(saved.settings) },
       status: `${t(saved.kind === 'template' ? 'Template' : 'Landing')} · ${t('Saved on this device')}`,
       availability: { inlinePreview: true, externalPreview: false, ai: Boolean(ai) },
@@ -54,7 +57,7 @@ export function createLibraryHost({ record, ai, autoStart = false, language = 'e
     try {
       const settings = next.translations?.[next.locale];
       if (!settings) throw new Error('Project field values are missing.');
-      return validateStudioProject({ ...current, name: next.name, files: next.files, folders: next.folders, settings });
+      return validateStudioProject({ ...current, name: next.name, files: next.files, folders: next.folders, settings, appliedAiRuns: next.appliedAiRuns || current.appliedAiRuns || [] });
     } catch (error) { throw new ValidationError(error.message, { cause: error }); }
   }
   async function matchingRecord(next) {
@@ -66,6 +69,16 @@ export function createLibraryHost({ record, ai, autoStart = false, language = 'e
   /** @type {import('@trafficops/template-editor-core').ProjectPort} */
   const project = {
     ...base.project,
+    export(next, options) {
+      if (options.format !== 'source') return base.project.export(next, options);
+      return runOperation(options.signal, async () => {
+        if (options.history) throw new PolicyError('Local projects have no published history.');
+        const document = options.includeHistory === false ? undefined : await conversations.load();
+        return { name: `${next.name || 'project'}-source.zip`, mime: 'application/zip', bytes: createZip(next.files, { directories: next.folders, settings: next.translations[options.locale],
+          metadata: projectMetadata({ ...metadata, name: next.name, metadataRevision: document?.revision ?? metadata.metadataRevision, appliedAiRuns: next.appliedAiRuns || metadata.appliedAiRuns || [] }),
+          ...(document && (document.threads.length || document.runs.length) ? { conversations: document } : {}) }) };
+      }, 'validation');
+    },
     open({ signal } = {}) {
       return enqueue(signal, async () => {
         const current = await storage.get(id);
@@ -152,7 +165,7 @@ export function createLibraryHost({ record, ai, autoStart = false, language = 'e
   };
   /** @type {import('@trafficops/template-editor-core').AiPort | undefined} */
   const assistant = ai && { ...ai, recovery, ...(record.aiPrompt ? { initialRequest: {
-    id, prompt: record.aiPrompt, attachments: record.aiAttachments || [], generateImages: record.aiGenerateImages || false, mode: autoStart && !record.aiStarted ? 'create' : 'edit', autoStart: Boolean(autoStart && !record.aiStarted),
+    id, prompt: record.aiPrompt, attachments: record.aiAttachments || [], ...(typeof record.aiGenerateImages === 'boolean' ? { generateImages: record.aiGenerateImages } : {}), mode: autoStart && !record.aiStarted ? 'create' : 'edit', autoStart: Boolean(autoStart && !record.aiStarted),
     claim({ signal } = {}) {
       return enqueue(signal, async () => {
         if (!autoStart || metadata.aiStarted || storageRevision !== creationRevision) return false;
@@ -169,6 +182,6 @@ export function createLibraryHost({ record, ai, autoStart = false, language = 'e
       });
     },
   } } : {}) };
-  return { ...base, capabilities: Object.freeze({ ...base.capabilities, autosave: true, lifecycle: true }), project, lifecycle,
+  return { ...base, conversations, capabilities: Object.freeze({ ...base.capabilities, autosave: true, lifecycle: true }), project, lifecycle,
     ...(assistant ? { ai: assistant } : {}) };
 }

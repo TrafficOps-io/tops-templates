@@ -17,5 +17,8 @@ async function transact(mode, operation) {
     });
   } finally { database.close(); }
 }
-export const loadWorkspace = () => transact('readonly', store => store.get('last'));
-export const saveWorkspace = workspace => transact('readwrite', store => store.put(workspace, 'last'));
+export const loadWorkspace = projectId => transact('readonly', store => store.get(projectId ? `project:${projectId}` : 'last'));
+export const saveWorkspace = workspace => transact('readwrite', store => {
+  if (workspace?.projectId) store.put(workspace, `project:${workspace.projectId}`);
+  return store.put(workspace, 'last');
+});

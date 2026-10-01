@@ -14,7 +14,7 @@ const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4n+DwHwA
 const usage = { inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 5, text: 5, reasoning: 0 } };
 const call = (name, input) => ({ content: [{ type: 'tool-call', toolCallId: crypto.randomUUID(), toolName: name, input: JSON.stringify(input) }], finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage, warnings: [] });
 const done = () => ({ content: [{ type: 'text', text: 'Draft ready.' }], finishReason: { unified: 'stop', raw: 'stop' }, usage, warnings: [] });
-const plan = () => call('submit_plan', { summary: 'Write and check the requested content.', tasks: ['Write the requested copy', 'Review it against the brief'] });
+const plan = () => call('submit_plan', { summary: 'Write and check the requested content.', tasks: ['Write the requested copy', 'Review it against the brief'], imageRequests: [] });
 const review = (issues = []) => call('submit_review', { approved: !issues.length, summary: issues.length ? 'Needs a longer article.' : 'The draft matches the brief.', issues });
 const setup = () => { const files = starterProject(); const { definition } = parseProject(files); return { files, definition, values: getDefaults(definition) }; };
 const attachment = (useOnPage = false) => ({ id: 'photo-1', name: 'portrait.png', mime: 'image/png', dataUrl: `data:image/png;base64,${png}`, useOnPage });

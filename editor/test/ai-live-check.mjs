@@ -138,7 +138,7 @@ export function createSyntheticOpenRouter({ initial, mode = 'edit', failPlannerO
     const body = JSON.parse(init.body), tools = body.tools?.map(tool => tool.function.name) || [];
     if (tools.includes('submit_plan')) {
       if (failPlannerOnce && !planning++) return Response.json({ error: { code: 503, message: 'Synthetic upstream unavailable before tool input.' } }, { status: 503 });
-      return streamResponse(body.model, [['submit_plan', { summary: 'Polski prelanding OptiHeart z trzema miejscami na wideo, scenariuszem i miejscami na potwierdzone dane.', tasks: ['Translate existing visible content and HTML language', 'Add doctor, vessels and bypass video placeholders', 'Keep statistics and product details as explicitly unverified placeholders', 'Check mobile layout and independently review'] }]]);
+      return streamResponse(body.model, [['submit_plan', { summary: 'Polski prelanding OptiHeart z trzema miejscami na wideo, scenariuszem i miejscami na potwierdzone dane.', tasks: ['Translate existing visible content and HTML language', 'Add doctor, vessels and bypass video placeholders', 'Keep statistics and product details as explicitly unverified placeholders', 'Check mobile layout and independently review'], imageRequests: [] }]]);
     }
     if (tools.includes('submit_review')) return streamResponse(body.model, [['submit_review', { approved: true, summary: 'The actual rendered draft has Polish copy, three video placeholders, source placeholders, a clearly fictional doctor and the CTA.', issues: [] }]]);
     const step = writing++;

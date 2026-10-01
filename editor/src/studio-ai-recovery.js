@@ -1,5 +1,7 @@
 import { ConflictError } from '@trafficops/template-editor-core';
 import { validateStudioProject } from './studio-library.js';
+import { validateAttachments } from '@trafficops/template-editor-shell/ai-attachments';
+import { validateBlockEditScope, serializeBlockEditScope, assertBlockDraftScope } from '@trafficops/template-editor-shell/block-edit-scope';
 
 const DATABASE = 'trafficops-studio-ai-recovery', STORE = 'drafts';
 function identifier(value, label) {
@@ -23,10 +25,17 @@ export function validateAiRecovery(record) {
   const clarifications = record.clarifications === undefined ? [] : record.clarifications;
   if (!Array.isArray(clarifications) || clarifications.length > 8 || clarifications.some(value => typeof value !== 'string' || !value.trim() || value.length > 6000)) throw new Error('Invalid AI recovery clarifications.');
   const project = validateStudioProject({ id: projectId, name: 'AI recovery', kind: 'landing', files: record.files,
-    settings: record.values === undefined ? {} : record.values, aiAttachments: record.attachments === undefined ? [] : record.attachments });
+    settings: record.values === undefined ? {} : record.values });
+  const attachments = validateAttachments(record.attachments === undefined ? [] : record.attachments);
+  const editScope = record.editScope === undefined ? undefined : validateBlockEditScope(record.editScope);
+  if (editScope) {
+    if (record.kind !== 'edit') throw new Error('Selected-block recovery must retain edit mode.');
+    assertBlockDraftScope(editScope, { files: project.files, rawValues: project.settings });
+  }
   return { projectId, token, baseRevision: record.baseRevision, kind: record.kind, prompt, summary, steps, clarifications: [...clarifications],
-    valid: record.valid, files: project.files, values: project.settings, attachments: project.aiAttachments,
-    ...(record.generateImages === undefined ? {} : { generateImages: record.generateImages }) };
+    valid: record.valid, files: project.files, values: project.settings, attachments,
+    ...(record.generateImages === undefined ? {} : { generateImages: record.generateImages }),
+    ...(editScope ? { editScope: serializeBlockEditScope(editScope) } : {}) };
 }
 
 function storageError(error) {

@@ -53,7 +53,7 @@ function card(name) { return page.locator('.library-card').filter({ has: page.ge
 async function library() {
   const toolbar = page.locator('.studio-toolbar');
   const navigation = await toolbar.isVisible() ? toolbar : page.locator('.studio-project-bar');
-  await navigation.getByRole('button', { name: 'Library', exact: true }).click();
+  await navigation.getByRole('button', { name: 'Projects', exact: true }).click();
   await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
 }
 
@@ -68,9 +68,16 @@ async function create(name, { template = false } = {}) {
 }
 
 async function sourceExport() {
-  await page.getByRole('button', { name: 'Export project', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Download project', exact: true });
-  await dialog.getByRole('combobox').selectOption('source');
+  const installed = await page.locator('.editor-shell.is-app').count();
+  if (installed) {
+    await page.getByRole('button', { name: 'Export', exact: true }).click();
+    await page.getByRole('menuitem', { name: /Editable project/ }).click();
+  } else {
+    await page.locator('.hosted-more > summary').click();
+    await page.getByRole('button', { name: 'Download project', exact: true }).click();
+  }
+  const dialog = page.getByRole('dialog', { name: 'Export', exact: true });
+  await dialog.getByRole('combobox', { name: 'Export destination', exact: true }).selectOption('source');
   const pending = page.waitForEvent('download');
   await dialog.getByRole('button', { name: 'Download', exact: true }).click();
   const download = await pending;
@@ -114,7 +121,7 @@ try {
   assert.equal(blank.kind, 'landing');
   assert.ok(Object.hasOwn(blank.files, 'index.tpl'));
   await page.reload();
-  await page.getByRole('heading', { name: 'Blank draft', exact: true }).waitFor();
+  await page.locator('.hosted-title').getByRole('heading', { name: 'Blank draft', exact: true }).waitFor();
   await library();
   console.log('PASS: blank creation and active-project restore.');
 
@@ -190,7 +197,8 @@ try {
   await page.reload();
   await page.getByText('Offline · local editing available', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Open Independent landing', exact: true }).click();
-  await page.locator('.editor-shell.is-expanded').waitFor();
+  await page.locator('.editor-shell.is-app').waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Collapse editor', exact: true }).count(), 0);
   await page.locator('.file-sidebar button[title="styles.css"]').click();
   const code = page.getByRole('textbox', { name: 'Source code for styles.css', exact: true });
   await code.waitFor();
@@ -205,7 +213,7 @@ try {
   assert.match(strFromU8(offlineArchive['styles.css']), /edited while offline/);
   assert.equal(JSON.parse(strFromU8(offlineArchive['.trafficops/values.json'])).headline, 'Landing-only headline');
   await page.reload();
-  await page.locator('.editor-shell.is-expanded').waitFor();
+  await page.locator('.editor-shell.is-app').waitFor();
   assert.match((await waitForSaved('Independent landing')).files['styles.css'], /edited while offline/);
   assert.deepEqual(errors, []);
   console.log('PASS: installed display mode, real service-worker offline reload, offline Monaco editing/autosave and source ZIP export.');

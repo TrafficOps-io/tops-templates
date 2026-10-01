@@ -5,6 +5,117 @@ const TEXT_FILE = /\.(?:tpl(?:\.(?:html|php|txt))?|php|html?|css|js|mjs|json|md|
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const VALUES_ENTRY = '.trafficops/values.json';
+const METADATA_ENTRY = '.trafficops/project.json';
+const CONVERSATIONS_ENTRY = '.trafficops/conversations.json';
+export const CONVERSATION_LIMITS = Object.freeze({ threads: 100, runs: 100, messages: 500, total: 128 * 1024 * 1024, encoded: 192 * 1024 * 1024, nodes: 500000, depth: 64 });
+const BYTES_TAG = '$trafficopsBytes';
+
+function identifier(value, label) {
+  if (typeof value !== 'string' || !value.trim() || value.length > 160 || /[\x00-\x1f\x7f]/.test(value)) throw new Error(`Invalid ${label}.`);
+  return value;
+}
+
+/** Bounded JSON-compatible payload, with typed bytes for snapshots and attachments. */
+export function clonePortablePayload(value) {
+  const ancestors = new Set();
+  let nodes = 0, total = 0;
+  function visit(item, depth, key = '') {
+    if (++nodes > CONVERSATION_LIMITS.nodes || depth > CONVERSATION_LIMITS.depth) throw new Error('Project history is too complex.');
+    if (item === null || typeof item === 'boolean') { total += 4; return item; }
+    if (typeof item === 'number' && Number.isFinite(item)) { total += 8; return item; }
+    if (typeof item === 'string') {
+      const size = encoder.encode(item).length;
+      const attachmentUrl = key === 'dataUrl' && /^data:(?:image\/(?:png|jpeg|webp)|application\/pdf);base64,[A-Za-z0-9+/]*={0,2}$/.test(item);
+      if (size > (attachmentUrl ? Math.ceil(4 * 1024 * 1024 / 3) * 4 + 128 : LIMITS.text)) throw new Error('Project history text or attachment exceeds its size limit.');
+      total += size; return item;
+    }
+    if (item instanceof Uint8Array) {
+      if (item.byteLength > LIMITS.file) throw new Error('Project history asset exceeds 8 MiB.');
+      total += item.byteLength; return new Uint8Array(item);
+    }
+    if (!item || typeof item !== 'object' || (!Array.isArray(item) && ![Object.prototype, null].includes(Object.getPrototypeOf(item)))) throw new Error('Project history must contain JSON values or bytes.');
+    if (ancestors.has(item)) throw new Error('Project history cannot contain circular references.');
+    ancestors.add(item);
+    let result;
+    if (Array.isArray(item)) result = item.map(child => visit(child, depth + 1));
+    else {
+      if (Object.hasOwn(item, BYTES_TAG)) throw new Error('Reserved project history key.');
+      result = Object.fromEntries(Object.entries(item).map(([key, child]) => { total += encoder.encode(key).length; return [key, visit(child, depth + 1, key)]; }));
+    }
+    ancestors.delete(item);
+    if (total > CONVERSATION_LIMITS.total) throw new Error('Project history exceeds 128 MiB. Archive older dialogue snapshots before continuing.');
+    return result;
+  }
+  const result = visit(value, 0);
+  if (total > CONVERSATION_LIMITS.total) throw new Error('Project history exceeds 128 MiB. Archive older dialogue snapshots before continuing.');
+  return result;
+}
+
+export function validateConversationDocument(value, expectedProjectId) {
+  const document = clonePortablePayload(value);
+  if (!document || Array.isArray(document) || document.schema !== 1) throw new Error('Unsupported project history schema.');
+  identifier(document.projectId, 'history project ID');
+  if (expectedProjectId && document.projectId !== expectedProjectId) throw new Error('History belongs to a different project.');
+  if (!Number.isSafeInteger(document.revision) || document.revision < 0) throw new Error('Invalid history revision.');
+  for (const [key, limit] of [['threads', CONVERSATION_LIMITS.threads], ['runs', CONVERSATION_LIMITS.runs]]) {
+    if (!Array.isArray(document[key]) || document[key].length > limit) throw new Error(`Project history supports at most ${limit} ${key}.`);
+    const ids = new Set();
+    for (const entry of document[key]) {
+      if (!entry || Array.isArray(entry) || typeof entry !== 'object') throw new Error(`Invalid history ${key} entry.`);
+      const id = identifier(entry.id, `history ${key} ID`);
+      if (ids.has(id)) throw new Error(`Duplicate history ${key} ID.`);
+      ids.add(id);
+      if (key === 'threads' && entry.messages !== undefined && (!Array.isArray(entry.messages) || entry.messages.length > CONVERSATION_LIMITS.messages)) throw new Error('A dialogue supports at most 500 messages.');
+    }
+  }
+  return document;
+}
+
+export function validatePortableMetadata(value) {
+  if (!value || Array.isArray(value) || value.schema !== 1) throw new Error('Unsupported Studio project metadata.');
+  const projectId = identifier(value.projectId, 'portable project ID');
+  if (!['landing', 'template'].includes(value.kind)) throw new Error('Invalid portable project kind.');
+  if (typeof value.name !== 'string' || !value.name.trim() || value.name.length > 200 || /[\x00-\x1f\x7f]/.test(value.name)) throw new Error('Invalid portable project name.');
+  const result = { schema: 1, projectId, kind: value.kind, name: value.name.trim() };
+  for (const key of ['contentRevision', 'metadataRevision', 'createdAt']) {
+    if (value[key] !== undefined) {
+      if (!Number.isSafeInteger(value[key]) || value[key] < 0) throw new Error(`Invalid portable ${key}.`);
+      result[key] = value[key];
+    }
+  }
+  if (value.sourceTemplateId !== undefined) result.sourceTemplateId = identifier(value.sourceTemplateId, 'source template ID');
+  if (value.contentHash !== undefined) {
+    if (typeof value.contentHash !== 'string' || !/^[a-f0-9]{64}$/.test(value.contentHash)) throw new Error('Invalid portable content hash.');
+    result.contentHash = value.contentHash;
+  }
+  if (value.appliedAiRuns !== undefined) {
+    if (!Array.isArray(value.appliedAiRuns) || value.appliedAiRuns.length > 200) throw new Error('Invalid applied AI run history.');
+    result.appliedAiRuns = [...new Set(value.appliedAiRuns.map(id => identifier(id, 'applied AI run ID')))];
+  }
+  return result;
+}
+
+export function encodePortablePayload(value) {
+  const detached = clonePortablePayload(value);
+  return JSON.stringify(detached, (_key, item) => {
+    if (!(item instanceof Uint8Array)) return item;
+    let binary = '';
+    for (let offset = 0; offset < item.length; offset += 8192) binary += String.fromCharCode(...item.subarray(offset, offset + 8192));
+    return { [BYTES_TAG]: btoa(binary) };
+  });
+}
+
+export function decodePortablePayload(text) {
+  if (typeof text !== 'string' || encoder.encode(text).length > CONVERSATION_LIMITS.encoded) throw new Error('Portable project data is too large.');
+  const value = JSON.parse(text, (_key, item) => {
+    if (!item || typeof item !== 'object' || !Object.hasOwn(item, BYTES_TAG)) return item;
+    const base64 = item[BYTES_TAG];
+    if (Object.keys(item).length !== 1 || typeof base64 !== 'string' || base64.length > Math.ceil(LIMITS.file / 3) * 4 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(base64)) throw new Error('Invalid portable binary data.');
+    const binary = atob(base64);
+    return Uint8Array.from(binary, character => character.charCodeAt(0));
+  });
+  return clonePortablePayload(value);
+}
 
 export function safePath(path) {
   if (typeof path !== 'string' || !path || path.length > 255 || /[\\:\x00-\x20\x7f?#%]/.test(path) || path.startsWith('/') || path.split('/').some(part => !part || part === '.' || part === '..' || part.startsWith('.') || ['__proto__', 'constructor', 'prototype'].includes(part))) {
@@ -89,11 +200,13 @@ export function inspectZip(bytes) {
     if (at + 46 + nameLength + extraLength + commentLength > end) throw new Error('The ZIP directory is truncated.');
     const path = decoder.decode(bytes.subarray(at + 46, at + 46 + nameLength));
     const directory = path.endsWith('/');
-    if (path !== VALUES_ENTRY && path !== '.trafficops/') safePath(directory ? path.slice(0, -1) : path);
+    if (![VALUES_ENTRY, METADATA_ENTRY, CONVERSATIONS_ENTRY, '.trafficops/'].includes(path)) safePath(directory ? path.slice(0, -1) : path);
+    if ([VALUES_ENTRY, METADATA_ENTRY, CONVERSATIONS_ENTRY].includes(path) && directory) throw new Error(`Invalid metadata entry: ${path}`);
     if (entries.has(path)) throw new Error(`Duplicate ZIP entry: ${path}`);
     if ((flags & 1) || ![0, 8].includes(method)) throw new Error(`Encrypted or unsupported ZIP entry: ${path}`);
     if (((view.getUint32(at + 38, true) >>> 16) & 0xf000) === 0xa000) throw new Error(`ZIP symlinks are unsupported: ${path}`);
-    if (size > LIMITS.file || (isText(path) && size > LIMITS.text) || size === 0xffffffff || compressed === 0xffffffff) throw new Error(`ZIP entry is too large: ${path}`);
+    const entryLimit = path === CONVERSATIONS_ENTRY ? LIMITS.total : path === METADATA_ENTRY ? 64 * 1024 : isText(path) ? LIMITS.text : LIMITS.file;
+    if (size > entryLimit || size === 0xffffffff || compressed === 0xffffffff) throw new Error(`ZIP entry is too large: ${path}`);
     if (local + 30 > start || view.getUint32(local, true) !== 0x04034b50) throw new Error(`Invalid local ZIP header: ${path}`);
     const localNameLength = view.getUint16(local + 26, true), localExtraLength = view.getUint16(local + 28, true);
     const dataStart = local + 30 + localNameLength + localExtraLength;
@@ -116,7 +229,7 @@ export function readZipProject(bytes) {
   const entries = inspectZip(bytes);
   const unzipped = unzipSync(bytes);
   const files = Object.create(null);
-  let settings = {};
+  let settings = {}, metadata, conversations;
   for (const [path, info] of entries) {
     if (info.directory) continue;
     const data = unzipped[path];
@@ -124,8 +237,12 @@ export function readZipProject(bytes) {
     if (path === VALUES_ENTRY) {
       settings = JSON.parse(decoder.decode(data));
       if (!settings || Array.isArray(settings) || typeof settings !== 'object') throw new Error('Project values must be a JSON object.');
-    } else files[path] = isText(path) ? decoder.decode(data) : data;
+    } else if (path === METADATA_ENTRY) metadata = validatePortableMetadata(JSON.parse(decoder.decode(data)));
+    else if (path === CONVERSATIONS_ENTRY) conversations = validateConversationDocument(decodePortablePayload(decoder.decode(data)));
+    else files[path] = isText(path) ? decoder.decode(data) : data;
   }
+  if (conversations && (!metadata || conversations.projectId !== metadata.projectId)) throw new Error('Portable history does not match project identity.');
+  const portable = { ...(metadata ? { metadata } : {}), ...(conversations ? { conversations } : {}) };
   validateProject(files);
   let folders = [...entries].filter(([path, info]) => info.directory && path !== '.trafficops/').map(([path]) => path.slice(0, -1));
   // A downloaded GitHub/project archive often has a single enclosing folder.
@@ -133,12 +250,12 @@ export function readZipProject(bytes) {
   if (names.every(name => name.startsWith(`${folder}/`))) {
     const stripped = Object.fromEntries(Object.entries(files).map(([name, value]) => [name.slice(folder.length + 1), value]));
     folders = folders.filter(name => name !== folder).map(name => name.startsWith(`${folder}/`) ? name.slice(folder.length + 1) : name);
-    return { files: stripped, folders: validateFolders(stripped, folders), settings };
+    return { files: stripped, folders: validateFolders(stripped, folders), settings, ...portable };
   }
-  return { files, folders: validateFolders(files, folders), settings };
+  return { files, folders: validateFolders(files, folders), settings, ...portable };
 }
 
-export function createZip(files, { generated = false, directories = [], settings } = {}) {
+export function createZip(files, { generated = false, directories = [], settings, metadata, conversations } = {}) {
   validateProject(files, { generated });
   const folders = validateFolders(files, directories);
   const entries = Object.fromEntries(folders.map(path => [`${path}/`, new Uint8Array()]));
@@ -148,6 +265,12 @@ export function createZip(files, { generated = false, directories = [], settings
     if (data.length > LIMITS.text) throw new Error('Project values exceed 2 MiB.');
     entries[VALUES_ENTRY] = data;
   }
+  if (!generated && metadata) entries[METADATA_ENTRY] = strToU8(JSON.stringify(validatePortableMetadata(metadata)));
+  if (!generated && conversations) {
+    if (!metadata) throw new Error('Portable history requires project identity.');
+    entries[CONVERSATIONS_ENTRY] = strToU8(encodePortablePayload(validateConversationDocument(conversations, metadata.projectId)));
+  }
+  if (Object.values(entries).reduce((sum, bytes) => sum + bytes.byteLength, 0) > LIMITS.total) throw new Error('The portable project exceeds 32 MiB. Export without history or reduce its size.');
   if (Object.keys(entries).length > LIMITS.count) throw new Error('Too many entries for a project ZIP.');
   return zipSync(entries, { level: 6 });
 }
@@ -159,4 +282,3 @@ export function renameFile(files, from, to) {
   if (!Object.hasOwn(files, from)) throw new Error(`File not found: ${from}`);
   return validateProject(Object.fromEntries(Object.entries(files).map(([name, value]) => [name === from ? to : name, value])));
 }
-

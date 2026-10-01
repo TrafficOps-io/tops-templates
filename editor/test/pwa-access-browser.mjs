@@ -93,11 +93,12 @@ async function openPage(installed = false, displayMode = null) {
 }
 
 async function assertNoPrivilegedControls(page, expectedAccess = { directoryStoreReads: 0, handleCalls: 0, pickerCalls: 0 }) {
-  for (const name of ['AI assistant']) assert.equal(await page.getByRole('tab', { name, exact: true }).count(), 0);
-  for (const name of ['With AI', 'AI connection settings', 'Generate image with AI', 'Open folder', 'Folders', 'Manage project folders', 'Add project folder', 'Reconnect folder']) {
+  for (const name of ['AI assistant', 'Conversations']) assert.equal(await page.getByRole('tab', { name, exact: true }).count(), 0);
+  for (const name of ['With AI', 'AI connection settings', 'AI settings', 'Save to folder', 'Open existing folder', 'Generate image with AI', 'Open folder', 'Folders', 'Manage project folders', 'Add project folder', 'Reconnect folder']) {
     assert.equal(await page.getByRole('button', { name, exact: true }).count(), 0, `${name} is PWA-only`);
   }
   assert.equal(await page.getByRole('button', { name: /^Create with AI/ }).count(), 0);
+  assert.equal(await page.locator('.home-project-chat').count(), 0, 'the home AI composer is only available in the installed app');
   assert.equal(await page.locator('.ai-prompt, .ai-settings, .image-ai-form').count(), 0);
   assert.deepEqual(await page.evaluate(() => window.pwaAccessTest), expectedAccess);
   assert.equal(providerCalls.length, 0);
@@ -106,9 +107,11 @@ async function assertNoPrivilegedControls(page, expectedAccess = { directoryStor
 async function createStarter(page, name) {
   await page.getByRole('button', { name: 'New project', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
+  await dialog.getByRole('button', { name: 'From template', exact: true }).click();
   await dialog.getByRole('textbox', { name: 'Project name', exact: true }).fill(name);
   await dialog.getByRole('button', { name: 'Create landing', exact: true }).click();
   await page.locator('.browser-frame iframe.is-visible').waitFor();
+  await page.getByRole('tab', { name: 'Content', exact: true }).click();
 }
 
 async function seedPendingWork(page) {
@@ -171,12 +174,12 @@ try {
   assert.equal(pending.aiStarted, false); assert.equal(pending.revision, 1);
   assert.deepEqual(await readRecord(tab, 'trafficops-landing-workspace', 'workspace', 'last'), expectedWorkspace);
 
-  await tab.getByRole('button', { name: 'Library', exact: true }).first().click();
+  await tab.getByRole('button', { name: /^(?:Library|Projects)$/ }).first().click();
   await tab.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
   assert.deepEqual(await readRecord(tab, 'trafficops-landing-workspace', 'workspace', 'last'), expectedWorkspace);
   await createStarter(tab, 'Another browser draft');
   assert.deepEqual(await readRecord(tab, 'trafficops-landing-workspace', 'workspace', 'last'), expectedWorkspace);
-  await tab.getByRole('button', { name: 'Library', exact: true }).first().click();
+  await tab.getByRole('button', { name: /^(?:Library|Projects)$/ }).first().click();
   await tab.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
   await tab.reload();
   await tab.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
@@ -205,7 +208,7 @@ try {
   console.log('PASS: ordinary tab and ?studio=1 omit AI/image/settings/folder controls; persisted key and brief cannot start AI; folder handles and recovery stay untouched; fullscreen and appinstalled do not unlock access.');
 
   const pwa = await openPage(true);
-  await pwa.getByRole('button', { name: /^Create with AI/ }).waitFor();
+  await pwa.locator('.home-project-chat').waitFor();
   await pwa.getByRole('button', { name: 'Open folder', exact: true }).click();
   assert.equal(await pwa.evaluate(() => window.pwaAccessTest.pickerCalls), 1);
   await pwa.getByRole('button', { name: 'New project', exact: true }).click();
@@ -214,9 +217,9 @@ try {
   await createStarter(pwa, 'Installed PWA editor');
   await pwa.getByRole('button', { name: 'Your message', exact: true }).click();
   await pwa.getByRole('button', { name: 'Generate image with AI', exact: true }).waitFor();
-  await pwa.getByRole('button', { name: 'Manage project folders', exact: true }).waitFor();
-  await pwa.getByRole('tab', { name: 'AI assistant', exact: true }).click();
-  await pwa.getByRole('button', { name: 'AI connection settings', exact: true }).click();
+  await pwa.getByRole('button', { name: 'Save to folder', exact: true }).waitFor();
+  await pwa.getByRole('tab', { name: /^(?:AI assistant|Conversations)$/ }).click();
+  await pwa.getByRole('button', { name: /^(?:AI connection settings|AI settings)$/ }).click();
   await pwa.locator('.ai-settings input[type=password]').waitFor();
   assert.deepEqual(errors, []);
   assert.equal(providerCalls.length, 0);
@@ -226,19 +229,17 @@ try {
   // A confirmed standalone window retains access in fullscreen, then loses it
   // permanently on returning to browser mode until a new installed mode appears.
   const transitions = await openPage(false, 'standalone');
-  await transitions.getByRole('button', { name: /^Create with AI/ }).waitFor();
+  await transitions.locator('.home-project-chat').waitFor();
   await createStarter(transitions, 'Display mode transitions');
-  await transitions.getByRole('tab', { name: 'AI assistant', exact: true }).click();
-  await transitions.getByRole('button', { name: 'AI connection settings', exact: true }).click();
+  await transitions.getByRole('tab', { name: /^(?:AI assistant|Conversations)$/ }).click();
+  await transitions.getByRole('button', { name: /^(?:AI connection settings|AI settings)$/ }).click();
   await transitions.locator('.ai-settings input[type=password]').waitFor();
   await transitions.evaluate(() => window.setTestDisplayMode('fullscreen'));
-  await transitions.getByRole('tab', { name: 'AI assistant', exact: true }).waitFor();
+  await transitions.getByRole('tab', { name: /^(?:AI assistant|Conversations)$/ }).waitFor();
   assert.equal(await transitions.locator('.installed-app').count(), 1);
   await transitions.locator('.ai-settings input[type=password]').waitFor();
-  await transitions.getByRole('button', { name: 'Manage project folders', exact: true }).click();
-  await transitions.getByRole('button', { name: 'Add project folder', exact: true }).click();
+  await transitions.getByRole('button', { name: 'Save to folder', exact: true }).click();
   assert.equal(await transitions.evaluate(() => window.pwaAccessTest.pickerCalls), 1);
-  await transitions.getByRole('dialog', { name: 'Project folders', exact: true }).getByRole('button', { name: 'Close', exact: true }).click();
   const beforeRevocation = await transitions.evaluate(() => ({ ...window.pwaAccessTest }));
   await transitions.evaluate(() => window.setTestDisplayMode('browser'));
   await transitions.locator('.installed-app').waitFor({ state: 'detached' });

@@ -79,14 +79,21 @@ jobs:
       - run: node editor/test/pwa-access-browser.mjs editor/dist
       - run: node editor/test/library-browser.mjs editor/dist
       - run: node editor/test/library-ai-browser.mjs editor/dist
-      - run: node editor/test/fill-content-browser.mjs editor/dist
-      - run: node editor/test/optiheart-ai-browser.mjs editor/dist
+      - run: node editor/test/conversations-browser.mjs editor/dist
+      - run: node editor/test/conversation-ui-browser.mjs editor/dist
+      - run: node editor/test/home-chat-browser.mjs editor/dist
+      - run: node editor/test/project-folder-browser.mjs editor/dist
+      - run: node editor/test/file-ai-browser.mjs editor/dist
+      - run: node editor/test/block-ai-browser.mjs editor/dist
+      - run: node editor/test/support/build-legacy-studio.mjs "$RUNNER_TEMP/studio-legacy"
+      - run: node editor/test/fill-content-browser.mjs "$RUNNER_TEMP/studio-legacy"
+      - run: node editor/test/optiheart-ai-browser.mjs "$RUNNER_TEMP/studio-legacy"
       - run: node editor/test/generated-image-browser.mjs
       - run: node editor/test/recovery-browser.mjs editor/dist
-      - run: node editor/test/agent-browser.mjs editor/dist
+      - run: node editor/test/agent-browser.mjs "$RUNNER_TEMP/studio-legacy"
       - run: node editor/test/retained-draft-settings-browser.mjs
       - run: node editor/test/durable-ai-recovery-browser.mjs
-      - run: node editor/test/ai-panel-ui-browser.mjs editor/dist
+      - run: node editor/test/ai-panel-ui-browser.mjs "$RUNNER_TEMP/studio-legacy"
       - run: node editor/test/autosave-browser.mjs
       - run: npm run build:embed --workspace=@trafficops/template-studio
       - run: node editor/test/creation-browser.mjs

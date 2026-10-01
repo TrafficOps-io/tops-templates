@@ -139,7 +139,7 @@ async function seedFolder({ invalidSettings = false } = {}) {
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
         const database = request.result, transaction = database.transaction(storeName, 'readwrite');
-        if (keyPath) transaction.objectStore(storeName).put(record); else transaction.objectStore(storeName).put(record, key);
+        if (keyPath) transaction.objectStore(storeName).put(record); else { transaction.objectStore(storeName).put(record, key); if (record?.projectId) transaction.objectStore(storeName).put(record, `project:${record.projectId}`); }
         transaction.oncomplete = () => { database.close(); resolve(); };
         transaction.onabort = () => { database.close(); reject(transaction.error); };
       };
@@ -159,7 +159,7 @@ try {
   page = await newPage(detached);
   const expected = await seedFolder();
   await page.reload();
-  await page.getByRole('button', { name: 'Collapse editor', exact: true }).click();
+  await page.getByRole('tab', { name: 'Content', exact: true }).click();
   await page.getByLabel('Page title', { exact: false }).waitFor();
   assert.equal(await page.getByLabel('Page title', { exact: false }).inputValue(), 'Recovered field value');
   await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'Recovered field value', exact: true }).waitFor();
@@ -168,10 +168,14 @@ try {
   assert.equal(saved.projectId, expected.projectId);
   assert.deepEqual(saved.files, expected.files);
   await page.reload();
-  await page.getByRole('button', { name: 'Collapse editor', exact: true }).click();
+  await page.getByRole('tab', { name: 'Content', exact: true }).click();
   await page.getByLabel('Page title', { exact: false }).waitFor();
   assert.equal(await page.getByLabel('Page title', { exact: false }).inputValue(), 'Recovered field value');
   assert.deepEqual((await readWorkspace()).files, expected.files);
+  await page.getByLabel('Page title', { exact: false }).fill('Recovered value saved twice');
+  await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+  const sameProject = await poll(readLibrary, value => value.projects.length === 1 && value.projects[0].settings.title === 'Recovered value saved twice', 'second detached save after reload updates the same cache revision');
+  assert.equal(sameProject.projects[0].id, expected.projectId);
   const disk = await page.evaluate(async nativeHandles => {
     if (nativeHandles) {
       const directory = await (await navigator.storage.getDirectory()).getDirectoryHandle('isolated-recovery-folder');
@@ -189,26 +193,34 @@ try {
     });
   }, nativeHandles);
   assert.equal(disk, source, 'Save draft on a detached copy must not overwrite disk');
-  console.log('PASS: detached folder recovery survives Save draft and reload when disk differs.');
+  console.log('PASS: detached folder recovery survives Save draft and reload; repeated saves retain the same logical ID and leave disk unchanged.');
   await detached.close();
 
   const malformed = await browser.newContext({ viewport: { width: 1440, height: 1080 } });
   page = await newPage(malformed);
   const malformedExpected = await seedFolder({ invalidSettings: true });
   await page.reload();
-  await page.getByRole('button', { name: 'Collapse editor', exact: true }).click();
+  await page.getByRole('tab', { name: 'Content', exact: true }).click();
   await page.getByRole('alert').filter({ hasText: 'Your recovery copy is open' }).waitFor();
   await page.getByLabel('Page title', { exact: false }).waitFor();
   assert.equal(await page.getByLabel('Page title', { exact: false }).inputValue(), 'Recovered field value');
   await poll(readWorkspace, value => value?.detached === true, 'failed folder read retains detached recovery');
   assert.deepEqual((await readWorkspace()).files, malformedExpected.files);
-  await page.locator('.studio-project-bar').getByRole('button', { name: 'Library', exact: true }).click();
+  await page.locator('.studio-navigation').getByRole('button', { name: 'Projects', exact: true }).click();
   await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
-  const recovered = await poll(readLibrary, value => value.projects.length === 1, 'leaving recovery makes an independent saved copy');
+  const recovered = await poll(readLibrary, value => value.projects.length === 1, 'leaving recovery retains the same logical project in the device cache');
+  assert.equal(recovered.projects[0].id, malformedExpected.projectId);
   assert.deepEqual(recovered.projects[0].files, malformedExpected.files);
   assert.equal(recovered.projects[0].settings.title, 'Recovered field value');
   assert.equal(await readWorkspace(), null);
-  console.log('PASS: malformed folder values open recovery and preserve an independent copy on leaving.');
+  await page.getByRole('button', { name: `Open ${recovered.projects[0].name}`, exact: true }).click();
+  await page.getByRole('alert').filter({ hasText: 'Your device copy is open' }).waitFor();
+  await page.getByRole('tab', { name: 'Content', exact: true }).click();
+  assert.equal(await page.getByLabel('Page title', { exact: false }).inputValue(), 'Recovered field value');
+  await page.reload(); await page.getByRole('tab', { name: 'Content', exact: true }).click();
+  assert.equal(await page.getByLabel('Page title', { exact: false }).inputValue(), 'Recovered field value');
+  assert.equal((await readLibrary()).projects[0].id, malformedExpected.projectId);
+  console.log('PASS: malformed folder values open recovery, retain the same cached ID and reopen its device copy from Projects and after reload.');
   await malformed.close();
 
   const conflict = await browser.newContext({ viewport: { width: 1440, height: 1080 } });
@@ -227,12 +239,12 @@ try {
     });
   }, source);
   await page.reload();
-  await page.getByRole('button', { name: 'Collapse editor', exact: true }).click();
+  await page.getByRole('tab', { name: 'Content', exact: true }).click();
   await page.getByLabel('Page title', { exact: false }).waitFor();
   const other = await conflict.newPage();
   await other.goto(url);
-  await other.getByRole('button', { name: 'Collapse editor', exact: true }).click();
-  await other.getByRole('heading', { name: 'Deleted landing', exact: true }).waitFor();
+  await other.getByRole('tab', { name: 'Content', exact: true }).click();
+  await other.locator('.studio-toolbar > strong').filter({ hasText: /^Deleted landing$/ }).waitFor();
   await other.evaluate(() => new Promise((resolve, reject) => {
     const request = indexedDB.open('trafficops-studio-library', 1);
     request.onerror = () => reject(request.error);
@@ -245,10 +257,10 @@ try {
     };
   }));
   await page.getByLabel('Page title', { exact: false }).fill('Rescued unsaved value');
-  await page.locator('.studio-project-bar').getByRole('button', { name: 'Save as new project', exact: true }).waitFor();
-  await page.locator('.studio-project-bar').getByRole('button', { name: 'Save as new project', exact: true }).click();
-  await page.getByRole('button', { name: 'Collapse editor', exact: true }).click();
-  await page.getByRole('heading', { name: 'Deleted landing (recovered)', exact: true }).waitFor();
+  await page.locator('.studio-navigation').getByRole('button', { name: 'Save as new project', exact: true }).waitFor();
+  await page.locator('.studio-navigation').getByRole('button', { name: 'Save as new project', exact: true }).click();
+  await page.getByRole('tab', { name: 'Content', exact: true }).click();
+  await page.locator('.studio-toolbar > strong').filter({ hasText: /^Deleted landing \(recovered\)$/ }).waitFor();
   const rescue = await poll(readLibrary, value => value.projects.length === 1 && value.projects[0].settings.title === 'Rescued unsaved value', 'conflict rescue commit');
   assert.notEqual(rescue.projects[0].id, 'deleted-project');
   assert.equal(rescue.active, rescue.projects[0].id);
@@ -257,10 +269,10 @@ try {
   assert.deepEqual(rescue.projects[0].files['images/pixel.png'], [0, 1, 255]);
   assert.deepEqual(rescue.projects[0].folders, ['empty', 'images']);
   await page.reload();
-  await page.getByRole('button', { name: 'Collapse editor', exact: true }).click();
+  await page.getByRole('tab', { name: 'Content', exact: true }).click();
   await page.getByLabel('Page title', { exact: false }).waitFor();
   assert.equal(await page.getByLabel('Page title', { exact: false }).inputValue(), 'Rescued unsaved value');
-  await page.locator('.studio-project-bar').getByRole('button', { name: 'Library', exact: true }).click();
+  await page.locator('.studio-navigation').getByRole('button', { name: 'Projects', exact: true }).click();
   await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
   assert.equal(await page.locator('.library-grid:not(.starter-grid) .library-card').count(), 1);
   assert.deepEqual(errors, []);

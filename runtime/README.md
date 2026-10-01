@@ -23,6 +23,15 @@ const output = generateProject(files, values);
 
 All APIs are synchronous. Errors are `TemplateError` instances with a readable message.
 
+Editor integrations can call `generateEditorPreview(files, values, context, {draft})`
+to receive `{files, blockSources, blockInstances, valueUses}`. This opt-in render
+adds preview instance identifiers and records exact original source ranges plus
+absolute value paths across pages, loops and reusable blocks. Static
+`data-block` labels identify complete elements contained in one source file;
+dynamic labels, implicit closing tags and elements spanning files are excluded.
+`indexEditorBlocks(files)` exposes the source catalogue without rendering.
+Ordinary rendering and exports never receive editor instance attributes.
+
 | API | Contract |
 | --- | --- |
 | `parseTemplate(source, options?)` | Parse one UTF-8 source string. `options.filename` defaults to `index.tpl`. `options.resolveInclude(path, fromFilename)` must synchronously return an authorized source string. |

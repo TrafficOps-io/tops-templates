@@ -2,8 +2,9 @@
 
 The shared React editor for Landing Studio, HTTP embedding and custom hosts.
 Storage, analysis, lifecycle and AI transport are supplied through the `EditorHost`
-ports from `@trafficops/template-editor-core`. The shell does not import a compiler,
-read API keys from storage or know a server wire format.
+ports from `@trafficops/template-editor-core`. Project compilation uses the host
+analyzer. Rich-text editing uses the runtime's sanitizer locally. The shell does
+not read API keys from storage or know a server wire format.
 
 ```jsx
 import EditorShell from '@trafficops/template-editor-shell';
@@ -24,6 +25,14 @@ Optional presentation props: `previewExpandButton`, `initialExpanded`, `showExpo
 These do not change the host contract. The core conformance runner accepts the
 same host factory without requiring React or a DOM.
 
+`ParameterForm` loads Tiptap visual editors for WYSIWYG and Markdown fields on
+demand. Both provide formatting, links, project images and uploads; WYSIWYG also
+supports editable figures/captions. Markdown has an optional source/preview mode.
+Stored values remain HTML/Markdown source and never contain preview blob URLs.
+Legacy WYSIWYG paragraph/quote recovery is batched across sibling and nested
+fields. Pass `disabled` to `ParameterForm` when content editing is locked; unlike
+native controls, contenteditable elements do not inherit a disabled fieldset.
+
 `host.livePreview` enables interactive JavaScript previews. Updates are coalesced;
 the last working iframe stays mounted and interactive while a replacement loads
 at the same dimensions. Incomplete source/errors leave that working preview in
@@ -35,3 +44,24 @@ AI editing calls the host analyzer for both tool validation and the final draft.
 The text and image connections come only from `host.ai`; settings expose writes
 only when their owner is `user`. `host` ownership offers status, connection testing
 and the supplied team settings URL.
+
+When AI is available, **Files → Edit file with AI** edits the selected source or
+PNG/JPEG/WebP asset in a separate dialog. `FileAiPanel` acquires a connection
+through the same AI port and validates with the host analyzer. Its writer can
+only replace the selected path; reference attachments cannot add project assets.
+The reviewed result retains raw saved field values, other files, and raster
+path/format. Applying merges that one file into the current project and follows
+the normal host save policy. Prompts can attach bounded images, PDF or UTF-8
+text documents through `PromptAttachments`. Both components and the pure
+`file-ai-workflow` / `file-ai-attachments` helpers are exported for custom hosts.
+
+`PromptImages` and `PromptAttachments` accept an optional `promptRef` pointing
+to the prompt textarea. Images pasted there with Ctrl+V or ⌘V use the same
+reference validation and busy state as file uploads; text paste stays native.
+Both widgets also accept image paste when their attachment controls have focus.
+
+## Persistent conversations
+
+Hosts may supply `host.conversations` independently of `ProjectState.history`. `conversation-runtime` owns execution outside React: two run slots per app window, addressed stop/finish, frozen input and language, versioned checkpoints, owner leases and Web Locks, and explicit continuation after reload. `ConversationPanel` uses one composer for project, content, discussion, file and block scopes. Views can unsubscribe or switch projects without cancelling execution. Preview selection includes a searchable multi-select list for the current iframe page. The composer accepts file and section mentions together; section identities come from the matching preview snapshot, retain source fragments and instance values, and never change the conversation scope. Outdated references fail before a provider connection.
+
+`useEditorProject.applyConversationDraft` performs conservative three-way file/value merging, requires explicit review of stale context, validates/renders the final candidate and commits applied-run IDs with canonical content. Draft preview has its own analysis and never enters source editing or autosave. `presentation="app"` renders a permanent workspace; embedded presentation and hosts without the optional port keep their existing behavior. App integrations can provide `onSaveToFolder`, `storageSummary` and `onImportProject` to coordinate portable identity instead of replacing source in place.

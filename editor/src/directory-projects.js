@@ -1,4 +1,4 @@
-import { contentsEqual, ConflictError } from '@trafficops/template-editor-core';
+import { contentsEqual, ConflictError, validatePortableMetadata, CONVERSATION_LIMITS } from '@trafficops/template-editor-core';
 export { contentsEqual } from '@trafficops/template-editor-core';
 import { isText, LIMITS, safePath, validateFolders, validateProject } from './project.js';
 
@@ -7,6 +7,7 @@ const DATABASE_VERSION = 1;
 const PROJECT_STORE = 'directory-projects';
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
+const metadataQueues = new Map();
 
 export function supportsDirectoryProjects() {
   return typeof window !== 'undefined' && typeof window.showDirectoryPicker === 'function';
@@ -93,6 +94,51 @@ export async function writeProjectSettings(root, value) {
   const writable = await handle.createWritable();
   await writable.write(JSON.stringify(settings, null, 2) + '\n');
   await writable.close();
+}
+
+/** Internal sidecars never enter the editable file tree. */
+export async function readProjectSidecar(root, name) {
+  if (!['project.json', 'conversations.json', 'transfer.json'].includes(name)) throw new Error('Unknown Studio sidecar.');
+  try {
+    const directory = await root.getDirectoryHandle('.trafficops');
+    const handle = await directory.getFileHandle(name);
+    const file = await handle.getFile();
+    if (file.size > (name === 'conversations.json' ? CONVERSATION_LIMITS.encoded : 64 * 1024)) throw new Error('Studio metadata is too large.');
+    return await file.text();
+  } catch (error) {
+    if (error?.name === 'NotFoundError') return null;
+    throw error;
+  }
+}
+
+export async function writeProjectSidecar(root, name, text) {
+  if (!['project.json', 'conversations.json', 'transfer.json'].includes(name)) throw new Error('Unknown Studio sidecar.');
+  if (typeof text !== 'string' || encoder.encode(text).length > (name === 'conversations.json' ? CONVERSATION_LIMITS.encoded : 64 * 1024)) throw new Error('Studio metadata is too large.');
+  const directory = await root.getDirectoryHandle('.trafficops', { create: true });
+  const handle = await directory.getFileHandle(name, { create: true });
+  const writable = await handle.createWritable();
+  await writable.write(text); await writable.close();
+}
+
+export async function readProjectMetadata(root) {
+  const text = await readProjectSidecar(root, 'project.json');
+  return text === null ? null : validatePortableMetadata(JSON.parse(text));
+}
+
+export async function writeProjectMetadata(root, metadata, { historyOnly = false } = {}) {
+  const value = validatePortableMetadata(metadata);
+  const operation = async () => {
+    const current = await readProjectMetadata(root);
+    if (current && current.projectId !== value.projectId) throw new ConflictError('The folder belongs to a different project.');
+    const next = historyOnly && current ? { ...current, metadataRevision: Math.max(current.metadataRevision || 0, value.metadataRevision || 0) } : { ...value, metadataRevision: Math.max(current?.metadataRevision || 0, value.metadataRevision || 0) };
+    await writeProjectSidecar(root, 'project.json', JSON.stringify(next, null, 2) + '\n');
+    return next;
+  };
+  const prior = metadataQueues.get(value.projectId) || Promise.resolve();
+  const task = prior.catch(() => {}).then(() => globalThis.navigator?.locks?.request ? navigator.locks.request(`trafficops-folder-metadata:${value.projectId}`, operation) : operation());
+  metadataQueues.set(value.projectId, task);
+  task.finally(() => { if (metadataQueues.get(value.projectId) === task) metadataQueues.delete(value.projectId); }).catch(() => {});
+  return task;
 }
 
 function bytes(value) {
@@ -225,15 +271,19 @@ export async function listDirectoryProjects() {
   }
 }
 
-export async function rememberDirectoryProject(handle, knownProjects = []) {
+export async function rememberDirectoryProject(handle, knownProjects = [], { projectId } = {}) {
   let existing = null;
   for (const project of knownProjects) {
     try {
       if (await project.handle.isSameEntry(handle)) { existing = project; break; }
     } catch { /* A stale handle is not the selected folder. */ }
   }
+  const metadata = typeof handle.getDirectoryHandle === 'function' ? await readProjectMetadata(handle) : null;
+  if (projectId && metadata && metadata.projectId !== projectId) throw new ConflictError('This folder belongs to a different project.');
+  const id = projectId || metadata?.projectId || existing?.projectId || existing?.id || crypto.randomUUID();
   const project = {
-    id: existing?.id || crypto.randomUUID(),
+    id, projectId: id,
+    bindingId: existing?.bindingId || crypto.randomUUID(),
     name: handle.name,
     displayPath: existing?.displayPath || '',
     handle,
@@ -242,7 +292,12 @@ export async function rememberDirectoryProject(handle, knownProjects = []) {
   const database = await openDatabase();
   if (database) {
     try {
-      await requestResult(database.transaction(PROJECT_STORE, 'readwrite').objectStore(PROJECT_STORE).put(project));
+      await new Promise((resolve, reject) => {
+        const transaction = database.transaction(PROJECT_STORE, 'readwrite');
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = transaction.onabort = () => reject(transaction.error || new Error('Could not remember the folder.'));
+        transaction.objectStore(PROJECT_STORE).put(project);
+      });
     } finally {
       database.close();
     }

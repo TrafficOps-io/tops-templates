@@ -13,7 +13,7 @@ const bytes = Uint8Array.from(atob(png), value => value.charCodeAt(0));
 const usage = { inputTokens: { total: 1 }, outputTokens: { total: 1 } };
 const call = (name, input) => ({ content: [{ type: 'tool-call', toolCallId: crypto.randomUUID(), toolName: name, input: JSON.stringify(input) }], finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage, warnings: [] });
 const done = () => ({ content: [{ type: 'text', text: 'Done.' }], finishReason: { unified: 'stop', raw: 'stop' }, usage, warnings: [] });
-const plan = () => call('submit_plan', { summary: 'Generate one article image.', tasks: ['Generate one image', 'Update the headline'] });
+const plan = () => call('submit_plan', { summary: 'Generate one article image.', tasks: ['Generate one image', 'Update the headline'], imageRequests: ['Generate one article image'] });
 const review = () => call('submit_review', { approved: true, summary: 'Reviewed the draft.', issues: [] });
 const setup = () => { const files = starterProject(); const { definition } = parseProject(files); return { files, definition, values: getDefaults(definition) }; };
 

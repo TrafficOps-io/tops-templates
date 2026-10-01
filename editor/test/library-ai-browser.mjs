@@ -34,13 +34,20 @@ async function openTestPage() {
       try { return await new Promise((resolve, reject) => { const request = database.transaction('projects').objectStore('projects').getAll(); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); }
       finally { database.close(); }
     };
+    window.readConversationDocuments = async () => {
+      if (!(await indexedDB.databases()).some(database => database.name === 'trafficops-studio-conversations')) return [];
+      const database = await new Promise((resolve, reject) => { const request = indexedDB.open('trafficops-studio-conversations'); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+      try { return await new Promise((resolve, reject) => { const request = database.transaction('documents').objectStore('documents').getAll(); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); }); }
+      finally { database.close(); }
+    };
     window.fetch = async (url, options = {}) => {
       if (!String(url).includes('openrouter.ai/api/v1/')) return realFetch(url, options);
       if (!String(url).endsWith('/chat/completions')) return Response.json({ data: {} });
       const test = window.libraryAiTest, body = JSON.parse(options.body), stageName = body.tools?.length === 1 ? body.tools[0].function.name : null;
       const step = stageName || ++test.step;
       const records = await window.readStudioRecords();
-      await window.captureProviderCall({ step, outcome: test.outcome, body, records });
+      const documents = await window.readConversationDocuments();
+      await window.captureProviderCall({ step, outcome: test.outcome, body, records, documents });
 
       const stage = stageName;
       if (stage === 'submit_plan' || stage === 'submit_review') {
@@ -71,18 +78,20 @@ async function openTestPage() {
   return page;
 }
 async function createAiProject(page, name, prompt, withAttachment = false) {
-  await page.getByRole('button', { name: 'Create with AI Describe it. Build it together.', exact: true }).click();
+  await page.getByRole('button', { name: 'New project', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
-  await dialog.getByRole('textbox', { name: 'Project name', exact: true }).fill(name);
-  await dialog.getByRole('textbox', { name: /^Describe your project/ }).fill(prompt);
+  await dialog.getByRole('button', { name: 'With AI', exact: true }).click();
+  await dialog.getByText('Project options', { exact: true }).click();
+  await dialog.getByRole('textbox', { name: 'Project name (optional)', exact: true }).fill(name);
+  await dialog.getByRole('combobox', { name: 'Message to assistant', exact: true }).fill(prompt);
   if (withAttachment) {
-    await dialog.getByLabel('Reference images', { exact: true }).setInputFiles({ name: 'brand-reference.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4n+DwHwAGoAKfr+/eKAAAAABJRU5ErkJggg==', 'base64') });
+    await dialog.getByLabel('Reference files', { exact: true }).setInputFiles({ name: 'brand-reference.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4n+DwHwAGoAKfr+/eKAAAAABJRU5ErkJggg==', 'base64') });
     await dialog.getByRole('checkbox', { name: 'Use on page', exact: true }).check();
   }
-  await dialog.getByRole('button', { name: 'Create with AI', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Create project', exact: true }).click();
   await dialog.waitFor({ state: 'hidden' });
-  await page.locator('.ai-prompt textarea').waitFor({ state: 'attached' });
-  await page.getByRole('button', { name: 'Collapse editor', exact: true }).click();
+  await page.getByRole('region', { name: 'Project conversations', exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Collapse editor', exact: true }).count(), 0, 'the installed app keeps the editor open');
 }
 async function configureTestKey(page) {
   await page.evaluate(async () => {
@@ -96,6 +105,21 @@ async function configureTestKey(page) {
   });
 }
 const records = page => page.evaluate(() => window.readStudioRecords());
+const documents = page => page.evaluate(() => window.readConversationDocuments());
+async function waitForRun(page, name, state) {
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    const project = (await records(page)).find(record => record.name === name);
+    const document = (await documents(page)).find(document => document.projectId === project?.id);
+    const run = document?.runs.at(-1);
+    // The claim commits to the library before its terminal run state is saved
+    // in the separate history DB. Re-read after observing that state so this
+    // join cannot retain the earlier, unclaimed library snapshot.
+    if (run?.state === state) return { project: (await records(page)).find(record => record.id === project.id), document, run };
+    await page.waitForTimeout(100);
+  }
+  throw new Error(`Timed out waiting for ${name} run to become ${state}: ${JSON.stringify(await documents(page))}`);
+}
 async function waitForSaved(page, name, expected) {
   const deadline = Date.now() + 10000;
   while (Date.now() < deadline) {
@@ -108,81 +132,96 @@ async function waitForSaved(page, name, expected) {
 try {
   browser = await chromium.launch({ headless: true, ...(process.platform === 'darwin' ? { executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' } : {}) });
 
-  // Missing credentials still creates a recoverable draft and keeps its brief.
+  // Missing credentials preserve the initial request in durable dialog history.
   const unconfigured = await openTestPage(), pendingPrompt = 'A calm ceramics landing with a gallery and booking link.';
   await createAiProject(unconfigured, 'Pending ceramics', pendingPrompt);
-  await unconfigured.getByRole('button', { name: 'Settings', exact: true }).waitFor();
-  assert.equal(await unconfigured.locator('.ai-prompt textarea').inputValue(), pendingPrompt);
+  const missing = await waitForRun(unconfigured, 'Pending ceramics', 'failed');
+  await unconfigured.locator('.conversation-message.user').getByText(pendingPrompt, { exact: true }).waitFor();
   assert.equal(providerCalls.length, 0);
-  let pending = (await records(unconfigured))[0];
-  assert.equal(pending.aiPrompt, pendingPrompt); assert.equal(pending.aiStarted, false); assert.equal(pending.kind, 'landing');
+  assert.equal(missing.project.aiPrompt, pendingPrompt); assert.equal(missing.project.aiStarted, true); assert.equal(missing.project.kind, 'landing');
+  assert.equal(missing.project.aiGenerateImages, undefined, 'an unconfigured creation must not persist an implicit image-generation opt-out');
+  assert.match(missing.run.error, /connection|key/i);
   await unconfigured.getByRole('button', { name: 'Settings', exact: true }).click();
   await unconfigured.locator('.ai-settings input[type=password]').waitFor();
   await unconfigured.getByRole('button', { name: 'Back to assistant', exact: true }).click();
   await unconfigured.reload();
-  await unconfigured.getByRole('button', { name: 'Collapse editor', exact: true }).click();
-  await unconfigured.locator('.ai-prompt textarea').waitFor();
-  assert.equal(await unconfigured.locator('.ai-prompt textarea').inputValue(), pendingPrompt);
-  assert.equal(providerCalls.length, 0);
+  await unconfigured.locator('.conversation-message.user').getByText(pendingPrompt, { exact: true }).waitFor();
+  assert.equal(providerCalls.length, 0, 'a missing-key request does not restart after reload');
+  assert.equal((await waitForRun(unconfigured, 'Pending ceramics', 'failed')).document.threads.length, 1);
   await unconfigured.context().close();
 
-  // The creation handoff claims storage before the first provider fetch.
+  // Both the message and creation handoff are durable before any provider fetch.
   const page = await openTestPage(); await configureTestKey(page);
   const prompt = 'Create a studio launch landing with a clear heading and introductory copy.';
   await createAiProject(page, 'AI launch', prompt, true);
-  await page.locator('.ai-live-file > summary').click();
-  await page.getByLabel('Live file changes', { exact: true }).filter({ hasText: 'AI studio launch' }).waitFor();
+  await page.waitForFunction(() => typeof window.libraryAiTest.release === 'function');
   assert.equal(providerCalls.length, 2);
   const claimed = providerCalls[0].records.find(record => record.name === 'AI launch');
   assert.equal(claimed.aiAttachments.length, 1); assert.equal(claimed.aiAttachments[0].useOnPage, true);
-  assert.equal(claimed.aiStarted, true); assert.equal(claimed.revision, 2); assert.equal(claimed.aiPrompt, prompt);
+  assert.equal(claimed.aiStarted, true); assert.equal(claimed.aiPrompt, prompt);
+  const claimedDocument = providerCalls[0].documents.find(document => document.projectId === claimed.id);
+  assert.equal(claimedDocument.runs[0].state, 'running');
+  assert.equal(claimedDocument.threads[0].messages[0].prompt, prompt);
   assert.ok(providerCalls[0].body.messages.some(message => JSON.stringify(message.content).includes(prompt)));
-  assert.equal(await page.getByRole('dialog', { name: 'Create new project', exact: true }).count(), 0);
-  assert.equal(await page.getByRole('button', { name: 'Apply changes', exact: true }).count(), 0);
-  assert.ok((await records(page))[0].files['index.tpl'].includes('Your next idea'), 'partial stream never replaces the stored starter');
-  await page.evaluate(() => window.libraryAiTest.release());
-  await page.getByText('Changes ready', { exact: true }).waitFor();
-  await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'AI studio launch', exact: true }).waitFor();
-  assert.equal(providerCalls.length, 4, 'successful host validation skips a summary-only provider request');
   assert.ok(providerCalls[0].body.messages.some(message => message.content?.some?.(part => part.type === 'image_url')));
-  await page.getByRole('button', { name: 'Apply changes', exact: true }).click();
-  const saved = await waitForSaved(page, 'AI launch', 'AI studio launch'); assert.equal(saved.revision, 3);
+  assert.equal(await page.getByRole('button', { name: 'Apply to project', exact: true }).count(), 0);
+  assert.ok((await records(page))[0].files['index.tpl'].includes('Your next idea'), 'partial streamed source never replaces the canonical starter');
+  await page.evaluate(() => window.libraryAiTest.release());
+  const ready = await waitForRun(page, 'AI launch', 'ready');
+  assert.equal(providerCalls.length, 4, 'successful host validation skips a summary-only provider request');
+  assert.ok(ready.run.result.valid); assert.ok(ready.run.result.files['index.tpl'].includes('AI studio launch'));
+  const assetPath = `images/reference-${claimed.aiAttachments[0].id}.png`;
+  assert.ok(ready.run.result.files[assetPath] && typeof ready.run.result.files[assetPath] === 'object', 'an image marked Use on page is part of the independent draft');
+  assert.ok(ready.project.files['index.tpl'].includes('Your next idea'), 'a ready draft still requires manual apply');
+  await page.getByRole('button', { name: 'Review changes', exact: true }).click();
+  await page.getByRole('region', { name: 'Review conversation changes', exact: true }).waitFor();
+  await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'AI studio launch', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Apply to project', exact: true }).click();
+  const saved = await waitForSaved(page, 'AI launch', 'AI studio launch');
+  assert.ok(saved.files[assetPath], 'manual apply keeps the selected image asset');
+  assert.ok(saved.appliedAiRuns.includes(ready.run.id));
+  await waitForRun(page, 'AI launch', 'applied');
   await page.reload();
-  await page.getByRole('button', { name: 'Collapse editor', exact: true }).click();
-  await page.locator('.ai-prompt textarea').waitFor();
+  await page.locator('.conversation-message.user').getByText(prompt, { exact: true }).waitFor();
   await page.waitForTimeout(800);
   assert.equal(providerCalls.length, 4, 'reload never restarts a paid generation');
-  assert.equal(await page.locator('.ai-prompt textarea').inputValue(), prompt);
   await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'AI studio launch', exact: true }).waitFor();
 
-  // Cancelling first-generation streaming keeps the original independent draft.
-  await page.getByRole('button', { name: 'Library', exact: true }).first().click();
-  await page.evaluate(() => { Object.assign(window.libraryAiTest, { step: 0, outcome: 'cancel' }); });
+  // Stopping an incomplete stream retains the canonical starter and dialog history.
+  await page.getByRole('button', { name: 'Projects', exact: true }).first().click();
+  await page.evaluate(() => { Object.assign(window.libraryAiTest, { step: 0, outcome: 'cancel', release: null }); });
   await createAiProject(page, 'Cancelled creation', 'A project whose creation will be cancelled.');
-  await page.locator('.ai-live-file > summary').click();
-  await page.getByLabel('Live file changes', { exact: true }).filter({ hasText: 'AI studio launch' }).waitFor();
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('alert').filter({ hasText: 'Generation cancelled. Your project is unchanged.' }).waitFor();
-  const cancelled = (await records(page)).find(record => record.name === 'Cancelled creation');
-  assert.equal(cancelled.aiStarted, true); assert.equal(cancelled.revision, 2);
-  assert.ok(cancelled.files['index.tpl'].includes('Your next idea'));
+  await page.waitForFunction(() => typeof window.libraryAiTest.release === 'function');
+  await page.getByRole('button', { name: 'Stop', exact: true }).click();
+  const cancelled = await waitForRun(page, 'Cancelled creation', 'cancelled');
+  assert.equal(cancelled.project.aiStarted, true);
+  assert.ok(cancelled.project.files['index.tpl'].includes('Your next idea'));
+  assert.equal(cancelled.document.threads[0].messages[0].prompt, 'A project whose creation will be cancelled.');
   assert.equal(providerCalls.length, 6);
 
-  // A later provider failure retains completed generated source for review.
-  await page.getByRole('button', { name: 'Library', exact: true }).first().click();
-  await page.evaluate(() => { Object.assign(window.libraryAiTest, { step: 0, outcome: 'error' }); });
+  // Later failure preserves each completed source operation for explicit review.
+  await page.getByRole('button', { name: 'Projects', exact: true }).first().click();
+  await page.evaluate(() => { Object.assign(window.libraryAiTest, { step: 0, outcome: 'error', release: null }); });
   await createAiProject(page, 'Recovered creation', 'Keep completed files when the mocked provider fails.');
-  await page.locator('.ai-live-file > summary').click();
-  await page.getByLabel('Live file changes', { exact: true }).filter({ hasText: 'AI studio launch' }).waitFor();
+  await page.waitForFunction(() => typeof window.libraryAiTest.release === 'function');
   await page.evaluate(() => window.libraryAiTest.release());
-  await page.getByText('Draft needs attention', { exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Keep draft in editor', exact: true }).waitFor();
-  assert.ok((await records(page)).find(record => record.name === 'Recovered creation').files['index.tpl'].includes('Your next idea'));
-  await page.getByRole('button', { name: 'Keep draft in editor', exact: true }).click();
-  await waitForSaved(page, 'Recovered creation', 'AI studio launch');
+  const failed = await waitForRun(page, 'Recovered creation', 'failed');
+  assert.ok(failed.project.files['index.tpl'].includes('Your next idea'));
+  assert.ok(failed.run.result.files['index.tpl'].includes('AI studio launch'));
+  assert.equal(failed.run.result.valid, false);
+  await page.getByRole('button', { name: 'Review changes', exact: true }).click();
+  await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'AI studio launch', exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Apply to project', exact: true }).isDisabled(), true, 'an unvalidated failed draft cannot be applied');
+  await page.getByRole('button', { name: 'Continue', exact: true }).waitFor();
   assert.equal(providerCalls.length, 10, 'a persistent pre-tool 503 gets one recovery without replaying completed writes');
+  await page.reload();
+  await page.getByRole('button', { name: 'Review changes', exact: true }).waitFor();
+  await page.waitForTimeout(800);
+  const restored = await waitForRun(page, 'Recovered creation', 'failed');
+  assert.ok(restored.run.result.files['index.tpl'].includes('AI studio launch'));
+  assert.equal(providerCalls.length, 10, 'retained failed work never causes automatic payment after reload');
   assert.deepEqual(errors, []);
-  console.log('PASS: library AI creation, persisted one-shot claim before fetch, streamed review/apply/autosave, reload without requests, missing-key Settings recovery, cancel and retained failed draft.');
+  console.log('PASS: PWA library AI creation, durable message and claim before fetch, retained image asset, manual review/apply, reload without requests, missing-key history, stop, and retained failed source.');
 } catch (error) {
   await currentPage?.screenshot({ path: '/tmp/library-ai-browser-error.png' }).catch(() => {});
   throw error;

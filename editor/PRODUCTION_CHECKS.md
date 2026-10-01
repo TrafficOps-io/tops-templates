@@ -1,5 +1,59 @@
 # Landing Studio verification
 
+## Sections and mentions production publication — 2026-10-01
+
+The searchable section multi-select and file/section chat mentions were published to [studio.trafficops.io](https://studio.trafficops.io) through the existing Netlify ZIP deployment path. Deployment `6abe58a1e63dea32c7739656` became ready and was published at 2026-10-01 15:57:07 EEST (2026-10-01T12:57:07.218Z). Its [immutable deployment](https://6abe58a1e63dea32c7739656--trafficops-templates.netlify.app) contains 47 files; the uploaded ZIP SHA256 is `d667fae17ecd5f994717c6078d7cfec8bcc364f016020b642a319949f15e7bde`. The previous deployment is `6abe48c477717e275094345e`.
+
+- The source passed 442 Studio tests, 110 shared-shell tests and the Studio TypeScript check. A fresh production build and the frozen release's browser checks passed before upload.
+- All 45 public deployment files, including HTML, main JavaScript/CSS, manifest, service worker and Workbox, match the frozen release by SHA256. Root HTML, immutable asset caching, mutable PWA resources and security headers passed verification.
+- Disposable Chrome contexts on the published site passed searchable multi-selection, repeated-instance labels, file and section mentions together, reference deduplication, prompt preservation, persisted section references and source navigation. Existing history, review, file scope and export flows passed. Layouts fit 1024 and 320 px without horizontal overflow; the composer remains usable at a 720 px viewport height.
+- The production service worker activated and controlled the page. An offline reload retained the project and allowed section mentions. No page errors, real credentials or paid AI requests were used.
+
+This publication updates the standalone Studio site. The pinned embedded-editor artifact in PWApps is managed separately.
+
+## UI/UX production publication — 2026-10-01
+
+The updated conversations, image mention previews, single installed-project header and home AI chat were published to [studio.trafficops.io](https://studio.trafficops.io) through the existing Netlify ZIP deployment path. Deployment `6abe48c477717e275094345e` became ready and published at `2026-10-01T11:49:26.321Z`. Its [immutable deployment](https://6abe48c477717e275094345e--trafficops-templates.netlify.app) contains 47 files; the uploaded ZIP SHA256 is `748769805337c77997d5fb1c777a94d0778fd3f38528a83e4b711b61bc0851ac`. The previous deployment is `6abe38fc76d16b3c275c98c0`.
+
+- Before publication, 442 Studio tests and 105 shared-shell tests passed, together with TypeScript checks, the production build and browser checks for home creation, conversation layout/lifecycle, browser capability restrictions and existing editor workflows. Conversation checks covered image mentions, history controls, 320/1024 px layouts and a 720 px tall viewport with multiple references and a resized composer.
+- Production HTML, main JavaScript/CSS, manifest, service worker and Workbox loader match the frozen release by SHA256. Service-worker, HTML, manifest and immutable asset caching headers passed, as did the security-header checks.
+- Disposable Chrome contexts on the live site passed ordinary-browser capability restrictions, homepage layouts at desktop/390/320 px, template creation with an attachment and a brief saved without credentials, and landing creation through generation, draft review and apply. The installed workspace has one full-height project header and retains help/documentation controls; returning to the library restores its home header.
+- The real production service worker activated and controlled the page. An offline reload retained the applied landing and the single project header. No page errors were recorded. Installed display mode was simulated, and all four AI provider requests were intercepted with synthetic responses; no paid requests or real folder access were used.
+
+This publication updates the standalone Studio site. The pinned embedded-editor artifact in PWApps is managed separately.
+
+## Production publication — 2026-10-01
+
+The current editor, shared shell/core and runtime changes were rebuilt and published to [studio.trafficops.io](https://studio.trafficops.io) through the existing Netlify ZIP deployment path. Production deployment `6abe38fc76d16b3c275c98c0` became ready and published at `2026-10-01T10:42:06.856Z`. Its [immutable deployment](https://6abe38fc76d16b3c275c98c0--trafficops-templates.netlify.app) contains 47 files; the uploaded ZIP SHA256 is `08d85d9c2c13d0ac6e4e89df0f2d1d2f1ea3f4b821efdf08dc674c1527c17534`.
+
+- Live HTML, main JavaScript/CSS, manifest, service worker and Workbox loader match the built files by SHA256. The service worker uses `no-store`, `/index.html` and the manifest use `no-cache`, and hashed assets use immutable caching. Security headers are present.
+- Disposable Chrome profiles passed the ordinary-browser capability restrictions and the simulated installed workspace, including its permanent editor, imported conversation history, separate draft review, rename/archive/restore/search, file mentions, a local text reference and settings navigation.
+- The unified Export menu produced an editable ZIP with project identity/history and a generated hosting ZIP. The real production service worker supported offline reload, Monaco editing, a verified durable autosave from revision 1 to 2, source ZIP export and retention of the edit after another offline reload.
+- Layout checks passed at 1024 and 320 pixels without horizontal overflow. The live check recorded no page errors, external requests or AI provider calls. Installed display mode was simulated; real folders were not accessed.
+
+This publication updates the standalone Studio site. The pinned embedded-editor artifact in PWApps is managed separately.
+
+## Project conversations and portable identity — 2026-10-01, local build
+
+- Studio uses a persistent conversation list per project and a single message composer with attachments and file mentions. Each conversation prepares its own reviewable draft. Up to two runs execute concurrently per app window; editing, project switching and other conversations remain available. Applying a draft merges against the current saved project and requires explicit review when files or referenced context have changed.
+- Conversation checkpoints are saved before subsequent provider requests. Stopping, leaving or reloading never repeats a paid request automatically. Interrupted drafts remain available for review or explicit continuation. Applied run markers protect against duplicate application after reload.
+- Saving a device project to a folder preserves its project ID and conversation history. Portable source ZIPs carry the same ID and optional history; importing a known ID offers continuation or an independent copy. Folder transfers and nonempty destinations are reviewed before replacement, and storage failures preserve the device recovery copy.
+- Installed mode keeps the editor open. Project storage has descriptive controls, and one Export menu separates an editable source ZIP from the generated landing ZIP. Hosts without the optional conversation port retain the existing assistant workflow.
+- All 836 JavaScript workspace tests, workspace type/syntax checks, production PWA and embedded builds passed. Existing large-bundle and upstream annotation warnings remain. The browser scenarios below use isolated profiles and mocked provider responses, with no real credentials or paid AI requests.
+- Production browser checks cover two simultaneous runs with manual edits and project switching, reviewed application that preserves manual values, same-ID source ZIP import and interruption after reload without a provider replay. Conversation UI checks cover history, search, archive/restore/delete, file scope, full diffs and narrow layouts. AI creation, single-file/image edits and selected-block edits retain their review/apply behavior.
+- The library/PWA checks passed for ordinary-tab capability restrictions, permanent installed workspace, source/hosting exports, service-worker offline reload and Monaco autosave. Recovery and autosave checks passed for failed storage, detached recovery, malformed folders and stale-tab conflicts. Existing content/source/review workflows also passed through a built host variant that omits the optional conversation port.
+- Folder browser checks passed with real OPFS file operations and IndexedDB: same-ID transfer with a history checkpoint arriving during copying, reload, cancelled alternate binding, an untouched empty folder until Save, a concurrent cache-save conflict, and same-ID ZIP continuation. On this macOS runner, native serialization of OPFS directory handles into IndexedDB crashes both tested Chromium variants; the successful local run uses `STUDIO_NATIVE_HANDLES=0` to replace only the persisted handle reference with an OPFS-name bridge. Native handle serialization/reload remains a release check on an installed browser. CI keeps the test's native default.
+
+Browser verification is recorded against local builds only; this does not publish Studio or replace the pinned embedded artifact used by PWApps.
+
+## Image routing — 2026-10-01, local build
+
+- AI creation and editing default to the configured image model for requested raster images. Explicit opt-outs remain preserved; creating a brief without a connection does not turn the missing connection into an opt-out.
+- The source prompt no longer suggests SVG stand-ins for missing art. Image-enabled plans require an explicit image list. Completion checks require successful generated raster assets referenced in the draft; provider failures cannot become successful placeholder substitutions. Requested vector artwork remains supported.
+- 412 Studio tests and 16 shared-shell tests passed, along with the Studio TypeScript check and production PWA/embedded builds. Existing bundle-size and upstream annotation warnings remain.
+- A separate loopback origin exercised the production PWA through the actual UI with a mocked OpenRouter transport. Creating before connection, then selecting a model, enabled image generation. Create new project and Edit project each sent exactly one image request to the selected model, created PNG assets, applied them and retained them after reload. No real credentials or paid provider requests were used.
+- This records local source/build verification. It does not publish the PWA or replace PWApps' pinned embedded-editor artifact.
+
 ## Current capability scope — 2026-09-19
 
 AI creation, AI-assisted source editing, content filling, image generation and AI/BYOK settings are available only in the installed Studio PWA. File System Access folder operations also require the installed PWA, including restoring or reconnecting remembered folders whose permission was previously granted. Ordinary Studio browser tabs retain the manual local library, template/blank creation, source editing and ZIP import/export workflows. Neither `?studio=1` nor browser fullscreen unlocks installed-app capabilities. The embedded PWApps `HttpHost` follows its own host capabilities and is unaffected.

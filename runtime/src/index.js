@@ -1,5 +1,8 @@
 import {encodeSegments} from './html.js';
 import {renderRichText, isRichTextEmpty, richTextImageSources} from './rich-text.js';
+export {renderRichText} from './rich-text.js';
+import {createEditorPreview, indexEditorBlocks, validateEditorBlockFragment} from './editor-preview.js';
+export {indexEditorBlocks, validateEditorBlockFragment};
 /** Browser-safe interpreter for the documented JavaScript subset of Template DSL v1. */
 const TYPES = Object.freeze({String: 'text', Text: 'textarea', Wysiwyg: 'wysiwyg', Markdown: 'markdown', Color: 'color', Number: 'number', Range: 'range', Boolean: 'checkbox', Image: 'image', Url: 'url', Email: 'email', Select: 'select'});
 const FORBIDDEN = new Set(['__proto__', 'prototype', 'constructor']);
@@ -406,12 +409,23 @@ function lookup(path, scope, field = false) {
   }
   return value;
 }
+// Preview provenance follows exactly the same lexical resolution as lookup().
+// Paths are absolute in the normalized Values object, even through @render.
+function valuePath(path, scope) {
+  const {parent, root, parts} = pathParts(path); let target = root ? scope.root : scope;
+  for (let i = 0; i < parent; i++) { if (!target.parent) fail(`Path escapes its scope: ${path}`); target = target.parent; }
+  const head = parts.shift();
+  if (own(target.bindings, head)) return [...target.bindings[head].valuePath, ...parts];
+  if (own(target.data, head)) return [...target.dataPath, head, ...parts];
+  if (!root && parent === 0 && !scope.block && own(scope.root.data, head)) return [...scope.root.dataPath, head, ...parts];
+  fail(`Unknown expression path: ${path}`);
+}
 function schemaMap(fields) { return Object.fromEntries(fields.map((field) => [field.name, field])); }
-function rootScope(fields, data = {}) { const scope = {schema:schemaMap(fields), data, bindings:{}, parent:null, block:false}; scope.root = scope; return scope; }
-function childScope(scope, field, data, alias) {
+function rootScope(fields, data = {}) { const scope = {schema:schemaMap(fields), data, dataPath:[], bindings:{}, parent:null, block:false}; scope.root = scope; return scope; }
+function childScope(scope, field, data, alias, path) {
   // Named @each aliases have lexical scope; raw {{#sections}} retain Mustache context.
-  const child = {schema:alias ? scope.schema : schemaMap(field.fields || []), data:alias ? scope.data : data || {}, bindings:{...scope.bindings}, parent:scope, root:scope.root, block:scope.block};
-  if (alias) child.bindings[alias] = {schema:{...field, type:'group', author_type:field.author_type.replace(/\[\]$/, '')}, data};
+  const child = {schema:alias ? scope.schema : schemaMap(field.fields || []), data:alias ? scope.data : data || {}, dataPath:alias ? scope.dataPath : path, bindings:{...scope.bindings}, parent:scope, root:scope.root, block:scope.block};
+  if (alias) child.bindings[alias] = {schema:{...field, type:'group', author_type:field.author_type.replace(/\[\]$/, '')}, data, valuePath:path};
   return child;
 }
 function checkProgram(nodes, scope, blocks, stack = [], budget = {value:0}) {
@@ -468,7 +482,7 @@ function projectFiles(files) {
   if (size > LIMITS.projectBytes) fail('Project exceeds 32 MiB');
   return files;
 }
-export function parseProject(files) {
+function parseProjectFiles(files, editorSourceAttribute) {
   projectFiles(files);
   const sourcePaths = Object.keys(files).filter((path) => /\.tpl(?:\.html)?$/i.test(path)).sort((a,b) => (a === 'index.tpl' || a === 'index.tpl.html' ? -1 : b === 'index.tpl' || b === 'index.tpl.html' ? 1 : a.localeCompare(b)));
   const included = new Set();
@@ -483,7 +497,11 @@ export function parseProject(files) {
   })];
   const shared = {fields:[], sections:[], types:{}, blocks:{}};
   for (const page of collected) {
-    for (const map of ['types','blocks']) for (const [name,value] of Object.entries(page[map])) { if (own(shared[map], name) && JSON.stringify(shared[map][name]) !== JSON.stringify(value)) fail(`Conflicting ${map}: ${name}`); shared[map][name] = value; }
+    for (const map of ['types','blocks']) for (const [name,value] of Object.entries(page[map])) {
+      const comparable = entry => map === 'blocks' && editorSourceAttribute ? {...entry,body:entry.body.replace(new RegExp(` ${editorSourceAttribute}="[^"]*"`,'g'),'')} : entry;
+      if (own(shared[map], name) && JSON.stringify(comparable(shared[map][name])) !== JSON.stringify(comparable(value))) fail(`Conflicting ${map}: ${name}`);
+      shared[map][name] = value;
+    }
     for (const section of page.sections) {
       let target = shared.sections.find((s) => s.id === section.id);
       if (!target) { target = {...section, fields:[]}; shared.sections.push(target); }
@@ -501,27 +519,31 @@ export function parseProject(files) {
   for (const output of outputs) { const parts = output.split('/'); for (let i = 1; i < parts.length; i++) if (outputs.has(parts.slice(0,i).join('/'))) fail(`Output file/directory collision: ${output}`); }
   return {definition:definitions[0], pages:definitions, files};
 }
+export function parseProject(files) { return parseProjectFiles(files); }
 
 // Keep values as opaque segments until all source has been interpreted. This prevents
 // template-looking data from being interpreted during any later generation phase.
-function renderSegments(nodes, scope, blocks, runtime, budget, output) {
+function renderSegments(nodes, scope, blocks, runtime, budget, output, editor = null, invocation = []) {
   const append = (segment) => { budget.bytes += bytes(segment.value); if (budget.bytes > LIMITS.outputBytes) fail('Rendered output exceeds 8 MiB'); output.push(segment); };
-  for (const node of nodes) {
+  for (const [index,node] of nodes.entries()) {
     if (++budget.operations > LIMITS.operations) fail('Rendering operation budget exceeded');
-    if (node.kind === 'text') append({value:node.value, literal:true});
+    const traceKey = editor ? [...invocation,`n${index}`] : null;
+    if (node.kind === 'text') append({value:node.value, literal:true, ...(editor ? {traceKey} : {})});
     else if (node.kind === 'runtime') {
       const [kind,key] = node.path.split('.'); append({value:kind === 'locale' ? runtime.locale : runtime[kind][key] ?? '', runtime:kind});
-    } else if (node.kind === 'value') { const value = lookup(node.path, scope), fieldType = lookup(node.path, scope, true).type; append({value:node.rich ? renderRichText(fieldType,value) : typeof value === 'boolean' ? value ? '1' : '' : String(value ?? ''), fieldType, rich:node.rich}); }
+    } else if (node.kind === 'value') { const value = lookup(node.path, scope), fieldType = lookup(node.path, scope, true).type; append({value:node.rich ? renderRichText(fieldType,value) : typeof value === 'boolean' ? value ? '1' : '' : String(value ?? ''), fieldType, rich:node.rich, ...(editor ? {valuePath:valuePath(node.path,scope)} : {})}); }
     else if (node.kind === 'block') {
       const block = blocks[node.name], bindings = {};
-      block.params.forEach((param,index) => { bindings[param.name] = {schema:lookup(node.args[index], scope, true), data:lookup(node.args[index], scope)}; });
-      const child = {schema:{}, data:{}, bindings, root:null, parent:null, block:true}; child.root = child;
-      renderSegments(block.nodes, child, blocks, runtime, budget, output);
+      block.params.forEach((param,index) => { bindings[param.name] = {schema:lookup(node.args[index], scope, true), data:lookup(node.args[index], scope), ...(editor ? {valuePath:valuePath(node.args[index],scope)} : {})}; });
+      const child = {schema:{}, data:{}, dataPath:[], bindings, root:null, parent:null, block:true}; child.root = child;
+      renderSegments(block.nodes, child, blocks, runtime, budget, output, editor, editor ? [...traceKey,'r'] : invocation);
     } else {
       const field = lookup(node.path, scope, true), value = lookup(node.path, scope), truthy = phpTruthy(value);
-      if (node.mode === 'inverse') { if (!truthy) renderSegments(node.children, scope, blocks, runtime, budget, output); }
-      else if (node.mode === 'each' || node.mode === 'section' && field.type === 'repeater') { for (const item of value) renderSegments(node.children, childScope(scope, field, item, node.alias), blocks, runtime, budget, output); }
-      else if (truthy) renderSegments(node.children, node.mode === 'section' && field.type === 'group' ? childScope(scope, field, value) : scope, blocks, runtime, budget, output);
+      const path = editor ? valuePath(node.path,scope) : null;
+      if (editor) append({value:'',literal:true,controlPath:path});
+      if (node.mode === 'inverse') { if (!truthy || editor?.allBranches) renderSegments(node.children, scope, blocks, runtime, budget, output, editor, editor ? [...traceKey,'c'] : invocation); }
+      else if (node.mode === 'each' || node.mode === 'section' && field.type === 'repeater') { for (const [itemIndex,item] of value.entries()) renderSegments(node.children, childScope(scope, field, item, node.alias, editor ? [...path,itemIndex] : undefined), blocks, runtime, budget, output, editor, editor ? [...traceKey,`e${itemIndex}`] : invocation); }
+      else if (truthy || editor?.allBranches) renderSegments(node.children, node.mode === 'section' && field.type === 'group' ? childScope(scope, field, value,undefined,path) : scope, blocks, runtime, budget, output, editor, editor ? [...traceKey,'c'] : invocation);
     }
   }
 }
@@ -555,4 +577,19 @@ export function generateProject(files, data = {}, context = {}, options = {}) {
   }
   if (Object.values(output).reduce((total,value) => total + bytes(value),0) > LIMITS.projectBytes) fail('Generated project exceeds 32 MiB');
   return output;
+}
+
+/** Preview-only source and concrete Values provenance; never used by exports. */
+export function generateEditorPreview(files, data = {}, context = {}, {draft = false} = {}) {
+  return createEditorPreview(files,data,context,{draft},{
+    assertFiles:projectFiles, parseProject:parseProjectFiles, fail, bytes, maxOutputBytes:LIMITS.outputBytes, maxProjectBytes:LIMITS.projectBytes, maxOperations:LIMITS.operations,
+    renderSegments(definition,values,context,{draft,allBranches,pageIndex}) {
+      const program = programs.get(definition);
+      const relax = field => ({...field,required:false,...(field.type === 'repeater' ? {min_items:0} : {}),...(field.fields ? {fields:field.fields.map(relax)} : {})});
+      const normalized = draft ? normalizeValues(definition.fields.map(relax),values) : validateValues(definition,values), output = [];
+      renderSegments(program.nodes,rootScope(definition.fields,normalized),program.blocks,runtimeContext(context),{operations:0,bytes:0},output,{allBranches},[`p${pageIndex}`]);
+      return output;
+    },
+    encode:segments => encodeSegments(segments,{fail,escape,safeUrl,bytes,maxBytes:LIMITS.outputBytes}),
+  });
 }
