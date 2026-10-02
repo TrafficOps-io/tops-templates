@@ -163,13 +163,18 @@ There is no separate index: `load` needs every thread anyway.
 
 **`createStoreConversationPort(store, { projectId })`** implements the existing `host.conversations` port (`load`, `save`, `subscribe`) on top of any store.
 
-- **Two-level CAS.**
-  1. *Local (same window).* `save(document, { expectedRevision })` first compares `expectedRevision` with the adapter's current document counter. If they differ, a `load`, `save` or `watch` reload has happened since the runtime took its copy, so the document is stale. The adapter throws `ConflictError` before any I/O, and the runtime reloads and retries. Because the document the runtime edited is always built on the adapter's current snapshot, deletion-by-absence and change detection against that snapshot are sound.
-  2. *Store (cross-window and server).* For each thread it writes, the adapter passes `expectedRevision = thread.revision ?? 0`, where `0` means create. The value comes from the copy the runtime edited. A thread that another window changed after this window's last reload fails the CAS for that thread.
-- **Change detection.**
-  - The adapter keeps `threadHash` per `threadId` for the current snapshot. A thread is written when it is new, or when its hash differs.
-  - A thread that is in the current snapshot but absent from the incoming document is deleted, with `expectedRevision` set to its snapshot revision.
-  - Threads the runtime did not touch keep their hash and are never written. This avoids spurious conflicts while another window is active.
+- **Per-dialogue rebase.** This replaces an earlier "reject any stale copy" rule. Code review showed that rule starves a window while another window streams: every refresh made each in-flight runtime copy stale, and four lost attempts abort an AI run.
+  1. *Base snapshot.* For every published `document.revision` (the local counter), the adapter remembers the entries `{ id → revision, hash }` that document was built from, keeping the last 16. `save(document, { expectedRevision })` diffs the incoming document against that **base**. An `expectedRevision` that is no longer remembered is a `ConflictError`.
+  2. *Change detection against the base.*
+     - A thread whose hash and revision equal the base entry was not changed by the runtime and is not written.
+     - A thread present in the base but absent from the document was deleted by the runtime. It is deleted with `expectedRevision` set to its base revision.
+     - Threads created elsewhere after the base are never deleted.
+  3. *Store CAS.* Each written thread uses `expectedRevision = thread.revision ?? 0`, where `0` means create. A thread that another window changed after the base fails the CAS. Only real per-dialogue conflicts reach the runtime.
+  4. *Result.* The returned and published document is the runtime's changes rebased onto the current state:
+     - changed threads carry their new revisions;
+     - unchanged threads take the current snapshot's version;
+     - threads created elsewhere are appended.
+- **Refresh.** Watch events are coalesced, so at most one refresh is queued. A refresh compares the listing signature first, reuses joined threads whose revision is unchanged, and publishes only when the valid `(id, revision)` set or the warning changed. A file that fails to read while an older valid version is known keeps that version visible, and the next refresh retries it.
 - **Save cost.** Only the expensive part, blob hashing, is cached. Everything else is re-serialized on every save.
   - The blob split of the four snapshot fields of a run (`base`, `starting`, `checkpoint`, `result`) is cached under `(run.id, run.updatedAt)`.
   - Attachment blobs are cached under `attachment.id`, because attachment content is immutable once it has an id.
@@ -184,7 +189,7 @@ There is no separate index: `load` needs every thread anyway.
 - **Heartbeat-tick conflicts are quiet.** The heartbeat tick is the `setInterval` in `createConversationSession` (`conversation-runtime.js:316–322`): the lease mutate at `:319` plus `recoverOrphans()` at `:321`. When either exhausts its retries on `ConflictError`, it does not call `report` (no `doc.error`), and the next tick retries.
   - The interval is `min(15 s, lease / 3)` against a 60 s lease, so up to 2 consecutive quiet misses are safe.
   - On the 3rd consecutive miss, the error is reported as it is today.
-  - With a second window open, local-level conflicts are expected to be routine.
+  - With a second window open, heartbeat conflicts can still happen when both windows touch the same dialogue.
 - **Write order per thread.** First `putBlob` for every blob the thread references, then `writeThread`. The new revision is stamped back onto the thread.
 - **Document revision.** `document.revision` is a monotonic counter local to the adapter. It is never persisted, and it increments on every `load` and `save` result and on every `watch` reload. The runtime's checks are therefore satisfied: `receive` accepts `next.revision >= doc.revision`, and `mutate` passes `previous.revision`, which feeds the local CAS level.
 - **Multi-thread saves are not atomic.** When thread A commits and thread B conflicts, the adapter throws `ConflictError` and the runtime reloads the *whole* document (`conversation-runtime.js:253`) and re-runs `change`. Every mutation must therefore converge, so that re-applying it to a state already holding a partial commit gives the same result. This holds today for the multi-thread mutations `recoverOrphans`, the heartbeat and `reconcileApplied` (set state or owner and mark applied). The spec makes it a tested requirement.
@@ -192,7 +197,7 @@ There is no separate index: `load` needs every thread anyway.
   - When the store has `watch`, a change triggers `load()`, a counter bump, and delivery to listeners.
   - Without `watch` (HTTP), there is no cross-tab signal, and conflicts surface on the next write.
   - Same-window listeners are notified after every `save`.
-- **GC.** If the store supports `collectGarbage()`, the adapter calls it after a `save` that deleted threads or dropped blob references, and once on `load`. The adapter passes no reference set: a store computes references from its own persisted threads, never from an in-memory document that may be stale.
+- **GC.** If the store supports `collectGarbage()`, the adapter schedules it in its queue, without awaiting it inside the save and at most once every 5 minutes, after a `save` that deleted threads or dropped blob references and on the first `load`. The store's 10-minute grace period makes the delay safe. The adapter passes no reference set: a store computes references from its own persisted threads, never from an in-memory document that may be stale.
 
 **`conversation-store-contract.js`** is a reusable test suite. It takes a store factory and covers:
 - round-trip
