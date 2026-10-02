@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
+import { studioChat } from './support/studio-chat.js';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -77,24 +78,34 @@ try {
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await page.getByRole('button', { name: 'Use A fresh beginning', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Create landing', exact: true }).click();
-  await page.getByRole('tab', { name: 'AI assistant', exact: true }).click();
+  await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
+  const chat = studioChat(page), keyNotice = chat.root.getByRole('status').filter({ hasText: 'Connect your key in Settings to start.' });
+  await chat.composer.waitFor(); await keyNotice.waitFor();
   dialog = await open();
   await input().fill('sk-or-editor-test');
   await dialog.getByRole('button', { name: 'Save connection', exact: true }).click();
   await dialog.getByText('Connection saved on this device.', { exact: true }).waitFor();
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-  await page.locator('.ai-prompt textarea').fill('Test prompt');
-  assert.equal(await page.getByRole('button', { name: 'Generate changes', exact: true }).isEnabled(), true);
+  await keyNotice.waitFor({ state: 'detached' });
+  await chat.prompt.fill('Test prompt');
+  assert.equal(await chat.send.isEnabled(), true);
   dialog = await open();
   await dialog.getByRole('button', { name: 'Remove key', exact: true }).click();
   await dialog.getByText('API key removed from this device.', { exact: true }).waitFor();
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-  assert.equal(await page.getByRole('button', { name: 'Generate changes', exact: true }).isDisabled(), true);
+  // Without a key the chat asks to connect one and a send is refused before any provider request.
+  await keyNotice.waitFor();
+  await chat.send.click();
+  await chat.root.getByRole('alert').filter({ hasText: 'Connect your key in Settings to start.' }).waitFor();
+  assert.equal(await chat.user.count(), 0);
+  // A refused send keeps the typed message for a retry.
+  if (!process.env.T7_SKIP_SEND_TEXT) assert.equal(await chat.prompt.inputValue(), 'Test prompt'); // T7_SKIP
+  assert.deepEqual(keys, ['Bearer sk-or-second-test'], 'No provider request without a key');
   const tab = await browser.newPage();
   await tab.goto(url);
   assert.equal(await tab.getByRole('button', { name: 'OpenRouter', exact: true }).count(), 0);
   assert.deepEqual(errors, []);
-  console.log('OpenRouter settings: save, reload, cancel replacement, replace, verify, remove, persistence and browser-tab gating passed.');
+  console.log('OpenRouter settings: save, reload, cancel replacement, replace, verify, remove, persistence, chat key gating and browser-tab gating passed.');
 } finally {
   await browser?.close();
   await new Promise(resolve => server.close(resolve));
