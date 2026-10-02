@@ -32,3 +32,12 @@ test('chips have an accessible remove action and mention chips are buttons', () 
   const source = read('Chips.jsx');
   assert.ok(source.includes('aria-label') && source.includes('onRemove') && source.includes('<button'), 'chips');
 });
+
+test('small text is never colored with the accent (spec 3.2 / 8.2, light theme contrast < 4.5:1)', () => {
+  const css = readFileSync(new URL('../styles.css', import.meta.url), 'utf8');
+  const offenders = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter(([, , body]) => /(^|[\s;])color:\s*var\(--ui-accent/.test(body))
+    .map(([, selector]) => selector.trim());
+  assert.deepEqual(offenders, []);
+  assert.doesNotMatch(css, /\.studio-card-action[^{]*\{[^}]*(^|[\s;])color:\s*var\(--ui-accent/);
+});
