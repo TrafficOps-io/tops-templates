@@ -215,6 +215,25 @@ try {
   await pwa.getByRole('button', { name: 'With AI', exact: true }).waitFor();
   await pwa.getByRole('button', { name: 'Close new project', exact: true }).click();
   await createStarter(pwa, 'Installed PWA editor');
+  // Installed header at 1280 px: the navigation stays on one line, the save status is shown once and is the only live region.
+  await pwa.setViewportSize({ width: 1280, height: 900 });
+  await pwa.waitForFunction(() => document.querySelector('.studio-toolbar')?.getBoundingClientRect().width <= 1280);
+  const header = await pwa.evaluate(() => {
+    const visible = element => element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden';
+    const toolbar = document.querySelector('.studio-toolbar'), navigation = toolbar.querySelector('.studio-navigation');
+    const lines = new Set([...navigation.children, ...toolbar.querySelector('.studio-toolbar-actions').children].filter(visible).map(element => Math.round(element.getBoundingClientRect().top + element.getBoundingClientRect().height / 2)));
+    const regions = [...document.querySelectorAll('.editor-shell [role="status"]')].filter(visible).filter(element => element.querySelector('.studio-badge'));
+    const text = regions[0]?.textContent.trim();
+    const shown = [...document.querySelectorAll('.editor-shell *')].filter(element => visible(element) && element.textContent.trim() === text && ![...element.children].some(child => child.textContent.trim() === text));
+    const geometry = [...toolbar.querySelectorAll(':scope > *, .studio-navigation > *, .studio-toolbar-actions > *')].map(e => `${e.tagName}.${String(e.className).split(' ').slice(0,2).join('.')}:${Math.round(e.getBoundingClientRect().left)}+${Math.round(e.getBoundingClientRect().width)}@${Math.round(e.getBoundingClientRect().top)}`);
+    return { geometry, lines: lines.size, height: Math.round(toolbar.getBoundingClientRect().height), regions: regions.length, text, shown: shown.length, storage: [...toolbar.querySelectorAll('.studio-toolbar-storage')].filter(visible).map(element => element.textContent) };
+  });
+  assert.equal(header.lines, 1, `installed header on one line at 1280: ${JSON.stringify(header)}`);
+  assert.ok(header.height <= 72, `installed header height: ${JSON.stringify(header)}`);
+  assert.equal(header.regions, 1, `one save-status live region: ${JSON.stringify(header)}`);
+  assert.equal(header.shown, 1, `save status shown once: ${JSON.stringify(header)}`);
+  assert.deepEqual(header.storage, [], `no storage text repeating the status: ${JSON.stringify(header)}`);
+  await pwa.setViewportSize({ width: 1600, height: 1100 });
   await pwa.getByRole('tablist', { name: 'Sections' }).getByRole('tab', { name: 'Your message', exact: true }).click();
   await pwa.getByRole('button', { name: 'Generate image with AI', exact: true }).waitFor();
   await pwa.getByRole('button', { name: 'Save to folder', exact: true }).waitFor();

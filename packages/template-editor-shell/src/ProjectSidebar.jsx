@@ -76,7 +76,7 @@ function CollapsedTree({ node, depth = 0, active, changedFiles, aiPreview, onSel
   </>;
 }
 
-export default function ProjectSidebar({ files, folders, active, changedFiles = {}, aiPreview = false, locked = false, aiEnabled = false, projectName = 'session-project', savesToDisk = false, storageSummary = '', saveStatus = null, storageHelp = '', isCollapsed, onToggleCollapsed, onManageProjects, onOpenArchive, onSelect, onCreate, onRename, onDelete, onDeleteFolder, onMove, onUpload, onExport }) {
+export default function ProjectSidebar({ files, folders, active, changedFiles = {}, aiPreview = false, locked = false, aiEnabled = false, projectName = 'session-project', savesToDisk = false, storageSummary = '', storageHelp = '', isCollapsed, onToggleCollapsed, onManageProjects, onOpenArchive, onSelect, onCreate, onRename, onDelete, onDeleteFolder, onMove, onUpload, onExport }) {
   const t = useStudioText();
   const [collapsed, setCollapsed] = useState(new Set());
   const [dropTarget, setDropTarget] = useState(null);
@@ -95,7 +95,7 @@ export default function ProjectSidebar({ files, folders, active, changedFiles = 
       <div className="file-actions"><button className="btn btn-ghost btn-sm" disabled={locked || !active} onClick={onRename}><Pencil size={12} /> {t("Rename")}</button><button className="btn btn-ghost btn-sm" disabled={locked || !active} onClick={onDelete}><Trash2 size={12} /> {t("Delete")}</button></div>
       <button type="button" disabled={locked} className="sidebar-upload" onClick={() => uploadInput.current?.click()} onDragOver={event => { event.preventDefault(); event.currentTarget.classList.add('dragging'); }} onDragLeave={event => event.currentTarget.classList.remove('dragging')} onDrop={event => { event.preventDefault(); event.currentTarget.classList.remove('dragging'); onUpload(event.dataTransfer.files, ''); }}><UploadCloud size={17} /><span><strong>{t("Drop files here")}</strong><small>{t("or choose from your computer")}</small></span></button>
       <input ref={uploadInput} hidden type="file" multiple onChange={event => { onUpload(event.target.files, ''); event.target.value = ''; }} />
-      <div className="sidebar-footer"><div className="local-mark"><ShieldCheck size={16} /><strong>{storageSummary || t('Project files')}</strong></div>{saveStatus}<p>{storageHelp || t('Save to keep your changes.')}</p>{onExport && <button className="btn btn-outline btn-sm source-export" disabled={locked} onClick={onExport}><ArrowDownToLine size={14} /> {t("Export project")}</button>}</div>
+      <div className="sidebar-footer"><div className="local-mark"><ShieldCheck size={16} /><strong>{storageSummary || t('Project files')}</strong></div><p>{storageHelp || t('Save to keep your changes.')}</p>{onExport && <button className="btn btn-outline btn-sm source-export" disabled={locked} onClick={onExport}><ArrowDownToLine size={14} /> {t("Export project")}</button>}</div>
     </>}
   </aside>;
 }

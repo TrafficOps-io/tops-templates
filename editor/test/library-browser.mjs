@@ -140,13 +140,14 @@ try {
   // Between the edit and the durable write the badge reads Saving… (the single live region outside the expanded editor).
   await page.locator('.hosted-status[role="status"]').filter({ hasText: 'Saving…' }).waitFor();
   await waitForSaved('Independent landing', { headline: 'Landing-only headline' });
-  // Save state is text: a badge with the save time; one live region per mode, the sidebar footer repeats it as plain text.
+  // Save state is text: a badge with the save time, shown once per mode; the sidebar footer keeps the storage label only.
   assert.equal(await page.locator('.sidebar-footer [role="status"]').count(), 0);
   await page.locator('.hosted-status[role="status"]').filter({ hasText: /^Saved \d{1,2}:\d{2}/ }).waitFor();
-  await page.locator('.sidebar-footer').filter({ hasText: /Saved \d{1,2}:\d{2}/ }).waitFor();
+  assert.equal(await page.locator('.sidebar-footer').filter({ hasText: /Saved \d{1,2}:\d{2}/ }).count(), 0, 'the sidebar does not repeat the save status');
   await page.locator('.hosted-more > summary').click(); await page.getByRole('button', { name: 'Expand editor', exact: true }).click();
   await page.locator('.studio-toolbar [role="status"]').filter({ hasText: /^Saved \d{1,2}:\d{2}/ }).waitFor();
   assert.equal(await page.locator('[role="status"]:visible').filter({ hasText: /^Saved \d{1,2}:\d{2}/ }).count(), 1, 'one live save region while expanded');
+  assert.equal(await page.locator('.editor-shell.is-expanded').getByText(/^Saved \d{1,2}:\d{2}/).count(), 1, 'the expanded editor shows the save status once');
   await page.keyboard.press('Escape'); await page.locator('.editor-shell.is-expanded').waitFor({ state: 'detached' });
   assert.equal((await readRecords()).find(item => item.id === template.id).settings.headline, 'Template baseline');
 
