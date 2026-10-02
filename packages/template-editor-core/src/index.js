@@ -5,3 +5,7 @@ export * from './contents-equal.js';
 export * from './errors.js';
 export * from './dialect.js';
 export * from './conformance.js';
+export * from './conversation-format.js';
+export * from './conversation-archive.js';
+export * from './conversation-port.js';
+export * from './memory-conversation-store.js';

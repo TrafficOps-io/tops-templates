@@ -16,3 +16,5 @@ coverage/
 
 # Vite PWA development service worker output
 editor/dev-dist/
+
+.worktrees/

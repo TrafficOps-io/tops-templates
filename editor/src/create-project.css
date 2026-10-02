@@ -1,0 +1,57 @@
+/* New project dialog: visual template picker and the project type disclosure. */
+.template-picker { min-width: 0; border: 0; padding: 0; }
+.template-picker > legend { padding: 0; margin-bottom: var(--ui-space-2); font-size: var(--ui-text-md); line-height: var(--ui-text-md--line-height); font-weight: 500; }
+.template-choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: var(--ui-space-2); max-height: 18rem; overflow-y: auto; padding: var(--ui-space-1); margin: calc(-1 * var(--ui-space-1)); overscroll-behavior: contain; }
+.template-choice { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); justify-items: start; gap: var(--ui-space-1); padding: var(--ui-space-1) var(--ui-space-1) var(--ui-space-2); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); background: var(--ui-surface); color: var(--ui-text); cursor: pointer; transition: border-color var(--ui-motion-fast) var(--ui-ease), background var(--ui-motion-fast) var(--ui-ease); }
+.template-choice:hover { border-color: var(--ui-border-strong); }
+.template-choice:has(input:checked) { border-color: var(--ui-accent); background: color-mix(in srgb, var(--ui-accent) 6%, var(--ui-surface)); }
+.template-choice:has(input:focus-visible) { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.template-choice:has(input:disabled) { cursor: default; opacity: .6; }
+/* The invisible radio covers the whole card, so clicks and check() land on the native control. */
+.template-choice > input { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: inherit; }
+.template-choice-thumbnail { justify-self: stretch; position: relative; margin-bottom: var(--ui-space-1); height: 5.5rem; overflow: hidden; border-radius: var(--ui-radius-sm); background: var(--ui-page); pointer-events: none; }
+.template-choice-thumbnail-skeleton { position: absolute; inset: 0; }
+.template-choice-thumbnail-skeleton > .studio-skeleton { border-radius: 0; }
+.template-choice-thumbnail iframe { position: absolute; left: 0; top: 0; width: calc(100% / .16); height: calc(100% / .16); transform: scale(.16); transform-origin: top left; border: 0; pointer-events: none; background: white; }
+.template-choice-name { max-width: 100%; padding: 0 var(--ui-space-1); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--ui-text-sm); line-height: var(--ui-text-sm--line-height); font-weight: 500; }
+.template-choice-tag { margin-left: var(--ui-space-1); padding: 0 var(--ui-space-1); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); background: var(--ui-page); color: var(--ui-muted); font-size: var(--ui-text-xs); line-height: var(--ui-text-xs--line-height); white-space: nowrap; }
+.template-choice-check { position: absolute; top: var(--ui-space-2); right: var(--ui-space-2); display: none; place-items: center; width: 1.25rem; height: 1.25rem; border-radius: var(--ui-radius-full); background: var(--ui-accent); color: var(--ui-text-on-accent); }
+.template-choice:has(input:checked) .template-choice-check { display: grid; }
+
+.create-project-options { margin-top: var(--ui-space-4); }
+.create-project-options > summary { display: inline-flex; align-items: center; gap: var(--ui-space-1); list-style: none; cursor: pointer; color: var(--ui-muted); font-size: var(--ui-text-md); line-height: var(--ui-text-md--line-height); font-weight: 500; border-radius: var(--ui-radius-sm); }
+.create-project-options > summary::-webkit-details-marker { display: none; }
+.create-project-options > summary::marker { content: ''; }
+.create-project-options > summary:hover { color: var(--ui-text); }
+.create-project-options > summary:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.create-project-options > summary > svg { flex: none; transition: transform var(--ui-motion-fast) var(--ui-ease); }
+.create-project-options[open] > summary > svg { transform: rotate(90deg); }
+.create-project-options .create-kind { margin: var(--ui-space-3) 0 0; }
+@media (prefers-reduced-motion: reduce) { .create-project-options > summary > svg, .template-choice { transition: none; } }
+
+/* Direct template selection keeps the source visible without repeating the catalogue. */
+.selected-template-summary { display: grid; grid-template-columns: 5.5rem minmax(0, 1fr) auto; align-items: center; gap: .875rem; margin-top: 1rem; padding: .75rem; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); }
+.selected-template-summary .template-choice-thumbnail { height: 4rem; margin: 0; }
+.selected-template-summary > div:nth-child(2) { min-width: 0; }
+.selected-template-summary strong { display: block; margin-top: .25rem; font-weight: 500; overflow-wrap: anywhere; }
+.selected-template-summary > div:nth-child(2) > span { color: var(--ui-muted); font-size: var(--ui-text-xs); }
+.create-project-modal .selected-template-summary small { margin-top: .25rem; }
+.create-project-modal { max-height: calc(100dvh - 2rem); overflow-y: auto; overscroll-behavior: contain; }
+.create-options-kind { font-size: var(--ui-text-xs); color: var(--ui-muted); margin-left: .5rem; font-weight: 400; }
+.create-project-options > summary { min-height: 44px; flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .selected-template-summary { grid-template-columns: 4rem minmax(0, 1fr); gap: .625rem; }
+  .selected-template-summary > button { grid-column: 1 / -1; justify-self: start; min-height: 44px; }
+  .selected-template-summary .template-choice-thumbnail { height: 3.5rem; }
+  .create-project-modal { padding: 1.25rem; }
+  .create-project-options > summary { font-size: var(--ui-text-sm); }
+}
+
+.brief-ideas { margin-top: .75rem; color: var(--ui-muted); font-size: var(--ui-text-sm); }
+.brief-ideas > summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
+.brief-ideas > summary:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; border-radius: var(--ui-radius-sm); }
+.brief-ideas > div { display: flex; flex-wrap: wrap; gap: .25rem; }
+
+.template-choices button.template-choice { text-align: left; }
+.template-choices .template-choice[aria-pressed="true"] { border-color: var(--ui-accent); }
+.template-choices .template-choice[aria-pressed="true"] .template-choice-check { opacity: 1; }

@@ -29,5 +29,8 @@
     "monaco-editor": {
       "dompurify": "3.4.15"
     }
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0"
   }
 }

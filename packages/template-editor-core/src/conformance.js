@@ -32,6 +32,7 @@ export async function runHostConformance(hostFactory, { knownIds, faults = {} })
       for (const key of ['load', 'test']) assert(typeof settings[key] === 'function', `AI settings.${key} is required`);
       for (const key of ['save', 'remove']) assert(settings.owner === 'user' ? typeof settings[key] === 'function' : !Object.hasOwn(settings, key), `AI ${settings.owner} settings ${key} contract`);
     }
+    if (host.capabilities.ai) assert(host.conversations && ['load', 'save'].every(name => typeof host.conversations[name] === 'function'), 'ai hosts must provide a conversations port');
     checks.push('shape', 'dialect', 'capabilities');
     const original = await host.project.open();
     const draft = { ...original, files: { ...original.files, 'conformance.txt': '\n  exact é 😀\r\n\t', 'conformance.bin': new Uint8Array([0, 255, 1, 128, 13, 10]) } };

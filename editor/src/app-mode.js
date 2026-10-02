@@ -3,7 +3,8 @@ const confirmedAppWindows = new WeakSet();
 export function installedDisplayMode(environment = globalThis.window) {
   if (!environment) return false;
   const matches = mode => Boolean(environment.matchMedia?.(`(display-mode: ${mode})`)?.matches);
-  if (matches('standalone') || matches('minimal-ui') || environment.navigator?.standalone === true) {
+  // An installed window that draws into its title bar reports window-controls-overlay instead of standalone.
+  if (matches('standalone') || matches('minimal-ui') || matches('window-controls-overlay') || environment.navigator?.standalone === true) {
     confirmedAppWindows.add(environment);
     return true;
   }
@@ -19,7 +20,7 @@ export function installedDisplayMode(environment = globalThis.window) {
 
 export function watchDisplayMode(callback, environment = window) {
   installedDisplayMode(environment);
-  const queries = ['standalone', 'minimal-ui', 'fullscreen', 'browser'].map(mode => environment.matchMedia(`(display-mode: ${mode})`));
+  const queries = ['standalone', 'minimal-ui', 'window-controls-overlay', 'fullscreen', 'browser'].map(mode => environment.matchMedia(`(display-mode: ${mode})`));
   const update = () => callback(installedDisplayMode(environment));
   queries.forEach(query => query.addEventListener('change', update));
   environment.addEventListener('appinstalled', update);

@@ -113,6 +113,15 @@ test('PHP parity: runtime tokens reject quoted-tag and raw-text context bypasses
   }
 });
 
+test('PHP parity: formatted articles retain separate paragraphs, figures and captions', {skip}, () => {
+  for (const [type, value] of [
+    ['Wysiwyg', '<p>First.</p><p>Second.</p><figure onclick="alert(1)"><img src="img/article.png" alt="Article"><figcaption style="position:fixed">Caption.</figcaption></figure><p>Last.</p>'],
+    ['Markdown', 'First.\n\nSecond.\n\n![Article](img/article.png)\n\nLast.'],
+  ]) {
+    compare({source: `@param body ${type}\n@layout\n<div class="md rich-text">{{& body }}</div><pre>{{ body }}</pre>\n@endlayout`, values: {body: value}});
+  }
+});
+
 test('PHP parity: inverse sections preserve their enclosing scope for empty lists and nested fields', {skip}, () => {
   const source = `@type Item
 @param title String

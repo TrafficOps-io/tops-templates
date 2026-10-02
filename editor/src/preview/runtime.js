@@ -1,6 +1,88 @@
 // This function is serialized into an opaque sandbox. Keep it self-contained:
 // it receives only generated project bytes and cannot call back into Studio.
 export function runProjectPreview(snapshot, selectedPage) {
+  // Serialized separately into the authored document's first script, so capture
+  // handlers are installed before landing scripts register their own handlers.
+  function installSelectionBridge(config, page) {
+    const allowed = new Map((config.pages[page] || []).map(block => [block.id, block]));
+    // Navigated opaque blob documents may not expose secure-context randomUUID.
+    const documentToken = [...crypto.getRandomValues(new Uint8Array(16))].map(value => value.toString(16).padStart(2, '0')).join('');
+    let enabled = false, selected = new Set(), hovered = null, overlay = null, layer = null, scheduled = false;
+    const report = (type = 'trafficops-preview-selection-change') => parent.postMessage({ type, version: 1, token: config.token, documentToken, page, selectedIds: [...selected], hoverAncestorIds: hovered ? allowed.get(hovered)?.ancestorIds || [] : [] }, '*');
+    const instance = target => {
+      for (let node = target instanceof Element ? target : target?.parentElement; node; node = node.parentElement) {
+        const id = node.getAttribute('data-tops-block-instance');
+        if (id && allowed.has(id)) return id;
+      }
+      return null;
+    };
+    function draw() {
+      scheduled = false;
+      if (!enabled || !document.body) { overlay?.remove(); overlay = null; layer = null; return; }
+      if (!overlay?.isConnected) {
+        overlay = document.createElement('div');
+        overlay.setAttribute('data-tops-selection-overlay', '');
+        overlay.style.cssText = 'all:initial!important;position:fixed!important;inset:0!important;z-index:2147483647!important;pointer-events:none!important;';
+        const shadow = overlay.attachShadow({ mode: 'closed' });
+        const style = document.createElement('style');
+        style.textContent = ':host{pointer-events:none!important}.box{position:fixed;box-sizing:border-box;border:2px solid #635bff;background:rgba(99,91,255,.06);pointer-events:none}.box.hover{border-style:dashed;background:rgba(99,91,255,.02)}.label{position:absolute;left:-2px;top:0;transform:translateY(-100%);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:#635bff;color:white;font:12px/1.4 system-ui,sans-serif;padding:2px 5px;border-radius:3px 3px 0 0}.box.near-top .label{transform:none}';
+        layer = document.createElement('div'); shadow.append(style, layer); document.body.append(overlay);
+      }
+      layer.replaceChildren();
+      for (const node of document.querySelectorAll('[data-tops-block-instance]')) {
+        const id = node.getAttribute('data-tops-block-instance');
+        if (!allowed.has(id) || !selected.has(id) && id !== hovered) continue;
+        const rect = node.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0 || rect.bottom < 0 || rect.top > innerHeight || rect.right < 0 || rect.left > innerWidth) continue;
+        const box = document.createElement('div');
+        box.className = `box${selected.has(id) ? '' : ' hover'}${rect.top < 24 ? ' near-top' : ''}`;
+        box.style.cssText = `left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px`;
+        const label = document.createElement('span'); label.className = 'label'; label.textContent = allowed.get(id).label;
+        box.append(label); layer.append(box);
+      }
+    }
+    const schedule = () => { if (!scheduled) { scheduled = true; requestAnimationFrame(draw); } };
+    addEventListener('message', event => {
+      const message = event.data;
+      if (event.source !== parent || message?.type !== 'trafficops-preview-selection-control' || message.version !== 1 || message.token !== config.token || message.documentToken !== documentToken || typeof message.enabled !== 'boolean' || !Array.isArray(message.selectedIds)) return;
+      enabled = message.enabled; selected = new Set(message.selectedIds.filter(id => typeof id === 'string' && allowed.has(id)));
+      if (!enabled) hovered = null;
+      schedule();
+    });
+    const suppress = event => { event.preventDefault(); event.stopImmediatePropagation(); };
+    addEventListener('click', event => {
+      if (!enabled) return;
+      suppress(event);
+      if (event.button !== 0) return;
+      const id = instance(event.target);
+      if (!id) return;
+      if (selected.has(id)) selected.delete(id); else selected.add(id);
+      report(); schedule();
+    }, true);
+    for (const name of ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'dblclick', 'auxclick', 'submit']) addEventListener(name, event => {
+      if (!enabled) return;
+      // Touch scrolling remains available while form/control handlers are suppressed.
+      if (event.pointerType === 'touch' && name.startsWith('pointer')) event.stopImmediatePropagation(); else suppress(event);
+    }, true);
+    addEventListener('keydown', event => { if (enabled && ['Enter', ' '].includes(event.key)) suppress(event); }, true);
+    addEventListener('pointermove', event => {
+      if (!enabled) return;
+      const next = instance(event.target);
+      // Hover only redraws the local overlay. Reporting the iframe's previous selection here
+      // can overwrite a newer selection made by the parent's section picker.
+      if (hovered !== next) { hovered = next; schedule(); }
+    }, true);
+    addEventListener('mouseout', event => { if (enabled && !event.relatedTarget) { hovered = null; schedule(); } }, true);
+    addEventListener('scroll', schedule, true); addEventListener('resize', schedule);
+    const loaded = () => {
+      const observer = new MutationObserver(records => {
+        if (enabled && records.some(record => record.target !== overlay && !overlay?.contains(record.target))) schedule();
+      });
+      observer.observe(document.body, { subtree: true, childList: true, attributes: true });
+      report('trafficops-preview-selection-ready'); schedule();
+    };
+    if (document.readyState === 'complete') loaded(); else addEventListener('load', loaded, { once: true });
+  }
   const { entries, pages, scripts, origin, runtimeKey, policy } = snapshot;
   const base = new URL(selectedPage, `${origin}/`), urls = new Map(), reverse = new Map(), pending = new Set();
   const nativeFetch = globalThis.fetch.bind(globalThis);
@@ -151,6 +233,12 @@ export function runProjectPreview(snapshot, selectedPage) {
   sourceDocument.head.prepend(map);
   const csp = sourceDocument.createElement('meta'); csp.httpEquiv = 'Content-Security-Policy'; csp.content = policy;
   sourceDocument.head.prepend(csp);
+  if (snapshot.selection) {
+    const bridge = sourceDocument.createElement('script');
+    bridge.textContent = `(${installSelectionBridge.toString()})(${safeJson(snapshot.selection)},${safeJson(pathOf(base))});`;
+    // Keep CSP before executable content, and the bridge before author scripts.
+    csp.after(bridge);
+  }
   // These adapters resolve project paths, not permissions. The iframe sandbox
   // and CSP still enforce isolation if author code replaces any adapter.
   const nativeSetAttribute = Element.prototype.setAttribute;

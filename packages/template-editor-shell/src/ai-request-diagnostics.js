@@ -219,3 +219,18 @@ export function createAiDiagnosticFetch(fetchImpl = globalThis.fetch, { onProgre
     return wrapped;
   };
 }
+
+/**
+ * Lightweight per-run timing: provider requests and wall time. countRequest()
+ * is called once per outgoing provider HTTP request (chat or image);
+ * record(event) sums the request-finished durations of diagnostic fetches.
+ */
+export function createRunTimings(now = Date.now) {
+  const started = now();
+  let providerCalls = 0, providerMs = 0;
+  return {
+    countRequest() { providerCalls++; },
+    record(event) { if (event?.type === 'request-finished' && Number.isFinite(event.seconds)) providerMs += Math.round(event.seconds * 1000); },
+    snapshot() { return { providerCalls, providerMs, durationMs: Math.max(0, now() - started) }; },
+  };
+}

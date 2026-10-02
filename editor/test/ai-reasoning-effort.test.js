@@ -75,7 +75,7 @@ for (const stream of [false, true]) {
       if (reasoning) assert.deepEqual(body.reasoning, reasoning);
       else assert.equal(Object.hasOwn(body, 'reasoning'), false, 'other models must keep their existing provider reasoning defaults');
       assert.equal(Object.hasOwn(body, 'reasoning_effort'), false);
-      assert.deepEqual(body.provider, { require_parameters: true, data_collection: 'deny' });
+      assert.deepEqual(body.provider, { require_parameters: true, allow_fallbacks: true, data_collection: 'deny' });
       assert.deepEqual(body.messages.find(message => message.role === 'assistant').reasoning_details, reasoningDetails);
       assert.equal(body.tools[0].function.name, 'validate_draft');
       assert.equal(body.tool_choice, 'auto');

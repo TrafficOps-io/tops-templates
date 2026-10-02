@@ -1,6 +1,7 @@
 import { translateStudio } from '@trafficops/template-editor-shell/translation';
 // @ts-check
-import { decodeProject, encodeProject, PolicyError, ConflictError, runOperation, throwIfAborted } from '@trafficops/template-editor-core';
+import { decodeProject, encodeProject, PolicyError, ConflictError, runOperation, throwIfAborted, createStoreConversationPort } from '@trafficops/template-editor-core';
+import { createHttpConversationStore } from './http-conversation-store.js';
 
 /** @typedef {import('@trafficops/template-editor-core').EditorHost} EditorHost */
 const interpolate = (text, values = {}) => text.replace(/\{(\w+)\}/g, (match, key) => values[key] ?? match);
@@ -48,7 +49,8 @@ export async function createHttpHost(options) {
   }
   const initial = await json('', undefined, { method: 'GET', signal: options.signal });
   let metadata = initial, run = null, starting = null;
-  const capabilities = Object.freeze({ inlinePreview: true, preview: true, lifecycle: true, ai: Boolean(initial.aiEnabled), locales: true, entrypoint: true, autosave: false, sourceExport: true, htmlExport: true });
+  // AI chat needs somewhere to keep its history: without the host conversation endpoints the embed shows no AI.
+  const capabilities = Object.freeze({ inlinePreview: true, preview: true, lifecycle: true, ai: Boolean(initial.aiEnabled) && initial.conversationsEnabled === true, locales: true, entrypoint: true, autosave: false, sourceExport: true, htmlExport: true });
   const analysis = payload => ({ definition: payload.definition || null, pages: payload.pages || [], entrypoint: payload.entrypoint || null,
     diagnostics: payload.diagnostics || [], sourceDiagnostics: payload.sourceDiagnostics || [], previewAvailable: !(payload.sourceDiagnostics?.length) && Boolean(payload.pages?.length) });
   /** @returns {import('@trafficops/template-editor-core').ProjectState} */
@@ -67,7 +69,7 @@ export async function createHttpHost(options) {
     if (payload.kind !== 'template' && payload.status === 'published') actions.push({ id: 'unpublish', label: t('Unpublish'), intent: 'danger' });
     return { name: payload.name, revision: payload.revision, files: decodeProject(payload.files), folders: payload.folders || [], entrypoint: payload.entrypoint || null,
       locale: payload.locale, translations: payload.translations, status,
-      availability: { inlinePreview: true, externalPreview: Boolean(payload.previewEnabled), ai: Boolean(payload.aiEnabled) }, actions, history: projectHistory(payload, t), analysis: analysis(payload) };
+      availability: { inlinePreview: true, externalPreview: Boolean(payload.previewEnabled), ai: capabilities.ai && Boolean(payload.aiEnabled) }, actions, history: projectHistory(payload, t), analysis: analysis(payload) };
   }
   const wire = (state, locale = state.locale) => ({ name: state.name, revision: state.revision, files: encodeProject(state.files), folders: state.folders,
     entrypoint: state.entrypoint, locale: state.locale, translations: state.translations, editingLocale: locale });
@@ -202,6 +204,9 @@ export async function createHttpHost(options) {
     },
     finish,
   };
+  if (options.initialAiRequest && !capabilities.ai) console.warn('TrafficOps editor: AI is disabled because the host does not expose conversation endpoints (conversationsEnabled).');
+  const projectId = `embed:${new URL(options.endpoint, globalThis.location?.href || 'http://localhost/').pathname}`;
+  const conversations = capabilities.ai ? createStoreConversationPort(createHttpConversationStore({ endpoint: options.endpoint, csrf: options.csrf, fetchImpl }), { projectId }) : undefined;
   return { language: options.language || 'en', messages: options.messages || {}, capabilities, dialect: initial.dialect,
-    project, analyzer, preview, lifecycle, ...(initial.previewEnabled ? { livePreview } : {}), ...(capabilities.ai ? { ai } : {}), async dispose() { await livePreview.dispose(); if (run) await finish().catch(() => {}); } };
+    project, analyzer, preview, lifecycle, ...(initial.previewEnabled ? { livePreview } : {}), ...(capabilities.ai ? { ai, conversations } : {}), async dispose() { await livePreview.dispose(); if (run) await finish().catch(() => {}); } };
 }

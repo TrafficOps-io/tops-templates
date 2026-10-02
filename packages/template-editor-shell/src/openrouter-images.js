@@ -1,6 +1,6 @@
 import { validateOpenRouterApiKey } from './openrouter-ai.js';
 import { LIMITS } from './project.js';
-import { AiProviderError, normalizeAiProviderError } from './ai-provider-errors.js';
+import { AiProviderError, normalizeAiProviderError, referenceSupportError } from './ai-provider-errors.js';
 export const OPENROUTER_IMAGE_ENDPOINT = 'https://openrouter.ai/api/v1/images';
 const imageFormatError = message => new AiProviderError(message, { code: 'image_format_failed', retryable: false, terminalImage: true, cancelled: false });
 export function imageFromResponse(payload) {
@@ -22,7 +22,10 @@ export async function generateImageWithOpenRouter({ apiKey, imageModel, prompt, 
   try {
     const response = await fetchImpl(OPENROUTER_IMAGE_ENDPOINT, { method: 'POST', signal, headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json', 'X-OpenRouter-Title': 'Landing Studio by TrafficOps' }, body: JSON.stringify({ model: imageModel.trim(), prompt: `Create an image for a landing page. ${field.label ? `Image role: ${field.label}.` : ''} ${field.help || ''}\n${prompt.trim()}${field.sizes?.[0] ? `\nCompose for a ${field.sizes[0].width}x${field.sizes[0].height} crop.` : field.aspect_ratio ? `\nCompose for width/height ratio ${field.aspect_ratio}.` : ''}`, n: 1, output_format: 'png', ...(references.length ? { input_references: references.map(url => ({ type: 'image_url', image_url: { url } })) } : {}) }) });
     const payload = await response.json().catch(() => null);
-    if (!response.ok || payload?.error) throw normalizeAiProviderError(payload || new Error(`Image generation failed (${response.status}).`), { apiKey: key, status: response.status, generationId: response.headers.get('X-Generation-Id') });
+    if (!response.ok || payload?.error) {
+      const failure = normalizeAiProviderError(payload || new Error(`Image generation failed (${response.status}).`), { apiKey: key, status: response.status, generationId: response.headers.get('X-Generation-Id') });
+      throw (references.length && referenceSupportError(failure, { model: imageModel.trim() })) || failure;
+    }
     return imageFromResponse(payload);
   } catch (error) {
     if (signal?.aborted) throw normalizeAiProviderError({ name: 'AbortError', message: 'Image generation cancelled or timed out.' }, { apiKey: key });

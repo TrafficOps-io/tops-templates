@@ -60,6 +60,18 @@ TPL);
         $this->assertStringNotContainsString('<script', $html);
     }
 
+    public function test_article_figures_and_captions_keep_their_structure_without_unsafe_attributes(): void
+    {
+        $value = '<p>First.</p><p>Second.</p><figure onclick="alert(1)"><img src="img/article.png" alt="Article" onerror="alert(1)"><figcaption style="position:fixed">Caption.</figcaption></figure><p>Last.</p>';
+        $html = app(TemplateEngine::class)->render($this->definition('Wysiwyg'), ['body' => $value]);
+        $this->assertStringContainsString('<p>First.</p><p>Second.</p><figure>', $html);
+        $this->assertStringContainsString('<figcaption>Caption.</figcaption></figure><p>Last.</p>', $html);
+        $this->assertSame(['img/article.png'], app(TemplateRichText::class)->imageSources($html));
+        foreach (['onclick', 'onerror', 'style='] as $unsafe) {
+            $this->assertStringNotContainsString($unsafe, $html);
+        }
+    }
+
     #[DataProvider('emptyEditorValues')]
     public function test_required_editors_reject_visually_empty_content(string $type, string $value): void
     {

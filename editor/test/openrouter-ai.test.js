@@ -49,7 +49,7 @@ test('OpenRouter requests use BYOK, strict JSON schema and privacy-aware routing
   assert.equal(request.options.headers.Authorization, 'Bearer sk-or-test-secret');
   assert.equal(request.body.response_format.type, 'json_schema');
   assert.equal(request.body.response_format.json_schema.strict, true);
-  assert.deepEqual(request.body.provider, { require_parameters: true, data_collection: 'deny' });
+  assert.deepEqual(request.body.provider, { require_parameters: true, allow_fallbacks: true, data_collection: 'deny' });
   assert.equal(result.data.answer, 'ok');
   assert.equal(result.model, 'test/model');
 
@@ -74,7 +74,7 @@ test('OpenRouter retries locally validated JSON when an endpoint rejects strict 
   assert.equal(requests.length, 2);
   assert.equal(requests[0].response_format.type, 'json_schema');
   assert.equal('response_format' in requests[1], false);
-  assert.deepEqual(requests[1].provider, { data_collection: 'deny' });
+  assert.deepEqual(requests[1].provider, { allow_fallbacks: true, data_collection: 'deny' });
   assert.equal(result.compatibilityFallback, true);
   assert.equal(result.data.answer, 'ok');
 });

@@ -48,7 +48,7 @@ jobs:
       - run: npm run test:pack --workspace=@trafficops/cli
       - run: npm run build:vsix
       - run: mkdir -p dist
-      - run: npm pack --workspace=@trafficops/cli --workspace=@trafficops/template-language --workspace=@trafficops/template-editor-monaco --workspace=@trafficops/template-editor-core --workspace=@trafficops/template-editor-shell --pack-destination=dist
+      - run: npm pack --workspace=@trafficops/cli --workspace=@trafficops/template-language --workspace=@trafficops/template-editor-monaco --workspace=@trafficops/template-editor-core --workspace=@trafficops/studio-tokens --workspace=@trafficops/studio-ui --workspace=@trafficops/template-editor-shell --pack-destination=dist
       - uses: actions/upload-artifact@v7
         if: matrix.node == '22'
         with:
@@ -72,22 +72,39 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - run: npm install --prefix "$RUNNER_TEMP/studio-browser" --ignore-scripts --no-audit --no-fund playwright@1.63.0
+      # Chromium bundled with 1.63.0 exits when Linux reads an OPFS handle from IndexedDB.
+      # 1.62.0 passes the real-storage folder tests; do not replace them with filesystem mocks.
+      - run: npm install --prefix "$RUNNER_TEMP/studio-browser" --ignore-scripts --no-audit --no-fund playwright@1.62.0
       - run: node "$PLAYWRIGHT_MODULE/cli.js" install --with-deps chromium
       - run: npm run build:editor
+      - run: node editor/test/preview-block-selection-browser.mjs
       - run: node editor/test/studio-browser.mjs editor/dist
-      - run: node editor/test/pwa-access-browser.mjs editor/dist
+      - run: node editor/test/studio-ux-browser.mjs editor/dist
+      - run: node editor/test/workspace-axe-browser.mjs editor/dist
+      - run: node editor/test/storage-access-browser.mjs editor/dist
+      - run: node editor/test/storage-contract-browser.mjs editor/dist
       - run: node editor/test/library-browser.mjs editor/dist
       - run: node editor/test/library-ai-browser.mjs editor/dist
+      - run: node editor/test/conversations-browser.mjs editor/dist
+      - run: node editor/test/conversation-ui-browser.mjs editor/dist
+      - run: node editor/test/home-chat-browser.mjs editor/dist
+      - run: node editor/test/project-folder-browser.mjs editor/dist
+      - run: node editor/test/file-ai-browser.mjs editor/dist
+      - run: node editor/test/block-ai-browser.mjs editor/dist
       - run: node editor/test/fill-content-browser.mjs editor/dist
       - run: node editor/test/optiheart-ai-browser.mjs editor/dist
       - run: node editor/test/generated-image-browser.mjs
-      - run: node editor/test/recovery-browser.mjs editor/dist
+      - run: node editor/test/folder-access-browser.mjs editor/dist
+      - run: node editor/test/interactive-editor-browser.mjs editor/dist
       - run: node editor/test/agent-browser.mjs editor/dist
       - run: node editor/test/retained-draft-settings-browser.mjs
-      - run: node editor/test/durable-ai-recovery-browser.mjs
       - run: node editor/test/ai-panel-ui-browser.mjs editor/dist
+      - run: node editor/test/branches-browser.mjs editor/dist
+      - run: node editor/test/clipboard-images-browser.mjs editor/dist
+      - run: node editor/test/rich-text-browser.mjs editor/dist
+      - run: node editor/test/openrouter-settings-browser.mjs editor/dist
       - run: node editor/test/autosave-browser.mjs
+      - run: node editor/test/explicit-save-apply-browser.mjs
       - run: npm run build:embed --workspace=@trafficops/template-studio
       - run: node editor/test/creation-browser.mjs
       - uses: actions/upload-artifact@v7

@@ -1,0 +1,215 @@
+// Pure functions behind StudioChat: ChatPort messages → assistant-ui ThreadMessageLike, ChatEvent reduction,
+// sending into a (possibly new) thread and routing card actions to the port. No React and no JSX here,
+// so Node tests import this module directly (node --test does not load .jsx).
+
+/** RunStatus → ThreadMessageLike.status (assistant-ui 0.15: running | incomplete{reason} | complete{reason}). */
+export const RUN_STATUS = {
+  queued: { type: 'running' },
+  running: { type: 'running' },
+  ready: { type: 'complete', reason: 'stop' },
+  completed: { type: 'complete', reason: 'stop' },
+  applied: { type: 'complete', reason: 'stop' },
+  discarded: { type: 'complete', reason: 'stop' },
+  failed: { type: 'incomplete', reason: 'error' },
+  cancelled: { type: 'incomplete', reason: 'cancelled' },
+  interrupted: { type: 'incomplete', reason: 'other' },
+};
+
+// Result cards that carry an unapplied draft (changed files, values, generated media).
+export const DRAFT_CARD_TYPES = new Set(['diff', 'values', 'image', 'file']);
+export const hasDraftCards = parts => (parts ?? []).some(part => part?.type === 'tool-call' && DRAFT_CARD_TYPES.has(part.toolName));
+const DISCARD_STOPPED = new Set(['failed', 'interrupted', 'cancelled']);
+/** Discard is offered for a ready run, and — only when the port declares capabilities.discardStopped — for a
+ *  failed/interrupted/cancelled run that left draft cards (otherwise a runtime may carry the broken draft into the next
+ *  send). Both require port.discard. */
+export const canDiscardRun = (port, status, hasDrafts) => typeof port?.discard === 'function'
+  && (status === 'ready' || (DISCARD_STOPPED.has(status) && port.capabilities?.discardStopped === true && Boolean(hasDrafts)));
+
+export const isActiveRun = message => ['queued', 'running'].includes(message?.status?.status);
+
+// Regenerate, edit and branches (port.regenerate / editMessage / switchBranch). An action is offered when the port
+// implements the method and the matching capability is not false (false hides it, e.g. for a read-only thread).
+const offered = (port, method, flag) => typeof port?.[method] === 'function' && port.capabilities?.[flag] !== false;
+export const canRegenerate = port => offered(port, 'regenerate', 'regenerate');
+export const canEdit = port => offered(port, 'editMessage', 'edit');
+/** The branch picker needs port.switchBranch and a message with more than one sibling. */
+export const canSwitchBranch = (port, branch) => offered(port, 'switchBranch', 'branches') && isBranch(branch);
+const isBranch = branch => Number.isInteger(branch?.count) && branch.count > 1 && Number.isInteger(branch.index)
+  && Array.isArray(branch.siblingIds) && branch.siblingIds.length === branch.count && branch.index >= 0 && branch.index < branch.count;
+/** Id of the sibling step (-1 previous, +1 next) away from the message, or null at the edge or for a malformed branch. */
+export function branchSibling(branch, step) {
+  if (!isBranch(branch)) return null;
+  return branch.siblingIds[branch.index + step] ?? null;
+}
+// "Retry" under a run that ended without a result: failed, interrupted or cancelled, through port.regenerate.
+const RETRY = new Set(['failed', 'interrupted', 'cancelled']);
+export const canRetryRun = (port, status) => RETRY.has(status) && canRegenerate(port);
+
+/**
+ * assistant-ui onReload(parentId, { sourceId }) → the assistant message to regenerate. sourceId is the assistant message
+ * the reload came from (ActionBarPrimitive.Reload); without it, the first assistant message after parentId in the visible
+ * list (parentId null — from the start). Returns its id or null.
+ */
+export function resolveReloadTarget(messages, parentId, sourceId) {
+  if (sourceId && messages.some(message => message.id === sourceId && message.role === 'assistant')) return sourceId;
+  const start = parentId == null ? 0 : messages.findIndex(message => message.id === parentId) + 1;
+  if (parentId != null && start === 0) return null;
+  return messages.slice(start).find(message => message.role === 'assistant')?.id ?? null;
+}
+
+/** assistant-ui onEdit(AppendMessage) → { messageId, text } for port.editMessage: sourceId is the edited user message. */
+export function resolveEdit(messages, message) {
+  const source = message?.sourceId && messages.find(item => item.id === message.sourceId);
+  if (!source || source.role !== 'user') return null;
+  return { messageId: source.id, text: appendMessageText(message) };
+}
+
+// ChatPort message → ThreadMessageLike. Result cards become tool-call parts, toolName = card type;
+// StudioChat renders them with its own card components. assistant-ui ignores status on user messages.
+export function toThreadMessage(message) {
+  const run = message.status;
+  return {
+    id: message.id,
+    role: message.role,
+    createdAt: new Date(message.createdAt),
+    content: message.parts.map(part => part.type === 'text'
+      ? { type: 'text', text: part.text }
+      : { type: 'tool-call', toolCallId: part.toolCallId, toolName: part.toolName, args: {}, result: part.result }),
+    status: message.role === 'assistant' && run ? RUN_STATUS[run.status] ?? { type: 'complete', reason: 'unknown' } : undefined,
+    metadata: { custom: { run, mentions: message.mentions, attachments: message.attachments, cost: message.cost, parentId: message.parentId, branch: message.branch } },
+  };
+}
+
+/** Applies a ChatEvent to the port's message list. Pure: the input array and messages are not mutated. */
+export function applyChatEvent(messages, event) {
+  const index = messages.findIndex(message => message.id === event.messageId);
+  if (index < 0) return messages;
+  const message = { ...messages[index], parts: [...messages[index].parts] };
+  const cardAt = toolCallId => message.parts.findIndex(part => part.type === 'tool-call' && part.toolCallId === toolCallId);
+  switch (event.type) {
+    case 'text-delta': {
+      const last = message.parts.at(-1);
+      if (last?.type === 'text') message.parts[message.parts.length - 1] = { ...last, text: last.text + event.delta };
+      else message.parts.push({ type: 'text', text: event.delta });
+      break;
+    }
+    case 'part-start': {
+      // toolCallId is unique within a message (port contract): a repeated start replaces the card instead of duplicating it.
+      const at = event.part.type === 'tool-call' ? cardAt(event.part.toolCallId) : -1;
+      if (at >= 0) message.parts[at] = event.part; else message.parts.push(event.part);
+      break;
+    }
+    case 'part-update': {
+      const at = cardAt(event.toolCallId);
+      if (at < 0) return messages;
+      message.parts[at] = { ...message.parts[at], result: { ...message.parts[at].result, ...event.result } };
+      break;
+    }
+    case 'part-done': return messages; // the card already carries its final result; the event is for the port, not the feed
+    case 'status': message.status = event.status; break;
+    case 'error': message.status = { ...(message.status || { id: event.messageId }), status: 'failed', message: event.message }; break;
+    default: return messages;
+  }
+  return messages.with(index, message);
+}
+
+// Streamed text (text-delta) lives beside the port's snapshots: a port that streams deltas does not put that text into
+// messages() (contract rule), so a new snapshot must not wipe it. streamed: { [messageId]: { at, text }[] } — segments,
+// at = number of snapshot parts when the segment started (a delta after a new card starts a new segment).
+// A delta for a message the snapshot does not have yet (the event outran the snapshot) is buffered at position 0 and
+// shown once the message appears; at most MAX_PENDING such messages and MAX_PENDING_TEXT characters each are kept.
+const MAX_PENDING = 8, MAX_PENDING_TEXT = 64 * 1024;
+export function addStreamedText(streamed, messages, event) {
+  if (!event.messageId || !event.delta) return streamed;
+  const message = messages.find(item => item.id === event.messageId);
+  const segments = streamed[event.messageId] ?? [], last = segments.at(-1);
+  if (!message) {
+    const text = (last?.text ?? '') + event.delta;
+    if (text.length > MAX_PENDING_TEXT) return streamed;
+    const known = new Set(messages.map(item => item.id));
+    const pending = Object.keys(streamed).filter(id => !known.has(id) && id !== event.messageId);
+    const kept = { ...streamed };
+    for (const id of pending.slice(0, Math.max(0, pending.length - MAX_PENDING + 1))) delete kept[id];
+    return { ...kept, [event.messageId]: [{ at: 0, text }] };
+  }
+  const at = message.parts.length;
+  const next = last && last.at === at ? segments.with(-1, { at, text: last.text + event.delta }) : [...segments, { at, text: event.delta }];
+  return { ...streamed, [message.id]: next };
+}
+
+// Snapshot + streamed segments → the list StudioChat renders. Once the snapshot carries text for a message, the port
+// switched to snapshots for it and the segments are ignored (no duplicates). Untouched messages keep identity.
+export function mergeStreamedText(messages, streamed) {
+  if (!streamed || !Object.keys(streamed).length) return messages;
+  return messages.map(message => {
+    const segments = streamed[message.id];
+    if (!segments?.length || message.parts.some(part => part.type === 'text' && part.text)) return message;
+    const parts = [...message.parts];
+    for (const segment of [...segments].reverse()) parts.splice(Math.min(segment.at, parts.length), 0, { type: 'text', text: segment.text });
+    return { ...message, parts };
+  });
+}
+
+/** Text of an assistant-ui AppendMessage. */
+export const appendMessageText = message => message.content.filter(part => part.type === 'text').map(part => part.text).join('\n');
+
+// Thread model: an empty threadId means a new conversation. The port must return a real thread from createThread();
+// StudioChat switches to it through onThreadCreated and subscribes to messages(id), then the message is sent there.
+// A rejected send rolls back: a thread created for this send is deleted (port.deleteThread) and onThreadCreated gets the
+// previous threadId back, onRestore(input) returns text, mentions and attachments to the composer, then onError(error)
+// (StudioChat shows an InlineNotice tone="danger", never a toast).
+export async function sendToPort(port, threadId, input, { onSent, onThreadCreated, onRestore, onError } = {}) {
+  let created = '';
+  try {
+    let target = threadId;
+    if (!target) { const thread = await port.createThread(); created = target = thread.id; onThreadCreated?.(thread.id); }
+    await port.send(target, input);
+    onSent?.();
+    return true;
+  } catch (error) {
+    if (created) {
+      try { await port.deleteThread(created); } catch { /* the empty thread stays; the send error is the one to report */ }
+      onThreadCreated?.(threadId);
+    }
+    onRestore?.(input);
+    onError?.(error);
+    return false;
+  }
+}
+
+// Card actions → port methods. A button for an action is rendered only when canHandleCardAction says the port supports it.
+const PORT_METHOD = { open: 'openTarget', variants: 'openTarget', edit: 'openTarget', play: 'openTarget', continue: 'continueRun', answer: 'answer', apply: 'apply', discard: 'discard' };
+export const canHandleCardAction = (port, action) => typeof port?.[PORT_METHOD[action]] === 'function';
+
+const cardTarget = card => card.target ?? { kind: 'file', id: card.path ?? card.name, label: card.path ?? card.name };
+const assetTarget = card => card.target ?? { kind: 'asset', id: card.assetId ?? card.name, label: card.name };
+
+export function handleCardAction(port, runId, action, card, value) {
+  if (!canHandleCardAction(port, action)) return undefined;
+  switch (action) {
+    case 'open': return port.openTarget(cardTarget(card));
+    case 'variants': case 'edit': case 'play': return port.openTarget(assetTarget(card));
+    case 'continue': return value ? port.continueRun(runId, value) : port.continueRun(runId);
+    case 'answer': return port.answer(card.questionId, value);
+    case 'apply': return value ? port.apply(runId, value) : port.apply(runId);
+    case 'discard': return port.discard(runId);
+    default: return undefined;
+  }
+}
+
+/**
+ * Line diff by common prefix/suffix (same algorithm as TextChanges in ConversationPanel.jsx).
+ * Returns context lines around the change, removed and added lines.
+ */
+export function lineDiff(before, after, context = 2) {
+  const a = String(before ?? '').split('\n'), b = String(after ?? '').split('\n');
+  let start = 0, end = 0;
+  while (start < Math.min(a.length, b.length) && a[start] === b[start]) start++;
+  while (end < Math.min(a.length, b.length) - start && a[a.length - 1 - end] === b[b.length - 1 - end]) end++;
+  return {
+    leading: a.slice(Math.max(0, start - context), start),
+    removed: a.slice(start, a.length - end),
+    added: b.slice(start, b.length - end),
+    trailing: b.slice(b.length - end, b.length - end + context),
+  };
+}

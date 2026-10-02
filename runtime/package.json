@@ -5,7 +5,7 @@
   "type": "module",
   "exports": "./src/index.js",
   "scripts": { "test": "node --test test/*.test.js" },
-  "dependencies": { "marked": "^16.2.0", "sanitize-html": "^2.17.0" },
+  "dependencies": { "marked": "^16.2.0", "parse5": "^8.0.1", "sanitize-html": "^2.17.0" },
   "engines": { "node": ">=22" },
   "license": "MIT"
 }

@@ -33,7 +33,8 @@ const entry = `
 import { normalizeGeneratedImagePng } from './packages/template-editor-shell/src/generated-image-png.js';
 import { runStudioAiWorkflow } from './packages/template-editor-shell/src/studio-ai-workflow.js';
 import { createAiDraftValidator } from './packages/template-editor-shell/src/validate-ai-draft.js';
-import { createStudioHost } from './editor/src/hosts/StudioHost.js';
+import { createFolderHost } from './editor/src/hosts/FolderHost.js';
+import { createProjectInRoot } from './editor/src/storage/project-root.js';
 import { parseProject, getDefaults } from './runtime/src/index.js';
 const pngSignature = [137,80,78,71,13,10,26,10];
 const checks = [];
@@ -74,19 +75,25 @@ function toolResponse(model, name, value) {
 }
 const files = { 'index.tpl': '@template "Image conversion QA"\\n@section content "Content"\\n@param headline String = "Original headline" label="Heading" required\\n@param cover Image = "" label="Cover"\\n@endsection\\n@layout\\n<!doctype html><html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{headline}}</title></head><body><h1>{{headline}}</h1>\\n@if cover\\n<img src="{{cover}}" alt="Synthetic image">\\n@endif\\n</body></html>\\n@endlayout\\n' };
 const definition = parseProject(files).definition, values = getDefaults(definition);
+// The host is the production folder host over a project written to a fresh OPFS folder (one per workflow).
+async function folderHost(name) {
+  const root = await (await navigator.storage.getDirectory()).getDirectoryHandle(name, { create: true });
+  await createProjectInRoot(root, { kind: 'landing', name: 'Image conversion QA', files, values });
+  return createFolderHost({ root });
+}
 async function workflow(file) {
-  const host = createStudioHost({ initial: { files, settings: values } }), state = await host.project.open();
+  const host = await folderHost('generated-image-' + file.type.replace('/', '-') + '-' + crypto.randomUUID()), state = await host.project.open();
   const validateDraft = createAiDraftValidator(host.analyzer, () => state);
   const bytes = new Uint8Array(await file.arrayBuffer()); let binary = ''; for (const byte of bytes) binary += String.fromCharCode(byte);
   const imagePayload = { data: [{ media_type: file.type, b64_json: btoa(binary) }] };
   let writer = 0, imageRequests = 0, textRequests = 0;
   const original = JSON.stringify({ files, values });
-  const result = await runStudioAiWorkflow({ mode:'content', files, values, definition, prompt:'Generate a cover illustration, use it on the page and change the headline to Polish.', generateImages:true, apiKey:'mock-raster-key-no-paid-requests', model:'test/tool-model', imageModel:'test/provider-raster', stream:true, validateDraft,
+  const result = await runStudioAiWorkflow({ mode:'content', files, values, definition, prompt:'Generate a cover illustration, use it on the page and change the headline to Polish.', generateImages:true, apiKey:'mock-raster-key-no-paid-requests', model:'test/tool-model', imageModel:'test/provider-raster', stream:true, validateDraft, staged:true, // the reviewed (plan → write → review) workflow
     fetchImpl:async (url, init) => {
       if (String(url).endsWith('/images')) { imageRequests++; return Response.json(imagePayload); }
       check(String(url).endsWith('/chat/completions'), 'Workflow requests stay in the synthetic OpenRouter adapter'); textRequests++;
       const body = JSON.parse(init.body), names = body.tools.map(tool => tool.function.name);
-      if (names.includes('submit_plan')) return toolResponse(body.model,'submit_plan',{summary:'Generate and use the image, then independently review.',tasks:['Generate requested cover','Update saved fields','Validate and review']});
+      if (names.includes('submit_plan')) return toolResponse(body.model,'submit_plan',{summary:'Generate and use the image, then independently review.',tasks:['Generate requested cover','Update saved fields','Validate and review'],imageRequests:['Synthetic cover']});
       if (names.includes('submit_review')) return toolResponse(body.model,'submit_review',{approved:true,summary:'Polish headline and real local cover match the request.',issues:[]});
       const step = writer++;
       if (step === 0) return toolResponse(body.model,'generate_image',{path:'images/cover.png',prompt:'Synthetic cover',referenceIds:[]});
@@ -99,6 +106,9 @@ async function workflow(file) {
   await inspectPng(new File([result.files['images/cover.png']], 'cover.png', {type:'image/png'}), file.type + ' workflow');
   check(imageRequests === 1, file.type + ': conversion does not repeat the paid image request', { imageRequests, textRequests });
   check(JSON.stringify({files,values}) === original, file.type + ': original project is unchanged until Apply');
+  const reopened = await host.project.open();
+  check(reopened.files['images/cover.png'] === undefined && JSON.stringify(reopened.translations?.[reopened.locale]) === JSON.stringify(values), file.type + ': the project folder is unchanged until Apply');
+  host.dispose();
 }
 window.runGeneratedImageChecks = async () => {
   try {

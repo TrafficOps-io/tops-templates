@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { createZip } from '@trafficops/template-editor-core';
+import { installFolderPicker, usePicker } from './support/studio-folders.js';
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = resolve(process.argv[2] || 'editor/dist');
 const types = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.svg':'image/svg+xml', '.png':'image/png', '.json':'application/json', '.webmanifest':'application/manifest+json', '.woff2':'font/woff2', '.ttf':'font/ttf' };
@@ -24,16 +25,27 @@ let browser, page;
 const errors=[];
 try {
   browser=await chromium.launch({headless:true,...(process.platform==='darwin'?{executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'}:{})});
-  const context=await browser.newContext({viewport:{width:1600,height:1100}}); page=await context.newPage();
+  const context=await browser.newContext({viewport:{width:1600,height:1100}}); await installFolderPicker(context); page=await context.newPage();
   page.on('pageerror',error=>errors.push(error.message));
   await page.addInitScript(()=>Object.defineProperty(navigator,'standalone',{configurable:true,value:true}));
   await page.goto(`http://127.0.0.1:${server.address().port}`);
+  await usePicker(page,'interactive');
   await page.getByLabel('Import project ZIP',{exact:true}).setInputFiles({name:'Interactive.zip',mimeType:'application/zip',buffer:Buffer.from(createZip(files))});
+  await page.getByRole('dialog',{name:'Import Interactive'}).getByRole('button',{name:'Import as landing',exact:true}).click();
   const visible=()=>page.locator('.browser-frame iframe.is-visible');
+  // Waits for the folder save and an idle preview before navigating inside the frame or capturing it. (An autosave with
+  // unchanged contents no longer re-renders the preview; this only keeps the steps deterministic.)
+  const settled=async({saved=true}={})=>{
+    if(saved)await page.locator('.studio-toolbar [role="status"]').filter({hasText:/^Saved \d{1,2}:\d{2}/}).waitFor();
+    await page.waitForTimeout(400);
+    await page.waitForFunction(()=>!document.querySelector('.browser-frame iframe.is-preparing')&&!document.body.innerText.includes('Updating preview…'));
+  };
   await visible().contentFrame().getByRole('heading',{name:'First',exact:true}).waitFor();
   await visible().contentFrame().getByText('module:fetched',{exact:true}).waitFor();
   await visible().contentFrame().getByRole('button',{name:'0',exact:true}).click();
   await visible().contentFrame().getByRole('button',{name:'1',exact:true}).waitFor();
+  await page.getByRole('tab',{name:'Content',exact:true}).click();
+  await settled({saved:false});
   await page.evaluate(()=>{
     window.originalFrame=document.querySelector('.browser-frame iframe.is-visible');window.previewSamples=[];window.samplePreview=true;
     window.buffered=false;window.bufferObserver=new MutationObserver(()=>{if(document.querySelector('iframe.is-preparing')&&document.querySelector('iframe.is-visible')===window.originalFrame)window.buffered=true;});
@@ -55,6 +67,7 @@ try {
   await page.locator('#setting-title').fill('Resumed');
   await page.getByRole('button',{name:'Resume automatic preview',exact:true}).click();
   await visible().contentFrame().getByRole('heading',{name:'Resumed',exact:true}).waitFor();
+  await settled();
   await visible().contentFrame().getByRole('link',{name:'Next page',exact:true}).click();
   await visible().contentFrame().getByRole('heading',{name:'Other page',exact:true}).waitFor();
   await visible().contentFrame().getByRole('button',{name:'Other button',exact:true}).click();
@@ -73,18 +86,20 @@ try {
   await page.evaluate(()=>navigator.serviceWorker.ready.then(()=>true));
   if (!await page.evaluate(()=>Boolean(navigator.serviceWorker.controller))) {
     await page.reload(); await visible().contentFrame().getByRole('heading',{name:'Resumed',exact:true}).waitFor();
+    await page.getByRole('tab',{name:'Content',exact:true}).click();
   }
   await context.setOffline(true);
   await page.locator('#setting-title').fill('Offline');
   await visible().contentFrame().getByRole('heading',{name:'Offline',exact:true}).waitFor();
   await visible().contentFrame().getByText('module:fetched',{exact:true}).waitFor();
+  await settled();
   await page.getByRole('button',{name:'index.tpl',exact:true}).first().click();
   await page.locator('.monaco-editor textarea').first().waitFor();
   await page.evaluate(()=>{window.beforeInvalid=document.querySelector('iframe.is-visible');});
   await page.locator('.view-lines').click({position:{x:80,y:10}});
   await page.keyboard.press(process.platform==='darwin'?'Meta+A':'Control+A');
   await page.keyboard.insertText(source.replace('@endlayout',''));
-  await page.getByText('Preview could not update. Showing the last working version.',{exact:true}).waitFor();
+  await page.getByRole('alert').filter({hasText:'Preview could not update. Showing the last working version.'}).waitFor();
   assert.equal(await page.evaluate(()=>document.querySelector('iframe.is-visible')===window.beforeInvalid),true,'invalid source retains the working document');
   await visible().contentFrame().getByRole('heading',{name:'Offline',exact:true}).waitFor();
   await page.locator('.view-lines').click({position:{x:80,y:10}});
@@ -94,7 +109,7 @@ try {
   await visible().contentFrame().getByText('module:fetched',{exact:true}).waitFor();
   await page.screenshot({path:'/tmp/studio-interactive-preview.png',fullPage:true});
   assert.deepEqual(errors,[]);
-  console.log('PASS: installed Studio actual ZIP import, JS/modules/relative fetch, parameter and Monaco source live updates, no blank animation frames, invalid source retains working document, pause/manual refresh/resume, multipage navigation, offline preview.');
+  console.log('PASS: installed Studio actual ZIP import into a picked folder, JS/modules/relative fetch, parameter and Monaco source live updates, no blank animation frames, invalid source retains working document, pause/manual refresh/resume, multipage navigation, offline preview.');
 } catch(error) {
   console.error(JSON.stringify({errors},null,2));
   console.error((await page?.locator('body').innerText().catch(()=>''))?.slice(-6000));

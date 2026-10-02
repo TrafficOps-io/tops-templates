@@ -1,10 +1,12 @@
+import { revealConversationTab } from './support/studio-chat.js';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { unzipSync, strFromU8 } from 'fflate';
-import { createStudioProject } from '../src/studio-library.js';
+import { installFolderPicker, readProjectFolder, seedAndOpen } from './support/studio-folders.js';
+import { studioChat } from './support/studio-chat.js';
 import { parseProject, getDefaults } from '@trafficops/template-runtime';
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = resolve(process.argv[2] || 'editor/dist');
@@ -35,8 +37,7 @@ const files = { 'index.tpl': `@template "Article"
 </main></body></html>
 @endlayout
 ` };
-// A persisted library record starts at revision 1; revision 0 is an unsaved draft.
-const fixture = { ...createStudioProject({ kind: 'landing', name: 'Article QA', files, settings: getDefaults(parseProject(files).definition) }), revision: 1 };
+const fixture = { name: 'Article QA', files, values: getDefaults(parseProject(files).definition) };
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.ttf': 'font/ttf' };
 const server = createServer(async (request, response) => {
   try { const path = new URL(request.url, 'http://localhost').pathname, file = resolve(root, '.' + (path === '/' ? '/index.html' : path)); if (!file.startsWith(root + '/')) throw Error('path'); response.writeHead(200, { 'Content-Type': types[extname(file)] || 'application/octet-stream' }); response.end(await readFile(file)); }
@@ -46,12 +47,15 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 let browser;
 try {
   browser = await chromium.launch({ headless: true, ...(process.platform === 'darwin' ? { executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' } : {}) });
-  const page = await browser.newPage({ viewport: { width: 1600, height: 1100 } }), errors = [];
+  const context = await browser.newContext({ viewport: { width: 1600, height: 1100 } });
+  await installFolderPicker(context);
+  const page = await context.newPage(), errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(({ png }) => {
+    // The installed presentation: its toolbar holds Export.
     Object.defineProperty(navigator, 'standalone', { configurable: true, value: true });
     const realFetch = window.fetch.bind(window);
-    window.fillAi = { requests: [], writer: 0, reviews: 0, emptyWriter: true, holdReview: true, releaseReview: null };
+    window.fillAi = { requests: [], writer: 0, reviews: 0, holdReview: true, releaseReview: null };
     const response = (name, value) => {
       const payload = { id: name || 'content-response', model: 'test/model', choices: [{ index: 0, delta: name ? { role: 'assistant', tool_calls: [{ index: 0, id: `${name}-${Date.now()}`, type: 'function', function: { name, arguments: JSON.stringify(value) } }] } : { content: 'Content completed.' }, finish_reason: name ? 'tool_calls' : 'stop' }] };
       return new Response(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
@@ -61,84 +65,108 @@ try {
       const state = window.fillAi, body = JSON.parse(init.body); state.requests.push({ url: String(url), body });
       if (String(url).endsWith('/images')) return Response.json({ data: [{ b64_json: png, media_type: 'image/png' }] });
       const stage = body.tools?.length === 1 ? body.tools[0].function.name : null;
-      if (stage === 'submit_plan') return response(stage, { summary: 'Write a 2600-character Polish article, add images and seven sample reviews.', tasks: ['Fill fields', 'Generate an illustration', 'Review and correct the article length'] });
+      if (stage === 'submit_plan') return response(stage, { summary: 'Write a 2600-character Polish article, add images and seven sample reviews.', tasks: ['Fill fields', 'Generate an illustration', 'Review and correct the article length'], imageRequests: ['An editorial illustration for the article.'], requiresSourceChanges: false });
       if (stage === 'submit_review') {
         const count = ++state.reviews;
         if (state.holdReview && count === 1) await new Promise((resolve, reject) => { state.releaseReview = resolve; init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true }); });
         return response(stage, { approved: count > 1, summary: count > 1 ? 'Polish article, all images and seven samples verified.' : 'The article is too short.', issues: count > 1 ? [] : ['Expand the article to 2600 characters.'] });
       }
-      if (state.emptyWriter) { state.emptyWriter = false; return response(null); }
+      // One agent loop: it asks the planner subagent, writes, validates, asks the
+      // reviewer subagent, repairs its finding and finishes with a validation.
       const step = state.writer++;
-      if (step === 0) return response('generate_image', { path: 'images/article.png', prompt: 'An editorial illustration for the article.', referenceIds: [] });
-      if (step === 1) {
+      if (step === 0) return response('plan_changes', {});
+      if (step === 1) return response('generate_image', { path: 'images/article.png', prompt: 'An editorial illustration for the article.', referenceIds: [] });
+      if (step === 2) {
         const context = JSON.stringify(body.messages), path = context.match(/images\/reference-[A-Za-z0-9-]+\.png/)?.[0];
         return response('set_values', { values: { title: 'Polski artykuł', article: '<p>A short first draft.</p>', cover: 'images/article.png', portrait: path, reviews: Array.from({ length: 7 }, (_, index) => ({ author: `Przykład ${index + 1}`, text: 'Przykładowa opinia, nie jest prawdziwą rekomendacją.' })) } });
       }
-      if (step === 3) return response('set_values', { values: { article: `<p>${'To jest przykładowy polski tekst artykułu. '.repeat(100).slice(0, 2600)}</p><figure><img src="images/article.png" alt="Ilustracja artykułu"></figure>` } });
-      return response(null);
+      if (step === 3) return response('validate_draft', {});
+      if (step === 4) return response('review_draft', { focus: 'Article length' });
+      if (step === 5) return response('set_values', { values: { article: `<p>${'To jest przykładowy polski tekst artykułu. '.repeat(100).slice(0, 2600)}</p><figure><img src="images/article.png" alt="Ilustracja artykułu"></figure>` } });
+      return response('validate_draft', {});
     };
   }, { png });
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
-  await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
-  await page.evaluate(async fixture => {
-    const database = await new Promise((resolve, reject) => { const request = indexedDB.open('trafficops-studio-library', 1); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
-    await new Promise((resolve, reject) => { const transaction = database.transaction(['projects', 'preferences'], 'readwrite'); transaction.objectStore('projects').put(fixture); transaction.objectStore('preferences').put(fixture.id, 'active-project'); transaction.oncomplete = resolve; transaction.onerror = () => reject(transaction.error); }); database.close();
-  }, fixture);
-  await page.reload();
-  await page.getByRole('button', { name: 'Collapse editor', exact: true }).click();
-  await page.getByRole('tab', { name: 'AI assistant', exact: true }).click();
-  await page.getByRole('button', { name: 'AI connection settings', exact: true }).click();
+  await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
+  const seeded = await seedAndOpen(page, { kind: 'landing', ...fixture });
+  const collapse = page.getByRole('button', { name: 'Collapse editor', exact: true }); if (await collapse.count()) await collapse.click();
+  const chat = studioChat(page); await revealConversationTab(chat.root); await chat.root.waitFor();
+  // Connection settings open from the conversation header menu.
+  await chat.root.locator('.studio-chat-header').getByRole('button', { name: 'More actions', exact: true }).click();
+  await chat.root.getByRole('menuitem', { name: 'AI settings', exact: true }).click();
   await page.locator('.ai-settings input[type=password]').fill('mock-key-no-paid-requests');
+  // Custom model IDs are typed in the text field behind "Enter model ID" (the picker lists the OpenRouter catalog).
+  await page.getByRole('button', { name: 'Enter model ID', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Enter model ID', exact: true }).first().click();
   await page.getByText('Text model', { exact: true }).locator('..').locator('input').fill('test/vision');
   await page.getByText('Image model', { exact: true }).locator('..').locator('input').fill('test/image');
   await page.getByRole('button', { name: 'Save connection', exact: true }).click();
   await page.getByRole('button', { name: 'Back to assistant', exact: true }).click();
-  await page.getByRole('button', { name: 'Fill content', exact: true }).click();
-  await page.locator('.ai-prompt textarea').fill('Write a Polish article, 2600 characters, seven explicitly fictional sample reviews. Generate an illustration and use the attached person photo.');
-  await page.getByLabel('Reference images', { exact: true }).setInputFiles([{ name: 'site-reference.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') }, { name: 'person.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') }]);
-  await page.locator('.ai-attachment-list li').filter({ hasText: 'person.png' }).getByRole('checkbox').check();
-  await page.getByRole('checkbox', { name: /Generate images requested/ }).check();
-  const readRecord = () => page.evaluate(id => new Promise((resolve, reject) => { const request = indexedDB.open('trafficops-studio-library', 1); request.onsuccess = () => { const db = request.result, transaction = db.transaction('projects', 'readonly'), get = transaction.objectStore('projects').get(id); get.onsuccess = () => resolve(get.result); transaction.oncomplete = () => db.close(); }; request.onerror = () => reject(request.error); }), fixture.id);
-  await page.getByRole('button', { name: 'Generate changes', exact: true }).click();
-  await page.waitForFunction(() => typeof window.fillAi.releaseReview === 'function').catch(async error => { console.log(await page.locator('.ai-panel').innerText()); console.log(JSON.stringify(await page.evaluate(() => window.fillAi.requests.map(request => ({ url: request.url, tools: request.body.tools?.map(tool => tool.function.name), messages: request.body.messages?.slice(-1).map(message => ({ role: message.role, content: String(message.content).slice(0, 300) })) }))))); await page.screenshot({ path: '/tmp/studio-fill-content-browser-failure.png' }); throw error; });
-  assert.equal(await page.getByRole('button', { name: 'Apply changes', exact: true }).count(), 0, 'cannot apply before reviewer completes');
+  // The former "Fill content" mode is the "Content only" scope of the composer.
+  const brief = 'Write a Polish article, 2600 characters, seven explicitly fictional sample reviews. Generate an illustration and use the attached person photo.';
+  const compose = async () => {
+    await chat.chooseScope('Content only');
+    await chat.activeScope('Content only').waitFor();
+    await chat.prompt.fill(brief);
+    await chat.attachmentInput.setInputFiles([{ name: 'site-reference.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') }, { name: 'person.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') }]);
+    assert.equal(await chat.composer.locator('.studio-chip-attachment').count(), 2);
+    // Attached images marked for use on the page become project assets (images/reference-*.png).
+    await chat.root.getByRole('checkbox', { name: 'Use attached images on the page', exact: true }).check({ timeout: 5000 });
+    const images = chat.composer.getByRole('button', { name: 'Generate images', exact: true });
+    if (await images.getAttribute('aria-pressed') !== 'true') await images.click();
+    assert.equal(await images.getAttribute('aria-pressed'), 'true');
+  };
+  await compose();
+  // The project folder as saved: { files, values, … }.
+  const readRecord = () => readProjectFolder(page, seeded.folder);
+  await chat.send.click();
+  await page.waitForFunction(() => typeof window.fillAi.releaseReview === 'function').catch(async error => { console.log(await chat.root.innerText()); console.log(JSON.stringify(await page.evaluate(() => window.fillAi.requests.map(request => ({ url: request.url, tools: request.body.tools?.map(tool => tool.function.name), messages: request.body.messages?.slice(-1).map(message => ({ role: message.role, content: String(message.content).slice(0, 300) })) }))))); await page.screenshot({ path: '/tmp/studio-fill-content-browser-failure.png' }); throw error; });
+  await chat.status('running').waitFor();
+  assert.equal(await chat.apply.count(), 0, 'cannot apply before reviewer completes');
   assert.deepEqual((await readRecord()).files, fixture.files, 'generation does not autosave source or image assets');
-  assert.equal((await readRecord()).settings.title, 'Original headline');
+  assert.equal((await readRecord()).values.title, 'Original headline');
   await page.evaluate(() => window.fillAi.releaseReview());
-  await page.getByText('Content ready', { exact: true }).waitFor();
-  assert.equal(await page.evaluate(() => window.fillAi.reviews), 2, 'review rejection runs a revision and second reviewer');
-  await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'Polski artykuł', exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Discard', exact: true }).click();
-  await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'Original headline', exact: true }).waitFor();
+  await chat.status('ready').waitFor();
+  assert.equal(await page.evaluate(() => window.fillAi.reviews), 1, 'the agent repairs the reviewer finding itself; no mandatory second review');
+  const preview = () => page.locator('.browser-frame iframe.is-visible').contentFrame();
+  await chat.status('ready').getByRole('button', { name: 'Preview draft', exact: true }).click();
+  await preview().getByRole('heading', { name: 'Polski artykuł', exact: true }).waitFor();
+  await chat.status('ready').getByRole('button', { name: 'Discard', exact: true }).click();
+  await chat.status('discarded').waitFor();
+  await preview().getByRole('heading', { name: 'Original headline', exact: true }).waitFor({ timeout: 10000 });
   assert.equal(Object.keys((await readRecord()).files).length, 1, 'discard does not keep generated photos');
   await page.evaluate(() => Object.assign(window.fillAi, { writer: 0, reviews: 0, holdReview: false }));
-  await page.getByRole('button', { name: 'Generate changes', exact: true }).click();
-  await page.getByText('Content ready', { exact: true }).waitFor();
-  await page.getByText('Review content changes', { exact: true }).click();
-  const previewValues = JSON.parse(await page.locator('.ai-values-preview').innerText());
-  assert.equal(previewValues.article.replace(/<[^>]+>/g, '').length, 2600);
-  await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'Polski artykuł', exact: true }).waitFor();
-  await page.locator('.ai-review').scrollIntoViewIfNeeded();
+  await compose();
+  await chat.send.click();
+  await chat.status('ready').waitFor();
+  const valuesCard = chat.status('ready').locator('[data-testid="studio-chat-card"][data-card="values"]');
+  const article = (await valuesCard.locator('tr').filter({ has: page.locator('th', { hasText: /^article$/ }) }).locator('.studio-card-after').innerText()).replace(/^→\s*/, '');
+  assert.equal(article.replace(/<[^>]+>/g, '').length, 2600);
+  await chat.status('ready').getByRole('button', { name: 'Preview draft', exact: true }).click();
+  await preview().getByRole('heading', { name: 'Polski artykuł', exact: true }).waitFor();
+  await valuesCard.scrollIntoViewIfNeeded();
   await page.screenshot({ path: '/tmp/studio-fill-content-review.png' });
   const requests = await page.evaluate(() => window.fillAi.requests);
   for (const { body } of requests.filter(request => request.url.endsWith('/chat/completions'))) {
     assert.equal(body.tool_choice, 'auto', 'tool-capable providers may not support a named choice');
     assert.equal(Object.hasOwn(body, 'temperature'), false, 'reasoning endpoints may not support sampling parameters');
-    assert.deepEqual(body.provider, { require_parameters: true, data_collection: 'deny' });
+    assert.deepEqual(body.provider, { require_parameters: true, allow_fallbacks: true, data_collection: 'deny' });
   }
-  assert.ok(requests.some(({ body }) => body.messages?.some(message => typeof message.content === 'string' && message.content.includes('only recovery attempt for a response with no changes'))), 'a prose-only writer response receives a bounded request for actual field updates');
+  assert.ok(requests.some(({ body }) => body.messages?.some(message => message.role === 'tool' && JSON.stringify(message.content).includes('Expand the article to 2600 characters.'))), 'reviewer findings return to the agent as a tool result');
   const vision = requests.find(request => request.body.tools?.[0].function.name === 'submit_plan');
   assert.equal(vision.body.messages.flatMap(message => Array.isArray(message.content) ? message.content : []).filter(part => part.type === 'image_url').length, 2, 'attachments reach the real OpenRouter adapter as vision inputs');
-  await page.getByRole('button', { name: 'Apply changes', exact: true }).click();
+  await chat.status('ready').locator('[data-testid="studio-chat-apply"]').click();
   const deadline = Date.now() + 20000;
-  while ((await readRecord()).settings.title !== 'Polski artykuł' && Date.now() < deadline) await page.waitForTimeout(100);
+  while ((await readRecord()).values.title !== 'Polski artykuł' && Date.now() < deadline) await page.waitForTimeout(100);
   const saved = await readRecord();
-  if (saved.settings.title !== 'Polski artykuł') console.log((await page.locator('body').innerText()).slice(-12000));
-  assert.equal(saved.settings.title, 'Polski artykuł', 'wait for the durable autosave transaction');
-  assert.equal(saved.files['index.tpl'], fixture.files['index.tpl']); assert.equal(saved.settings.article.replace(/<[^>]+>/g, '').length, 2600); assert.equal(saved.settings.reviews.length, 7);
-  assert.ok(saved.files['images/article.png'] instanceof Uint8Array); assert.ok(saved.files[saved.settings.portrait] instanceof Uint8Array);
-  assert.equal(Object.keys(saved.files).length, 3, 'reference-only screenshot is not exported as a page image');
-  await page.getByRole('button', { name: 'Export project', exact: true }).click();
+  if (saved.values.title !== 'Polski artykuł') console.log((await page.locator('body').innerText()).slice(-12000));
+  assert.equal(saved.values.title, 'Polski artykuł', 'wait for the durable autosave');
+  assert.equal(saved.files['index.tpl'], fixture.files['index.tpl']); assert.equal(saved.values.article.replace(/<[^>]+>/g, '').length, 2600); assert.equal(saved.values.reviews.length, 7);
+  assert.ok(saved.files['images/article.png'] instanceof Uint8Array);
+  assert.ok(saved.files[saved.values.portrait] instanceof Uint8Array);
+  assert.equal(Object.keys(saved.files).filter(path => path.startsWith('images/reference-')).length, 2, 'both attached images become page assets when the switch is on');
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.getByRole('menuitem').filter({ hasText: 'Editable project' }).click();
   const download = page.waitForEvent('download'); await page.getByRole('button', { name: 'Download', exact: true }).click();
   const archive = unzipSync(new Uint8Array(await readFile(await (await download).path())));
   assert.ok(archive['images/article.png']); assert.equal(JSON.parse(strFromU8(archive['.trafficops/values.json'])).reviews.length, 7);
@@ -148,5 +176,5 @@ try {
   assert.equal((await frame.locator('article > p').textContent()).length, 2600);
   assert.equal(await frame.getByRole('img', { name: 'Ilustracja artykułu', exact: true }).evaluate(image => image.complete && image.naturalWidth > 0), true, 'inline article image survives Apply, autosave and reload');
   assert.deepEqual(errors, []);
-  console.log('PASS: Fill Content, streamed tool writes, independent reviewer/revision, 2600-character Polish article, seven sample reviews, vision references, generated images, Apply/Discard, atomic autosave, ZIP assets and reload.');
+  console.log('PASS: Content-only scope, one agent loop with planner/reviewer subagents, streamed tool writes, 2600-character Polish article, seven sample reviews, vision references, generated images, Apply/Discard, atomic autosave, ZIP assets and reload.');
 } finally { await browser?.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

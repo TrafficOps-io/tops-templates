@@ -1,12 +1,12 @@
 const toolFields = Object.freeze({
   set_file: ['path', 'content'], set_files: ['files', 'path', 'content'],
   edit_file: ['path', 'search', 'replace'], patch_file: ['path', 'search', 'replace'],
-  set_values: ['values'], generate_image: ['path', 'prompt', 'referenceIds'],
+  set_values: ['values'], generate_image: ['path', 'prompt', 'references', 'referenceIds'],
   read_file: ['path'], read_files: ['paths'], remove_file: ['path'], delete_file: ['path'],
   get_fields: [], list_files: [], validate_draft: [],
 });
 const tools = new Set([...Object.keys(toolFields), 'submit_plan', 'submit_review', 'unknown']);
-const fields = new Set(['path', 'content', 'files', 'search', 'replace', 'values', 'paths', 'prompt', 'referenceIds', 'input']);
+const fields = new Set(['path', 'content', 'files', 'search', 'replace', 'values', 'paths', 'prompt', 'references', 'referenceIds', 'input']);
 const codes = new Set(['invalid_type', 'too_big', 'too_small', 'invalid_format', 'invalid_value', 'invalid_union', 'unrecognized_keys', 'custom', 'invalid_json', 'unknown_tool', 'invalid_input']);
 const MAX_REPORTED_CHARS = 16 * 1024 * 1024;
 

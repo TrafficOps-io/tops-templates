@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runStudioAiWorkflow } from '@trafficops/template-editor-shell/studio-ai-workflow';
+import { setAiRetrySleepForTesting } from '../../packages/template-editor-shell/src/ai-provider-recovery.js';
+
+setAiRetrySleepForTesting(async () => {});
 import { validateDraft } from './support/ai-validator.js';
 import { OPTIHEART_BRIEF, optiheartInitialProject, optiheartCompletedValues, inspectOptiheartDraft } from './support/optiheart-ai-case.js';
 import { createMetricsFetch, createSyntheticOpenRouter } from './ai-live-check.mjs';
@@ -10,7 +13,7 @@ const models = ['openai/gpt-5-mini', 'qwen/qwen3.8-flash', 'xiaomi/mimo-v2.6-fla
 for (const model of models) for (const mode of ['edit', 'create']) test(`${model}: the complete OptiHeart brief updates source and saved Russian values before independent review (${mode})`, async () => {
   const initial = optiheartInitialProject(), original = structuredClone(initial), events = [];
   const tracker = createMetricsFetch({ apiKey: 'synthetic-key-never-paid', fetchImpl: createSyntheticOpenRouter({ initial, mode }) });
-  const result = await runStudioAiWorkflow({ ...initial, mode, prompt: OPTIHEART_BRIEF, apiKey: 'synthetic-key-never-paid', model, stream: true, generateImages: false, validateDraft, fetchImpl: tracker.fetch, onProgress: event => events.push(event) });
+  const result = await runStudioAiWorkflow({ staged: true, ...initial, mode, prompt: OPTIHEART_BRIEF, apiKey: 'synthetic-key-never-paid', model, stream: true, generateImages: false, validateDraft, fetchImpl: tracker.fetch, onProgress: event => events.push(event) });
   await tracker.settled();
   assert.equal(result.valid, true); assert.equal(result.review.approved, true); assert.deepEqual(result.review.issues, []);
   assert.deepEqual(result.values, optiheartCompletedValues, 'existing parameter values must not override changed defaults with the old Russian text');
@@ -32,7 +35,7 @@ for (const model of models) for (const mode of ['edit', 'create']) test(`${model
 
 test('a pre-tool 503 gets one bounded retry and the complete OptiHeart brief still reaches ready', async () => {
   const initial = optiheartInitialProject(), tracker = createMetricsFetch({ apiKey: 'synthetic-key-never-paid', fetchImpl: createSyntheticOpenRouter({ initial, failPlannerOnce: true }) });
-  const result = await runStudioAiWorkflow({ ...initial, mode: 'edit', prompt: OPTIHEART_BRIEF, apiKey: 'synthetic-key-never-paid', model: models[0], stream: true, generateImages: false, validateDraft, fetchImpl: tracker.fetch });
+  const result = await runStudioAiWorkflow({ staged: true, ...initial, mode: 'edit', prompt: OPTIHEART_BRIEF, apiKey: 'synthetic-key-never-paid', model: models[0], stream: true, generateImages: false, validateDraft, fetchImpl: tracker.fetch });
   await tracker.settled();
   assert.equal(result.valid, true); assert.equal(result.review.approved, true);
   assert.equal(tracker.calls.filter(call => call.stage === 'submit_plan').length, 2);
@@ -43,7 +46,7 @@ test('a pre-tool 503 gets one bounded retry and the complete OptiHeart brief sti
 
 test('independent source and value writes in the same provider response produce the same complete draft with four calls', async () => {
   const initial = optiheartInitialProject(), tracker = createMetricsFetch({ apiKey: 'synthetic-key-never-paid', fetchImpl: createSyntheticOpenRouter({ initial, batchWrites: true }) });
-  const result = await runStudioAiWorkflow({ ...initial, mode: 'edit', prompt: OPTIHEART_BRIEF, apiKey: 'synthetic-key-never-paid', model: models[2], stream: true, generateImages: false, validateDraft, fetchImpl: tracker.fetch });
+  const result = await runStudioAiWorkflow({ staged: true, ...initial, mode: 'edit', prompt: OPTIHEART_BRIEF, apiKey: 'synthetic-key-never-paid', model: models[2], stream: true, generateImages: false, validateDraft, fetchImpl: tracker.fetch });
   await tracker.settled();
   assert.equal(result.valid, true); assert.deepEqual(result.values, optiheartCompletedValues);
   const inspected = inspectOptiheartDraft(result);
@@ -55,7 +58,7 @@ test('a stream failure after tool input starts retains earlier Polish values and
   const initial = optiheartInitialProject(), original = structuredClone(initial), events = [];
   let retainedValues = initial.values;
   const tracker = createMetricsFetch({ apiKey: 'synthetic-key-never-paid', fetchImpl: createSyntheticOpenRouter({ initial, interruptWriter: true }) });
-  await assert.rejects(runStudioAiWorkflow({ ...initial, mode: 'edit', prompt: OPTIHEART_BRIEF, apiKey: 'synthetic-key-never-paid', model: models[0], stream: true, generateImages: false, validateDraft, fetchImpl: tracker.fetch,
+  await assert.rejects(runStudioAiWorkflow({ staged: true, ...initial, mode: 'edit', prompt: OPTIHEART_BRIEF, apiKey: 'synthetic-key-never-paid', model: models[0], stream: true, generateImages: false, validateDraft, fetchImpl: tracker.fetch,
     onProgress(event) { events.push(event); if (event.values && !event.partial) retainedValues = event.values; } }), /Synthetic provider|503|interrupted/i);
   await tracker.settled();
   assert.deepEqual(retainedValues, optiheartCompletedValues);
@@ -66,7 +69,7 @@ test('a stream failure after tool input starts retains earlier Polish values and
   assert.equal(events.filter(event => event.type === 'values-set').length, 1);
 });
 
-test('four completed images survive a later nested Google 503; only the unfinished text call retries once', async () => {
+test('four completed images survive a later nested Google 503; only the unfinished text call retries (three bounded retries)', async () => {
   const initial = optiheartInitialProject(), original = structuredClone(initial), events = [];
   const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4n+DwHwAGoAKfr+/eKAAAAABJRU5ErkJggg==';
   const paths = ['images/video-surgeon-or.png', 'images/video-vessels-comparison.png', 'images/video-coronary-bypass.png', 'images/optiheart-bottle.png'];
@@ -84,15 +87,15 @@ test('four completed images survive a later nested Google 503; only the unfinish
     const payload = { error: { message: 'Provider returned error', code: 502, metadata: { provider_name: 'Google', raw: JSON.stringify({ error: { code: 503, message: 'The model is currently experiencing high demand. Please try again later.', status: 'UNAVAILABLE' } }) } } };
     return new Response(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
   } });
-  await assert.rejects(runStudioAiWorkflow({ ...initial, mode: 'edit', prompt: OPTIHEART_BRIEF, apiKey: 'synthetic-key-never-paid', model: models[3], imageModel: 'google/gemini-3.1-flash-lite-image', stream: true, generateImages: true, validateDraft, fetchImpl: tracker.fetch,
+  await assert.rejects(runStudioAiWorkflow({ staged: true, ...initial, mode: 'edit', prompt: OPTIHEART_BRIEF, apiKey: 'synthetic-key-never-paid', model: models[3], imageModel: 'google/gemini-3.1-flash-lite-image', stream: true, generateImages: true, validateDraft, fetchImpl: tracker.fetch,
     onProgress(event) { events.push(event); if (event.files && !event.partial) retained = event.files; } }), /Google|high demand|503/i);
   await tracker.settled();
   assert.equal(imageCalls, 4, 'the successful image requests are never repeated');
-  assert.equal(writerCalls, 3, 'one successful image tool response, then one failed text response and its single bounded retry');
+  assert.equal(writerCalls, 5, 'one successful image tool response, then one failed text response and its three bounded retries');
   for (const path of paths) assert.ok(retained[path] instanceof Uint8Array && retained[path].byteLength > 0, `retained ${path}`);
   assert.deepEqual(initial, original, 'retained images remain a review draft and do not mutate the original project');
   assert.equal(events.some(event => event.phase === 'ready'), false);
-  assert.equal(events.filter(event => event.type === 'provider-recovery').length, 1);
+  assert.equal(events.filter(event => event.type === 'provider-recovery').length, 3);
   assert.equal(tracker.calls.filter(call => call.endpoint.endsWith('/images')).length, 4);
   assert.equal(tracker.calls.filter(call => call.stage === 'submit_review').length, 0);
 });

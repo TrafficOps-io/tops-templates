@@ -5,6 +5,7 @@ import { MockLanguageModelV4 } from 'ai/test';
 import { createOpenRouterTemplateModel, generateTemplateWithOpenRouterAgent } from '@trafficops/template-editor-shell/openrouter-template-agent';
 import { starterProject } from '../src/starter.js';
 import { generateProject } from '@trafficops/template-runtime';
+import { setAiRetrySleepForTesting } from '../../packages/template-editor-shell/src/ai-provider-recovery.js';
 
 const usage = {
   inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 },
@@ -96,7 +97,7 @@ for (const stream of [false, true]) test(`OpenRouter ${stream ? 'streaming' : 'c
   assert.equal('response_format' in request.body, false);
   assert.equal(request.body.tools[0].function.name, 'validate_draft');
   assert.equal(request.body.tool_choice, 'auto');
-  assert.deepEqual(request.body.provider, { require_parameters: true, data_collection: 'deny' });
+  assert.deepEqual(request.body.provider, { require_parameters: true, allow_fallbacks: true, data_collection: 'deny' });
 });
 
 test('agent-facing OpenRouter errors never expose the BYOK secret', async () => {
@@ -332,6 +333,22 @@ for (const arrival of ['tool', 'final', 'validation']) {
     assert.equal(lastPrompt.filter(message => message.role === 'user' && JSON.stringify(message.content).includes('Use the corrected version.')).length, 1);
   });
 }
+
+test('pre-output provider retries do not consume model steps', async () => {
+  setAiRetrySleepForTesting(async () => {});
+  try {
+    const responses = successfulResponses(), events = [];
+    let failed = 0;
+    const model = new MockLanguageModelV4({ doGenerate: async () => {
+      if (model.doGenerateCalls.length % 2) { failed++; throw Object.assign(new Error('Provider temporarily unavailable'), { statusCode: 503 }); }
+      return responses.shift();
+    } });
+    const result = await generateTemplateWithOpenRouterAgent({ validateDraft, languageModel: model, prompt: 'Create a page', onProgress: event => events.push(event) });
+    assert.equal(result.valid, true); assert.ok(result.steps >= 2);
+    assert.equal(failed, result.steps, 'every answered step was preceded by one retried failure');
+    assert.deepEqual(events.filter(event => event.type === 'step').map(event => event.step), Array.from({ length: result.steps }, (_, index) => index + 1));
+  } finally { setAiRetrySleepForTesting(null); }
+});
 
 test('a clarification at the step limit cannot be silently reported as completed', async () => {
   const queue = []; let step = 0;

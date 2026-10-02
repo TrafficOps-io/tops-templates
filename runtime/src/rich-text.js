@@ -3,7 +3,7 @@ import sanitizeHtml from 'sanitize-html';
 
 // Keep this allowlist aligned with template-dsl/src/TemplateRichText.php.
 const policy = Object.freeze({
-  allowedTags:['p','br','h1','h2','h3','h4','h5','h6','strong','b','em','i','s','u','ul','li','blockquote','pre','code','hr','ol','a','img'],
+  allowedTags:['p','br','h1','h2','h3','h4','h5','h6','strong','b','em','i','s','u','ul','li','blockquote','pre','code','hr','figure','figcaption','ol','a','img'],
   allowedAttributes:{ol:['start'], a:['href','title'], img:['src','alt','title']},
   allowedSchemes:['https','http','mailto'],
   allowedSchemesByTag:{img:['https','http']},

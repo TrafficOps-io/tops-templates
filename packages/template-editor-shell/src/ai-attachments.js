@@ -53,8 +53,9 @@ export function attachmentAssets(attachments) {
 
 export function attachmentMessage(text, attachments = []) {
   if (!attachments.length) return text;
-  return [{ type: 'text', text }, ...validateAttachments(attachments).flatMap(item => [
-    { type: 'text', text: `Attached image: ${item.name}. ${item.useOnPage ? `Available page asset: images/reference-${item.id}.${TYPES[item.mime]}` : 'Visual reference only; do not embed this screenshot or photo in the page.'}` },
+  // refN matches the image reference catalog (image-references.js): shown images come first, in this order.
+  return [{ type: 'text', text }, ...validateAttachments(attachments).flatMap((item, index) => [
+    { type: 'text', text: `Attached image ref${index + 1}: ${item.name}. ${item.useOnPage ? `Available page asset: images/reference-${item.id}.${TYPES[item.mime]}` : 'Visual reference only; do not embed this screenshot or photo in the page.'}` },
     { type: 'file', data: item.dataUrl, mediaType: item.mime },
   ])];
 }

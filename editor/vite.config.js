@@ -16,7 +16,8 @@ export default defineConfig({
       start_url: '/?studio=1',
       scope: '/',
       display: 'standalone',
-      display_override: ['standalone'],
+      // The project toolbar can take the title bar (Chrome/Edge); other browsers fall back to standalone.
+      display_override: ['window-controls-overlay', 'standalone'],
       background_color: '#1d1a19',
       theme_color: '#1d1a19',
       icons: [

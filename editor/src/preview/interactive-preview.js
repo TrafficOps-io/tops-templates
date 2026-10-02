@@ -7,7 +7,7 @@ const MIME = { html: 'text/html', htm: 'text/html', css: 'text/css', js: 'text/j
 const safeJson = value => JSON.stringify(value).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 
 /** Build a complete local snapshot. No settings, credentials or parent RPC port are included. */
-export function buildInteractivePreview(files, page) {
+export function buildInteractivePreview(files, page, { selection } = {}) {
   if (!Object.hasOwn(files, page) || !/\.html?$/i.test(page)) throw new Error(`Preview page is missing: ${page}`);
   const runtimeKey = `__trafficops_preview_${crypto.randomUUID().replaceAll('-', '')}`;
   const readyToken = crypto.randomUUID();
@@ -38,7 +38,10 @@ export function buildInteractivePreview(files, page) {
       pages[path] = `<!doctype html>\n${document.documentElement.outerHTML}`;
     }
   }
-  const snapshot = { entries, pages, scripts, dependencies: [...dependencies], runtimeKey, readyToken, origin: PROJECT_ORIGIN, policy: INTERACTIVE_CSP };
+  // Selection receives only rendered instance identities, never source ranges,
+  // original TPL, parameter values or any editor privileges.
+  const selectionBridge = selection ? { token: crypto.randomUUID(), pages: Object.fromEntries(Object.entries(selection.pages || {}).filter(([path]) => Object.hasOwn(pages, path)).map(([path, blocks]) => [path, blocks.map(block => ({ id: String(block.id), label: String(block.label || block.id), ancestorIds: (block.ancestorIds || []).map(String) }))])) } : null;
+  const snapshot = { entries, pages, scripts, dependencies: [...dependencies], runtimeKey, readyToken, origin: PROJECT_ORIGIN, policy: INTERACTIVE_CSP, ...(selectionBridge ? { selection: selectionBridge } : {}) };
   const html = `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="${INTERACTIVE_CSP}"><meta name="referrer" content="no-referrer"><script>(${runProjectPreview.toString()})(${safeJson(snapshot)},${safeJson(page)});</script></head><body></body></html>`;
-  return { html, sandbox: INTERACTIVE_SANDBOX, readyToken, dispose() {} };
+  return { html, sandbox: INTERACTIVE_SANDBOX, readyToken, ...(selectionBridge ? { selection: { version: /** @type {const} */ (1), token: selectionBridge.token } } : {}), dispose() {} };
 }

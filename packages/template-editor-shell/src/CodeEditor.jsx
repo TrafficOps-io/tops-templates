@@ -3,7 +3,7 @@ import { useStudioText } from './studio-i18n.js';
 import { useEffect, useLayoutEffect, useRef, useId } from 'react';
 import * as monaco from 'monaco-editor/editor/editor.api.js';
 import '@trafficops/template-editor-monaco/setup';
-import { PanelRightClose, PanelRightOpen, WandSparkles } from 'lucide-react';
+import { PanelRightClose, PanelRightOpen, Sparkles, WandSparkles } from 'lucide-react';
 import 'monaco-editor/languages/definitions/html/register.js';
 import 'monaco-editor/languages/definitions/css/register.js';
 import 'monaco-editor/languages/definitions/javascript/register.js';
@@ -11,6 +11,7 @@ import 'monaco-editor/languages/definitions/markdown/register.js';
 import 'monaco-editor/languages/definitions/xml/register.js';
 import 'monaco-editor/languages/definitions/yaml/register.js';
 import { languageFor } from './project.js';
+import { readMonoFont, readStudioPalette, studioMonacoTheme } from './monaco-theme.js';
 import { conf as htmlConfiguration } from 'monaco-editor/languages/definitions/html/html.js';
 import { language as cssLanguage } from 'monaco-editor/languages/definitions/css/css.js';
 import { language as javascriptLanguage } from 'monaco-editor/languages/definitions/javascript/javascript.js';
@@ -25,6 +26,7 @@ const projectSources = new WeakMap();
 const dialectForModel = model => projectSources.get(model)?.dialect.current;
 registerTplIntelliSense(monaco, { getProjectFiles: model => projectSources.get(model)?.files.current || {}, getDialect: dialectForModel });
 registerTplFormatting(monaco, { getDialect: dialectForModel });
+// Fallback for hosts without Studio tokens (the theme is otherwise built from --ui-* by monaco-theme.js).
 monaco.editor.defineTheme('trafficops', {
   base: 'vs-dark', inherit: true,
   rules: [
@@ -39,9 +41,18 @@ monaco.editor.defineTheme('trafficops', {
   colors: { 'editor.background': '#211E1C', 'editor.foreground': '#F7F0EB', 'editorLineNumber.foreground': '#6F645E', 'editorLineNumber.activeForeground': '#B7AAA2', 'editor.lineHighlightBackground': '#2A2523', 'editor.selectionBackground': '#5B3833', 'editorCursor.foreground': '#FF8068', 'editorIndentGuide.background1': '#332E2B', 'editorIndentGuide.activeBackground1': '#5A4D47' },
 });
 
-monaco.editor.defineTheme('trafficops-light', { base: 'vs', inherit: true, rules: [], colors: { 'editor.background': '#FBF7F2', 'editor.foreground': '#241F1D' } });
+// Defines the token-based theme for the editor's surroundings and applies it; Monaco themes are global, so the last
+// synced editor wins — every editor shares the same document theme anyway.
+function syncStudioTheme(container) {
+  if (!container || !getComputedStyle(container).getPropertyValue('--ui-surface').trim()) { monaco.editor.setTheme('trafficops'); return; }
+  const palette = readStudioPalette(container), [red, green, blue] = [1, 3, 5].map(index => parseInt(palette.surface.slice(index, index + 2), 16));
+  const scheme = (red * .299 + green * .587 + blue * .114) / 255 < .5 ? 'dark' : 'light';
+  monaco.editor.defineTheme(`studio-${scheme}`, studioMonacoTheme(palette, scheme));
+  monaco.editor.setTheme(`studio-${scheme}`);
+}
+const proseLanguages = new Set(['markdown', 'plaintext']);
 
-export default function CodeEditor({ path, value, files, dialect, onChange, onOpenFile, reveal, onError, previewVisible, onTogglePreview, readOnly = false }) {
+export default function CodeEditor({ path, value, files, dialect, onChange, onOpenFile, reveal, onError, previewVisible, onTogglePreview, onEditWithAi, aiEditDisabled = false, aiEditReason = '', readOnly = false }) {
   const t = useStudioText();
   const projectId = useId().replace(/[^a-zA-Z0-9-]/g, '');
   const host = useStudioHost();
@@ -56,8 +67,11 @@ export default function CodeEditor({ path, value, files, dialect, onChange, onOp
     projectSources.set(model, { files: sources, dialect: descriptor });
     const instance = monaco.editor.create(container.current, {
       model, readOnly, theme: 'trafficops', automaticLayout: true,
-      minimap: { enabled: false }, fontSize: 13, lineHeight: 22, padding: { top: 18 },
-      scrollBeyondLastLine: false, wordWrap: 'on', tabSize: 2, insertSpaces: true, detectIndentation: false, renderLineHighlight: 'line',
+      minimap: { enabled: false }, fontFamily: readMonoFont(container.current), fontSize: 13, lineHeight: 21, padding: { top: 12, bottom: 12 },
+      lineNumbersMinChars: 3, lineDecorationsWidth: 12, glyphMargin: false, folding: true, showFoldingControls: 'mouseover', overviewRulerLanes: 0, hideCursorInOverviewRuler: true,
+      scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10, useShadows: false },
+      // Code scrolls horizontally like in an IDE; prose wraps.
+      scrollBeyondLastLine: false, wordWrap: proseLanguages.has(languageFor(path)) ? 'on' : 'off', wrappingIndent: 'indent', tabSize: 2, insertSpaces: true, detectIndentation: false, renderLineHighlight: 'line',
       quickSuggestions: { other: true, comments: false, strings: true },
       suggestOnTriggerCharacters: true, wordBasedSuggestions: 'off', snippetSuggestions: 'top',
       parameterHints: { enabled: true }, hover: { enabled: true }, autoIndent: 'full',
@@ -65,10 +79,11 @@ export default function CodeEditor({ path, value, files, dialect, onChange, onOp
       accessibilitySupport: 'on', ariaLabel: `Source code for ${path}`, fixedOverflowWidgets: true,
     });
     editor.current = instance;
-    const syncTheme = () => monaco.editor.setTheme(host && getComputedStyle(container.current).colorScheme === 'light' ? 'trafficops-light' : 'trafficops');
+    const syncTheme = () => syncStudioTheme(host ? container.current : null);
     syncTheme();
-    const themeObserver = new MutationObserver(syncTheme);
-    if (host) themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme', 'style'] });
+    // Explicit themes switch attributes on <html>; the system theme switches through the media query.
+    const themeObserver = new MutationObserver(syncTheme), systemTheme = matchMedia('(prefers-color-scheme: dark)');
+    if (host) { themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme', 'style'] }); systemTheme.addEventListener('change', syncTheme); }
     const opener = monaco.editor.registerEditorOpener({
       openCodeEditor(_source, uri, selection) {
         if (uri.scheme !== model.uri.scheme || uri.authority !== model.uri.authority) return false;
@@ -79,7 +94,7 @@ export default function CodeEditor({ path, value, files, dialect, onChange, onOp
       },
     });
     const listener = instance.onDidChangeModelContent(() => { if (!syncing.current) change.current(instance.getValue()); });
-    return () => { themeObserver.disconnect(); opener.dispose(); listener.dispose(); projectSources.delete(model); instance.dispose(); model.dispose(); editor.current = null; };
+    return () => { themeObserver.disconnect(); systemTheme.removeEventListener('change', syncTheme); opener.dispose(); listener.dispose(); projectSources.delete(model); instance.dispose(); model.dispose(); editor.current = null; };
   }, [path]);
   // Sync controlled values during commit, before another keystroke can update Monaco.
   useLayoutEffect(() => { if (editor.current && editor.current.getValue() !== value) { syncing.current = true; try { editor.current.setValue(value); } finally { syncing.current = false; } } }, [value]);
@@ -98,6 +113,6 @@ export default function CodeEditor({ path, value, files, dialect, onChange, onOp
     catch (error) { onError?.(error instanceof Error ? error.message : String(error)); }
   }
   const canFormat = ['html', 'css', 'javascript', 'json'].includes(languageFor(path)) || templateFile(path, dialect);
-  return <><div className="source-heading"><span>{path}</span><div className="source-tools">{canFormat && !readOnly && <button className="btn btn-ghost btn-xs" title={t("Format document (Shift+Alt+F)")} onClick={format}><WandSparkles size={13} /> {t("Format")}</button>}{onTogglePreview && <button className="btn btn-ghost btn-xs preview-toggle-button" aria-controls="preview-panel" aria-expanded={previewVisible} onClick={onTogglePreview}>{previewVisible ? <PanelRightClose size={13} /> : <PanelRightOpen size={13} />}{previewVisible ? t("Hide preview") : t("Show preview")}</button>}<span>UTF-8</span></div></div><div ref={container} className="code-editor" /></>;
+  return <><div className="source-heading"><span>{path}</span><div className="source-tools">{onEditWithAi && <button type="button" className="btn btn-ghost btn-sm file-ai-launch" title={aiEditReason ? t(aiEditReason) : undefined} disabled={readOnly || aiEditDisabled} onClick={onEditWithAi}><Sparkles size={13} />{t('Edit file with AI')}</button>}{canFormat && !readOnly && <button className="btn btn-ghost btn-sm" title={t("Format document (Shift+Alt+F)")} onClick={format}><WandSparkles size={13} /> {t("Format")}</button>}{onTogglePreview && <button className="btn btn-ghost btn-sm preview-toggle-button" aria-controls="preview-panel" aria-expanded={previewVisible} onClick={onTogglePreview}>{previewVisible ? <PanelRightClose size={13} /> : <PanelRightOpen size={13} />}{previewVisible ? t("Hide preview") : t("Show preview")}</button>}<span>UTF-8</span></div></div><div ref={container} className="code-editor" /></>;
 
 }
