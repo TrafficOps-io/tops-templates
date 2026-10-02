@@ -84,17 +84,6 @@ test('malicious checkpoint and final scope widening never enter saved conversati
   }
 });
 
-test('legacy selected-block recovery migrates its immutable baseline and scope rather than project mode', async t => {
-  const local = fixture(); local.host.conversations.load = async () => ({ schema: 1, projectId: local.host.conversations.projectId, revision: local.read().revision, threads: [], runs: [] });
-  const editScope = { ...local.scope, intent: 'source' }, files = blockScopeFiles(editScope, { hero: local.scope.blockSources[0].content.replace('<section ', '<section style="color: red" ') });
-  let discarded;
-  local.host.ai.recovery = { load: async () => ({ conflict: false, record: { token: 'legacy-token', kind: 'edit', prompt: 'Style selected hero', attachments: [], files, values: local.rawValues, editScope, valid: true } }), discard: async token => { discarded = token; } };
-  const session = createConversationSession(local.host, { locks: null, sessionId: 'owner', workflows: workflows(() => assert.fail('Migration must not restart generation')) }); t.after(() => session.dispose()); await session.ready;
-  const run = session.getSnapshot().runs[0]; assert.equal(run.state, 'interrupted'); assert.equal(run.scope.kind, 'block'); assert.equal(run.scope.editScope.intent, 'source');
-  assert.deepEqual(run.base.files, local.scope.baselineFiles); assert.deepEqual(run.base.translations.en, local.scope.baselineRawValues); assert.equal(run.result.editScope.intent, 'source');
-  assert.equal(local.calls.length, 0); assert.equal(discarded, 'legacy-token');
-});
-
 test('tampered scoped recovery is rejected before any draft is published', async t => {
   const local = fixture(), scope = { ...local.scope, intent: 'content' }, run = { id: 'saved-run', threadId: 'saved-thread', messageId: 'saved-message', state: 'ready', locale: 'en', base: local.state, scope: { kind: 'block', editScope: scope }, result: { files: local.state.files, values: { ...local.rawValues, shared: 'Bad' }, valid: true, editScope: scope } };
   local.host.conversations.load = async () => ({ schema: 1, projectId: local.host.conversations.projectId, revision: 1, legacyMigrated: true, threads: [{ id: 'saved-thread', messages: [] }], runs: [run] });

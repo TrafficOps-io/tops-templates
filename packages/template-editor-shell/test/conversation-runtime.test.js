@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateConversationDocument } from '@trafficops/template-editor-core';
+import { createMemoryConversationStore, createStoreConversationPort, validateConversationDocument } from '@trafficops/template-editor-core';
 import { generateEditorPreview, parseProject } from '@trafficops/template-runtime';
 import { inputValues } from '@trafficops/template-editor-core';
 import { createConversationSession } from '../src/conversation-runtime.js';
@@ -392,18 +392,6 @@ test('repeated section mentions carry only their own rendered values', async t =
   assert.equal(references[0].content, references[1].content);
 });
 
-test('legacy recovery keeps the user clarifications for the continuation', async t => {
-  const local = fixture('legacy-clarifications', { schema: 1, projectId: 'legacy-clarifications', revision: 0, threads: [], runs: [] }), calls = [];
-  local.host.ai.recovery = { load: async () => ({ conflict: false, record: { token: 'legacy-token', kind: 'edit', prompt: 'Original brief', attachments: [], files: state().files, values: state().translations.en, valid: true, clarifications: ['RETAINED_CLARIFICATION keep the photo', '  '] } }), discard: async () => {} };
-  const session = createConversationSession(local.host, { locks: null, sessionId: 'owner', workflows: basicWorkflows(async options => { calls.push(options); return { files: options.files, values: options.values, valid: true }; }) });
-  t.after(() => session.dispose()); await session.ready;
-  const thread = session.getSnapshot().threads[0];
-  assert.deepEqual(thread.messages.map(message => message.prompt), ['Original brief', 'RETAINED_CLARIFICATION keep the photo']);
-  await session.continue(session.getSnapshot().runs[0].id, { snapshot: state(), locale: 'en' });
-  await until(() => calls.length === 1);
-  assert.match(calls[0].conversationContext, /RETAINED_CLARIFICATION keep the photo/);
-});
-
 test('discarding a stopped run with a checkpoint keeps its draft out of the next send', async t => {
   const local = fixture('discard-stopped'), calls = [], waits = [];
   const session = createConversationSession(local.host, { locks: null, sessionId: 'owner', workflows: basicWorkflows(value => {
@@ -530,4 +518,53 @@ test('the run limit applies per dialog, not per project', async t => {
   await assert.rejects(session.submit({ threadId: 'full', prompt: 'One more', snapshot: state() }), /AI run limit/);
   const threadId = await session.submit({ prompt: 'New dialog', snapshot: state() });
   assert.equal(session.getSnapshot().runs.filter(run => run.threadId === threadId).length, 1);
+});
+
+test('an initial request becomes one deterministic dialog even when two windows open the project', async t => {
+  const local = fixture('initial-twice', { schema: 1, projectId: 'initial-twice', revision: 0, threads: [], runs: [] }), wait = deferred(); let claims = 0;
+  local.host.ai.initialRequest = { id: 'brief-1', prompt: 'Create a ceramics landing', mode: 'create', autoStart: true, attachments: [], claim: async () => { claims++; return claims === 1; } };
+  const workflows = basicWorkflows(() => wait.promise);
+  const first = createConversationSession(local.host, { locks: null, sessionId: 'one', workflows }), second = createConversationSession(local.host, { locks: null, sessionId: 'two', workflows });
+  t.after(() => { wait.resolve(); first.dispose(); second.dispose(); });
+  await Promise.all([first.ready, second.ready]);
+  const saved = local.read();
+  assert.equal(saved.threads.length, 1); assert.equal(saved.runs.length, 1);
+  assert.match(saved.threads[0].id, /^initial-thread-[^:]+$/); assert.match(saved.runs[0].id, /^initial-run-[^:]+$/);
+  assert.equal(saved.runs[0].initialClaim, 'brief-1'); assert.equal(Object.hasOwn(saved, 'legacyMigrated'), false);
+});
+
+test('an already claimed initial request fails instead of generating twice', async t => {
+  const local = fixture('initial-claimed', { schema: 1, projectId: 'initial-claimed', revision: 0, threads: [], runs: [] });
+  local.host.ai.initialRequest = { id: 'brief-2', prompt: 'Create', mode: 'create', autoStart: true, claim: async () => false };
+  const session = createConversationSession(local.host, { locks: null, sessionId: 'owner', workflows: basicWorkflows(() => assert.fail('No provider call')) });
+  t.after(() => session.dispose()); await session.ready;
+  await until(() => session.getSnapshot().runs[0]?.state === 'failed');
+  assert.match(session.getSnapshot().runs[0].error, /already started/);
+});
+
+test('an initial request queued by a window that died before claiming is not created again', async t => {
+  const runId = 'initial-run-earlier', initial = { schema: 1, projectId: 'initial-crashed', revision: 0,
+    threads: [{ id: 'initial-thread-earlier', title: 'Create', archived: false, messages: [{ id: 'initial-message-earlier', role: 'user', prompt: 'Create', status: 'saved' }] }],
+    runs: [{ id: runId, threadId: 'initial-thread-earlier', messageId: 'initial-message-earlier', state: 'queued', phase: 'queued', initialClaim: 'brief-3', owner: { sessionId: 'dead', fence: 0, expiresAt: 0 }, scope: { kind: 'project' }, createdAt: 1, updatedAt: 1 }] };
+  const local = fixture('initial-crashed', initial);
+  local.host.ai.initialRequest = { id: 'brief-3', prompt: 'Create', mode: 'create', autoStart: true, claim: async () => true };
+  const session = createConversationSession(local.host, { locks: null, sessionId: 'owner', workflows: basicWorkflows(() => assert.fail('No provider call')) });
+  t.after(() => session.dispose()); await session.ready;
+  assert.deepEqual(local.read().runs.map(run => [run.id, run.state]), [[runId, 'interrupted']]);
+});
+
+test('two windows over one conversation store queue one initial request dialog', async t => {
+  const store = createMemoryConversationStore(), wait = deferred(), workflows = basicWorkflows(() => wait.promise);
+  const open = sessionId => {
+    const local = fixture('shared-store');
+    local.host.conversations = createStoreConversationPort(store, { projectId: 'shared-store' });
+    local.host.ai.initialRequest = { id: 'brief-4', prompt: 'Create', mode: 'create', autoStart: true, claim: async () => true };
+    local.host.ai.begin = () => wait.promise.then(() => ({ apiKey: 'k', model: 'test/model', imageModel: '' }));
+    return createConversationSession(local.host, { locks: null, sessionId, workflows });
+  };
+  const first = open('one'), second = open('two');
+  t.after(() => { wait.resolve(); first.dispose(); second.dispose(); });
+  await Promise.all([first.ready, second.ready]);
+  const threads = await store.listThreads();
+  assert.equal(threads.length, 1); assert.equal(threads[0].runs.length, 1);
 });

@@ -272,46 +272,27 @@ export function createConversationSession(initialHost, { workflows = defaultWork
       const message = next.threads.find(thread => thread.id === run.threadId)?.messages.find(message => message.id === run.messageId); if (message) message.status = 'interrupted';
     } });
   }
-  async function migrateLegacy() {
-    if (doc.legacyMigrated) return;
+  // A host-provided creation brief becomes one queued run. Ids derive from the brief, so two windows
+  // opening the same new project create the same dialogue file and the second create loses the CAS.
+  async function queueInitialRequest() {
     const initial = host.ai?.initialRequest;
-    const recovered = await host.ai?.recovery?.load?.();
-    // Opening a new folder must not write sidecars before the first user change.
-    if (!initial && !recovered) return;
+    if (!initial?.autoStart || doc.runs.some(run => run.initialClaim === initial.id)) return;
+    const key = conversationContentHash(initial.id).replace(/:/g, '-');
+    const threadId = `initial-thread-${key}`, messageId = `initial-message-${key}`, runId = `initial-run-${key}`;
     const state = await host.project.open(), locale = state.locale, base = snapshotOf(state, locale);
     base.projectId = doc.projectId;
     await mutate(next => {
-      const threadId = `legacy-${conversationContentHash(doc.projectId)}`, existing = next.threads.find(thread => thread.id === threadId);
-      const thread = existing || { id: threadId, title: (initial?.prompt || recovered?.record?.prompt || 'Recovered AI draft').slice(0, 80), createdAt: now(), updatedAt: now(), archived: false, messages: [] };
-      if (!existing) next.threads.push(thread);
-      const prompt = recovered?.record?.prompt || initial?.prompt || 'Continue the recovered draft';
-      const messageId = `legacy-message-${conversationContentHash(doc.projectId)}`;
-      if (!thread.messages.some(message => message.id === messageId)) thread.messages.push({ id: messageId, role: 'user', prompt, parts: [{ type: 'text', text: prompt }], attachments: clone(recovered?.record?.attachments || initial?.attachments || []), mentions: [], createdAt: now(), status: 'saved' });
-      // Уточнения пользователя из записи восстановления — сообщения диалога: продолжение получает их в контексте истории.
-      const clarifications = (recovered?.record?.clarifications || []).map(item => typeof item === 'string' ? item : item?.text).filter(text => typeof text === 'string' && text.trim()).slice(0, 8);
-      clarifications.forEach((text, index) => {
-        const id = `legacy-clarification-${conversationContentHash(doc.projectId)}-${index}`;
-        if (!thread.messages.some(message => message.id === id)) thread.messages.push({ id, role: 'user', prompt: text, parts: [{ type: 'text', text }], attachments: [], mentions: [], createdAt: now(), status: 'saved' });
-      });
-      if (recovered) {
-        const record = recovered.record, id = `legacy-run-${conversationContentHash(record.token)}`, editScope = record.editScope && validateBlockEditScope(record.editScope);
-        const recoveredLocale = editScope?.locale || locale, recoveredScope = editScope ? { kind: 'block', editScope } : { kind: 'project' };
-        const recoveredBase = editScope ? { ...clone(base), locale: recoveredLocale, files: clone(editScope.baselineFiles), translations: { ...clone(base.translations), [recoveredLocale]: clone(editScope.baselineRawValues) } } : base;
-        if (!next.runs.some(run => run.id === id)) next.runs.push({ id, threadId, messageId, attempt: 0, state: 'interrupted', phase: 'review', base: recoveredBase, locale: recoveredLocale, scope: recoveredScope, mode: editScope ? 'edit' : record.kind, generateImages: editScope ? false : record.generateImages,
-          result: storedResult({ ...record, valid: recovered.conflict ? false : record.valid }, readSetOf(recoveredBase, recoveredLocale, recoveredScope)), recoveredConflict: Boolean(recovered.conflict), createdAt: now(), updatedAt: now(), error: recovered.conflict ? 'This recovered draft belongs to an older project revision. Review its original scope before continuing or applying it.' : 'Recovered draft. Generation has not restarted.' });
-      } else if (initial?.autoStart) {
-        const id = `legacy-run-${conversationContentHash(initial.id)}`;
-        if (!next.runs.some(run => run.id === id)) next.runs.push({ id, threadId, messageId, attempt: 0, owner: { sessionId, fence: 0, expiresAt: now() + leaseMs }, state: 'queued', phase: 'queued', base, locale, scope: { kind: 'project' }, mode: initial.mode,
-          generateImages: initial.generateImages, initialClaim: initial.id, createdAt: now(), updatedAt: now(), clarifications: [] });
-      }
-      next.legacyMigrated = true;
+      if (next.runs.some(run => run.initialClaim === initial.id)) return false;
+      let thread = next.threads.find(value => value.id === threadId);
+      if (!thread) next.threads.push(thread = { id: threadId, title: String(initial.prompt || 'New project').slice(0, 80), createdAt: now(), updatedAt: now(), archived: false, messages: [] });
+      if (!thread.messages.some(message => message.id === messageId)) thread.messages.push({ id: messageId, role: 'user', prompt: initial.prompt, parts: [{ type: 'text', text: initial.prompt }], attachments: clone(initial.attachments || []), mentions: [], createdAt: now(), status: 'saved' });
+      next.runs.push({ id: runId, threadId, messageId, attempt: 0, owner: { sessionId, fence: 0, expiresAt: now() + leaseMs }, state: 'queued', phase: 'queued', base, locale, scope: { kind: 'project' }, mode: initial.mode,
+        generateImages: initial.generateImages, initialClaim: initial.id, createdAt: now(), updatedAt: now(), clarifications: [] });
     });
-    // Migration IDs are deterministic; delete only after the new document is durable.
-    if (recovered) await host.ai.recovery.discard(recovered.record.token).catch(error => report(error));
   }
   const ready = (async () => {
     await ownerReady; doc = scopedDocument(await host.conversations.load()); publish(); bindPort();
-    await recoverOrphans(); await migrateLegacy();
+    await recoverOrphans(); await queueInitialRequest();
     for (const run of doc.runs) if (run.state === 'queued' && run.owner?.sessionId === sessionId) enqueue(session, run.id);
   })();
   ready.catch(report);
