@@ -76,6 +76,7 @@ test('StudioChat and RunActions carry their test hooks', () => {
   const actions = read('RunActions.jsx');
   assert.ok(actions.includes('canDiscardRun(port, run.status, hasDrafts)'), 'Discard follows canDiscardRun');
   assert.ok(read('Messages.jsx').includes('hasDraftCards(state.message.content)'), 'AssistantMessage passes hasDrafts');
+  assert.ok(chat.includes('composerExtra,') && chat.includes('extra={composerExtra}'), 'StudioChat forwards composerExtra to the composer');
   assert.ok(/onScopeChange\?\.\(next\)/.test(chat) && chat.includes('onScopeChange={changeScope}') && chat.includes('changeScope(launch.scope'), 'StudioChat reports scope changes, launches included');
   for (const id of ['studio-chat-apply', 'studio-chat-discard', 'studio-chat-keep-draft', 'studio-chat-continue', 'studio-chat-retry']) assert.ok(actions.includes(`data-testid="${id}"`), id);
   assert.ok(actions.includes('canRetryRun(port, run.status)'), 'Retry follows canRetryRun');

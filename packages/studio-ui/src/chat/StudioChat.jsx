@@ -24,9 +24,10 @@ const defaultScope = port => ({ kind: port.capabilities?.scopes?.includes('proje
 // actions?: { id, label, danger?, onSelect({ text }) }[] — menu items in the thread header (product actions, e.g. "Create the project anew");
 // onScopeChange?(scope) — called on a scope chip change (including its removal) and on every launch, including a launch present
 // at mount and a launch that resets the scope to the default; without a launch it is not called on mount;
-// disabled?: boolean; footer?: ReactNode; emptyState?: ReactNode; className?: string
+// disabled?: boolean; footer?: ReactNode; emptyState?: ReactNode; className?: string;
+// composerExtra?: ReactNode — product controls in the composer toolbar (Composer extra), e.g. a compact ModelPicker
 // Errors (send, thread and card actions) are inline notices; no ToastProvider is needed.
-export default function StudioChat({ port, threadId = '', onThreadChange, onScopeChange, launch, actions = [], disabled = false, footer, emptyState, className = '' }) {
+export default function StudioChat({ port, threadId = '', onThreadChange, onScopeChange, launch, actions = [], disabled = false, footer, emptyState, composerExtra, className = '' }) {
   const t = useStudioText();
   const [text, setText] = useState(''), [scope, setScope] = useState(() => defaultScope(port)), [mentions, setMentions] = useState([]), [attachments, setAttachments] = useState([]), [generateImages, setGenerateImages] = useState(false);
   const [notice, setNotice] = useState(null); // { title, message }
@@ -84,7 +85,7 @@ export default function StudioChat({ port, threadId = '', onThreadChange, onScop
               {notice && <InlineNotice tone="danger" title={notice.title} actions={<Button variant="ghost" size="sm" onClick={() => setNotice(null)}>{t('Dismiss')}</Button>}>{notice.message}</InlineNotice>}
               <ChatComposerContext.Provider value={{ onSubmit: submitMessage, clarifyWhileRunning: Boolean(port.capabilities?.clarifyWhileRunning) }}>
                 <Composer port={port} value={text} onChange={setText} disabled={disabled} scope={scope} onScopeChange={changeScope} mentions={mentions} onMentionsChange={setMentions}
-                  attachments={attachments} onAttachmentsChange={setAttachments} generateImages={generateImages} onGenerateImagesChange={setGenerateImages} />
+                  attachments={attachments} onAttachmentsChange={setAttachments} generateImages={generateImages} onGenerateImagesChange={setGenerateImages} extra={composerExtra} />
               </ChatComposerContext.Provider>
               {footer}
             </div>

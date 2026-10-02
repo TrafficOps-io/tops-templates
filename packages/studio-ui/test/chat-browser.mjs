@@ -62,6 +62,9 @@ try {
   };
   const focusedInComposer = () => page.evaluate(() => Boolean(document.activeElement?.closest('[data-testid="studio-chat-composer"]')));
 
+  // composerExtra lands in the composer toolbar.
+  await composer.locator('.studio-chat-composer-toolbar [data-composer-extra]', { hasText: 'Gemini Flash' }).waitFor();
+
   // Empty thread: the empty state, no toast provider anywhere.
   await feed.getByText('What shall we create?').waitFor();
   assert.equal(await page.locator('.studio-toasts, .studio-toast').count(), 0);

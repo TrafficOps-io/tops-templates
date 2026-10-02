@@ -25,7 +25,7 @@ export default function ChatPlayground() {
   useEffect(() => { window.setThreadId = setThreadId; window.setTheme = setTheme; window.launch = setLaunch; }, []);
   return <div className="studio-root" data-theme={theme}>
     <StudioUiProvider language="en">
-      <div style={{ height: '100vh' }}><StudioChat port={port} threadId={threadId} onThreadChange={setThreadId} onScopeChange={scope => window.scopes.push(scope)} launch={launch} actions={actions} /></div>
+      <div style={{ height: '100vh' }}><StudioChat port={port} threadId={threadId} onThreadChange={setThreadId} onScopeChange={scope => window.scopes.push(scope)} launch={launch} actions={actions} composerExtra={<span data-composer-extra="">Gemini Flash</span>} /></div>
       <div id="standalone"><StudioComposer onSubmit={input => window.standaloneSubmit?.(input)} /></div>
     </StudioUiProvider>
   </div>;
