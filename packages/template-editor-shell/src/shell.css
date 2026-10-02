@@ -331,7 +331,7 @@ fieldset:disabled { opacity: .65; }
 .resizable-workspace { position: relative; }
 .panel-resizer { display: none; }
 @media (min-width: 961px) {
-  .editor-shell.resizable-workspace { --panel-sidebar: clamp(176px, var(--saved-sidebar, var(--sidebar-width)), 30%); --panel-author: clamp(288px, var(--saved-author, 32%), calc(100% - var(--panel-sidebar) - 240px)); grid-template-columns: var(--panel-sidebar) var(--panel-author) minmax(0, 1fr); transition: none; }
+  .editor-shell.resizable-workspace { --panel-sidebar: clamp(192px, var(--saved-sidebar, var(--sidebar-width)), 30%); --panel-author: clamp(320px, var(--saved-author, 32%), calc(100% - var(--panel-sidebar) - 288px)); grid-template-columns: var(--panel-sidebar) var(--panel-author) minmax(0, 1fr); transition: none; }
   .editor-shell.resizable-workspace.files-collapsed { --panel-sidebar: var(--sidebar-collapsed-width); }
   .editor-shell.resizable-workspace.preview-collapsed { grid-template-columns: var(--panel-sidebar) minmax(0, 1fr); }
   .editor-shell.resizable-workspace.preview-collapsed.files-collapsed { grid-template-columns: var(--panel-sidebar) minmax(0, 1fr); }

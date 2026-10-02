@@ -47,6 +47,15 @@ try {
  // Icon and toolbar buttons keep a 32px target even in the dense desktop layout.
  const shortButtons=await page.locator('.preview-panel .btn, .file-sidebar .btn, .studio-toolbar .btn').evaluateAll(nodes=>nodes.filter(node=>node.getBoundingClientRect().height>0&&node.getBoundingClientRect().height<32).map(node=>node.className));
  assert.deepEqual(shortButtons,[]);
+ // Panel minimums follow the studio spec: dragging both separators far left stops at 192 / 320 and leaves the preview 288.
+ {
+  const drag=async(selector,to)=>{const box=await page.locator(selector).boundingBox();await page.mouse.move(box.x+box.width/2,box.y+box.height/2);await page.mouse.down();await page.mouse.move(to,box.y+box.height/2,{steps:8});await page.mouse.up();};
+  await drag('.resizer-0',0); await drag('.resizer-1',0);
+  assert.ok(Number(await page.locator('.resizer-0').getAttribute('aria-valuenow'))>=192,'sidebar keeps at least 192px');
+  assert.ok(Number(await page.locator('.resizer-1').getAttribute('aria-valuenow'))>=320,'author panel keeps at least 320px');
+  assert.ok((await page.locator('.preview-panel').boundingBox()).width>=288,'preview keeps at least 288px');
+  await page.locator('.resizer-0').dblclick();
+ }
  // An empty tree shows a state, but one with folders still lists them (rendered directly: Studio never lets a project drop index.tpl).
  {
   const { build }=require('esbuild');
