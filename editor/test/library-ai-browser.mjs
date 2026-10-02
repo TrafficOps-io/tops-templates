@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { studioChat } from './support/studio-chat.js';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
@@ -90,7 +91,7 @@ async function createAiProject(page, name, prompt, withAttachment = false) {
   }
   await dialog.getByRole('button', { name: 'Create project', exact: true }).click();
   await dialog.waitFor({ state: 'hidden' });
-  await page.getByRole('region', { name: 'Project conversations', exact: true }).waitFor();
+  await showLatestThread(page);
   assert.equal(await page.getByRole('button', { name: 'Collapse editor', exact: true }).count(), 0, 'the installed app keeps the editor open');
 }
 async function configureTestKey(page) {
@@ -103,6 +104,15 @@ async function configureTestKey(page) {
     try { await new Promise((resolve, reject) => { const transaction = database.transaction('settings', 'readwrite'); transaction.objectStore('settings').put({ id: 'openrouter', apiKey: 'mock-key-never-sent-to-provider', model: 'test/model', imageModel: '' }); transaction.oncomplete = resolve; transaction.onerror = () => reject(transaction.error); }); }
     finally { database.close(); }
   });
+}
+// The editor opens on the latest conversation (the creation thread), as the former conversation panel did.
+// T7_SKIP_LATEST_THREAD: opens it by hand from the header menu so the rest of the scenario can be verified.
+async function showLatestThread(page) {
+  const chat = studioChat(page); await chat.root.waitFor();
+  if (!process.env.T7_SKIP_LATEST_THREAD) return; // T7_SKIP
+  const header = chat.root.locator('.studio-chat-header');
+  await header.getByRole('button', { name: 'Conversations', exact: true }).click();
+  await header.getByRole('menuitem').last().click();
 }
 const records = page => page.evaluate(() => window.readStudioRecords());
 const documents = page => page.evaluate(() => window.readConversationDocuments());
@@ -136,22 +146,24 @@ try {
   const unconfigured = await openTestPage(), pendingPrompt = 'A calm ceramics landing with a gallery and booking link.';
   await createAiProject(unconfigured, 'Pending ceramics', pendingPrompt);
   const missing = await waitForRun(unconfigured, 'Pending ceramics', 'failed');
-  await unconfigured.locator('.conversation-message.user').getByText(pendingPrompt, { exact: true }).waitFor();
+  const unconfiguredChat = studioChat(unconfigured);
+  await unconfiguredChat.user.getByText(pendingPrompt, { exact: true }).waitFor();
+  await unconfiguredChat.status('failed').waitFor();
   assert.equal(providerCalls.length, 0);
   assert.equal(missing.project.aiPrompt, pendingPrompt); assert.equal(missing.project.aiStarted, true); assert.equal(missing.project.kind, 'landing');
   assert.equal(missing.project.aiGenerateImages, undefined, 'an unconfigured creation must not persist an implicit image-generation opt-out');
   assert.match(missing.run.error, /connection|key/i);
-  await unconfigured.getByRole('button', { name: 'Settings', exact: true }).click();
+  await unconfiguredChat.root.getByRole('button', { name: 'AI settings', exact: true }).click();
   await unconfigured.locator('.ai-settings input[type=password]').waitFor();
   await unconfigured.getByRole('button', { name: 'Back to assistant', exact: true }).click();
-  await unconfigured.reload();
-  await unconfigured.locator('.conversation-message.user').getByText(pendingPrompt, { exact: true }).waitFor();
+  await unconfigured.reload(); await showLatestThread(unconfigured);
+  await unconfiguredChat.user.getByText(pendingPrompt, { exact: true }).waitFor();
   assert.equal(providerCalls.length, 0, 'a missing-key request does not restart after reload');
   assert.equal((await waitForRun(unconfigured, 'Pending ceramics', 'failed')).document.threads.length, 1);
   await unconfigured.context().close();
 
   // Both the message and creation handoff are durable before any provider fetch.
-  const page = await openTestPage(); await configureTestKey(page);
+  const page = await openTestPage(); await configureTestKey(page); const chat = studioChat(page);
   const prompt = 'Create a studio launch landing with a clear heading and introductory copy.';
   await createAiProject(page, 'AI launch', prompt, true);
   await page.waitForFunction(() => typeof window.libraryAiTest.release === 'function');
@@ -164,7 +176,8 @@ try {
   assert.equal(claimedDocument.threads[0].messages[0].prompt, prompt);
   assert.ok(providerCalls[0].body.messages.some(message => JSON.stringify(message.content).includes(prompt)));
   assert.ok(providerCalls[0].body.messages.some(message => message.content?.some?.(part => part.type === 'image_url')));
-  assert.equal(await page.getByRole('button', { name: 'Apply to project', exact: true }).count(), 0);
+  await chat.status('running').waitFor();
+  assert.equal(await chat.apply.count(), 0);
   assert.ok((await records(page))[0].files['index.tpl'].includes('Your next idea'), 'partial streamed source never replaces the canonical starter');
   await page.evaluate(() => window.libraryAiTest.release());
   const ready = await waitForRun(page, 'AI launch', 'ready');
@@ -173,16 +186,18 @@ try {
   const assetPath = `images/reference-${claimed.aiAttachments[0].id}.png`;
   assert.ok(ready.run.result.files[assetPath] && typeof ready.run.result.files[assetPath] === 'object', 'an image marked Use on page is part of the independent draft');
   assert.ok(ready.project.files['index.tpl'].includes('Your next idea'), 'a ready draft still requires manual apply');
-  await page.getByRole('button', { name: 'Review changes', exact: true }).click();
-  await page.getByRole('region', { name: 'Review conversation changes', exact: true }).waitFor();
+  await chat.run(ready.run.id).waitFor(); assert.equal(await chat.run(ready.run.id).getAttribute('data-run-status'), 'ready');
+  await chat.cards('diff').filter({ hasText: 'index.tpl' }).waitFor();
+  await chat.run(ready.run.id).getByRole('button', { name: 'Preview draft', exact: true }).click();
+  await page.getByText('Conversation draft · Project files unchanged', { exact: true }).waitFor();
   await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'AI studio launch', exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Apply to project', exact: true }).click();
+  await chat.apply.click();
   const saved = await waitForSaved(page, 'AI launch', 'AI studio launch');
   assert.ok(saved.files[assetPath], 'manual apply keeps the selected image asset');
   assert.ok(saved.appliedAiRuns.includes(ready.run.id));
   await waitForRun(page, 'AI launch', 'applied');
-  await page.reload();
-  await page.locator('.conversation-message.user').getByText(prompt, { exact: true }).waitFor();
+  await page.reload(); await showLatestThread(page);
+  await chat.user.getByText(prompt, { exact: true }).waitFor(); await chat.status('applied').waitFor();
   await page.waitForTimeout(800);
   assert.equal(providerCalls.length, 4, 'reload never restarts a paid generation');
   await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'AI studio launch', exact: true }).waitFor();
@@ -192,7 +207,7 @@ try {
   await page.evaluate(() => { Object.assign(window.libraryAiTest, { step: 0, outcome: 'cancel', release: null }); });
   await createAiProject(page, 'Cancelled creation', 'A project whose creation will be cancelled.');
   await page.waitForFunction(() => typeof window.libraryAiTest.release === 'function');
-  await page.getByRole('button', { name: 'Stop', exact: true }).click();
+  await chat.status('running').getByRole('button', { name: 'Stop', exact: true }).click();
   const cancelled = await waitForRun(page, 'Cancelled creation', 'cancelled');
   assert.equal(cancelled.project.aiStarted, true);
   assert.ok(cancelled.project.files['index.tpl'].includes('Your next idea'));
@@ -209,13 +224,14 @@ try {
   assert.ok(failed.project.files['index.tpl'].includes('Your next idea'));
   assert.ok(failed.run.result.files['index.tpl'].includes('AI studio launch'));
   assert.equal(failed.run.result.valid, false);
-  await page.getByRole('button', { name: 'Review changes', exact: true }).click();
-  await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'AI studio launch', exact: true }).waitFor();
-  assert.equal(await page.getByRole('button', { name: 'Apply to project', exact: true }).isDisabled(), true, 'an unvalidated failed draft cannot be applied');
-  await page.getByRole('button', { name: 'Continue', exact: true }).waitFor();
+  // A failed run is not applicable: no Apply; its retained source is shown as a diff card with Continue generation and Keep draft in editor.
+  const failedRun = chat.run(failed.run.id); await failedRun.waitFor(); assert.equal(await failedRun.getAttribute('data-run-status'), 'failed');
+  assert.ok((await failedRun.locator('[data-testid="studio-chat-card"][data-card="diff"]').filter({ hasText: 'index.tpl' }).innerText()).includes('AI studio launch'));
+  assert.equal(await chat.apply.count(), 0, 'an unvalidated failed draft cannot be applied');
+  await failedRun.locator('[data-testid="studio-chat-continue"]').waitFor(); await failedRun.locator('[data-testid="studio-chat-keep-draft"]').waitFor();
   assert.equal(providerCalls.length, 10, 'a persistent pre-tool 503 gets one recovery without replaying completed writes');
-  await page.reload();
-  await page.getByRole('button', { name: 'Review changes', exact: true }).waitFor();
+  await page.reload(); await showLatestThread(page);
+  await chat.run(failed.run.id).locator('[data-testid="studio-chat-continue"]').waitFor();
   await page.waitForTimeout(800);
   const restored = await waitForRun(page, 'Recovered creation', 'failed');
   assert.ok(restored.run.result.files['index.tpl'].includes('AI studio launch'));
