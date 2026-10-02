@@ -175,3 +175,19 @@ test('dispose closes every open stream and drops listeners', async () => {
   let notified = 0; port.threads.subscribe(() => notified++); session.set({ ...session.doc() });
   assert.equal(notified, 0, 'a disposed port no longer forwards session changes');
 });
+
+test('deleteThread drops the cached message store; refresh re-labels cached snapshots', async () => {
+  const session = fakeSession(); let t = text => text;
+  const adapter = createChatPort(session, () => ({ ...context(), t })), { port } = adapter, { id } = await port.createThread();
+  const store = port.messages(id); assert.equal(port.messages(id), store);
+  await port.deleteThread(id);
+  assert.notEqual(port.messages(id), store, 'message store of a deleted thread is not retained');
+  const { id: other } = await port.createThread(); await port.send(other, input());
+  const removed = port.messages(other); await port.deleteThread(other);
+  assert.deepEqual(session.calls.at(-1), ['deleteThread', other]); assert.notEqual(port.messages(other), removed);
+  const { id: fresh } = await port.createThread();
+  t = text => (text === 'New conversation' ? 'Новый диалог' : text);
+  let seen; port.threads.subscribe(value => { seen = value; });
+  adapter.refresh();
+  assert.equal(seen.find(item => item.id === fresh).title, 'Новый диалог');
+});

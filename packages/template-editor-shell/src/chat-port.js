@@ -16,7 +16,7 @@ const sectionId = section => `${section.page}:${section.id}`;
 /**
  * ChatPort над сессией conversation-runtime. `context()` возвращает актуальные state, locale, sectionFrame,
  * settings, onApplyRun(run, { allowStaleContext }), onPreviewDraft(draft | null), onKeepDraft(run), onOpenFile(path), onOpenSection(target), t.
- * Возвращает { port, registerBlockScope, invalidateConflicts }: два последних — внутренний API адаптера, в ChatPort их нет.
+ * Возвращает { port, registerBlockScope, invalidateConflicts, refresh }: три последних — внутренний API адаптера, в ChatPort их нет.
  */
 export function createChatPort(session, context) {
   const listeners = new Set(), conflicts = new Map(), blockScopes = new Map(), pendingThreads = new Map(), streams = new Set(), messageStores = new Map();
@@ -161,7 +161,7 @@ export function createChatPort(session, context) {
     },
     async renameThread(threadId, title) { await session.rename(threadId, title); },
     async archiveThread(threadId, archived) { await session.archive(threadId, archived); },
-    async deleteThread(threadId) { if (pendingThreads.delete(threadId)) { notify(); return; } await session.deleteThread(threadId); },
+    async deleteThread(threadId) { messageStores.delete(threadId); if (pendingThreads.delete(threadId)) { notify(); return; } await session.deleteThread(threadId); },
     mentionTargets,
     openTarget(target) { if (target.kind === 'file') context().onOpenFile?.(target.id); else context().onOpenSection?.(target); },
     attachmentLimits: { count: FILE_ATTACHMENT_LIMITS.count, bytesPerFile: FILE_ATTACHMENT_LIMITS.bytes, bytesTotal: FILE_ATTACHMENT_LIMITS.total, accept: FILE_ATTACHMENT_ACCEPT },
@@ -172,5 +172,7 @@ export function createChatPort(session, context) {
     port,
     registerBlockScope(key, editScope) { blockScopes.set(key, editScope); },
     invalidateConflicts() { if (conflicts.size) { conflicts.clear(); notify(); } },
+    // Смена языка интерфейса: t() из context() уже новый, но кэш снимков держит старые подписи — сбросить и уведомить.
+    refresh() { notify(); },
   };
 }
