@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { accessLost, duplicateDecision, duplicatePermissionPlan, importIdentity, openFolderDecision, pendingEditsApply, reconnectDecision, reopenCandidate, rootDecision, rootReachable, storageLabels } from '../src/storage/flows.js';
+import { accessLost, accessProblem, sameValues, duplicateDecision, duplicatePermissionPlan, importIdentity, openFolderDecision, pendingEditsApply, reconnectDecision, reopenCandidate, rootDecision, rootReachable, storageLabels } from '../src/storage/flows.js';
 import { createProjectMeta } from '../src/storage/project-meta.js';
 import { classifyFolder } from '../src/storage/roots.js';
 import { MemoryDirectoryHandle } from './support/fs-access.js';
@@ -92,6 +92,23 @@ test('rootReachable: a folder that cannot be listed for an access reason is lost
   assert.equal(await rootReachable(failing('NotFoundError')), false);
   assert.equal(await rootReachable(failing('NotAllowedError')), false);
   await assert.rejects(rootReachable(failing('TypeMismatchError')), /TypeMismatchError/);
+});
+
+test('accessProblem tells a permission problem from a missing folder', () => {
+  assert.equal(accessProblem(domError('NotAllowedError')), 'permission');
+  assert.equal(accessProblem(new Error('wrapped', { cause: domError('SecurityError') })), 'permission');
+  assert.equal(accessProblem(new Error('wrapped', { cause: domError('NotFoundError') })), 'missing');
+  assert.equal(accessProblem(new Error('conflict')), null);
+  assert.equal(accessProblem(undefined), null);
+});
+
+test('pendingEditsApply also requires unchanged values when the saved values are known; sameValues ignores key order', () => {
+  const baseline = { 'index.tpl': 'x' };
+  assert.equal(pendingEditsApply(baseline, { 'index.tpl': 'x' }, { title: 'a', items: [1, { b: 2, a: 1 }] }, { items: [1, { a: 1, b: 2 }], title: 'a' }), true);
+  assert.equal(pendingEditsApply(baseline, { 'index.tpl': 'x' }, { title: 'a' }, { title: 'changed outside' }), false);
+  assert.equal(pendingEditsApply(baseline, { 'index.tpl': 'x' }, null, {}), true, 'no values file equals empty values');
+  assert.equal(sameValues(undefined, {}), true);
+  assert.equal(sameValues({ a: [1, 2] }, { a: [2, 1] }), false);
 });
 
 test('reopenCandidate returns the last project only when access is already granted', () => {

@@ -65,6 +65,16 @@ export function duplicatePermissionPlan(sourceAccess, mode = 'folder') {
   return { steps: sourceAccess === 'granted' ? [destination] : ['grant-source', destination] };
 }
 
+/** 'permission' (NotAllowedError, SecurityError: access must be granted again), 'missing' (NotFoundError: moved or
+ *  deleted) or null, from an error or one of its causes. */
+export function accessProblem(error) {
+  for (let cause = error, depth = 0; cause && depth < 8; cause = cause.cause, depth++) {
+    if (cause.name === 'NotAllowedError' || cause.name === 'SecurityError') return 'permission';
+    if (cause.name === 'NotFoundError') return 'missing';
+  }
+  return null;
+}
+
 /** True when an error (or one of its causes) means the folder is gone or no longer permitted. */
 export function accessLost(error) {
   for (let cause = error, depth = 0; cause && depth < 8; cause = cause.cause, depth++) if (ACCESS_LOST.has(cause.name)) return true;
@@ -86,11 +96,20 @@ export function reopenCandidate(known, lastProjectId) {
   return known.find(entry => entry.projectId === lastProjectId && entry.access === 'granted') || null;
 }
 
-/** Unsaved editor edits may be written to a reconnected folder only when its files still equal the editor's baseline. */
-export function pendingEditsApply(baseline, files) {
+/** Unsaved editor edits may be written to a reconnected folder only when its files still equal the editor's baseline
+ *  and, when given, its values still equal the values the editor last loaded or saved. */
+export function pendingEditsApply(baseline, files, savedValues, values) {
   if (!baseline || !files) return false;
   const names = Object.keys(baseline);
-  return names.length === Object.keys(files).length && names.every(name => Object.hasOwn(files, name) && contentsEqual(baseline[name], files[name]));
+  if (names.length !== Object.keys(files).length || !names.every(name => Object.hasOwn(files, name) && contentsEqual(baseline[name], files[name]))) return false;
+  return savedValues === undefined || sameValues(savedValues, values);
+}
+
+const canonical = value => Array.isArray(value) ? value.map(canonical)
+  : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+/** Parameter values compared as JSON, ignoring key order; null and undefined are an empty object. */
+export function sameValues(left, right) {
+  return JSON.stringify(canonical(left ?? {})) === JSON.stringify(canonical(right ?? {}));
 }
 
 /** Editor storage labels (D9). */
