@@ -1,6 +1,9 @@
 import { BLOB_TAG, canonicalJson, sha256Hex } from './conversation-format.js';
 
-/** Runner-agnostic cases every ConversationStore must pass. createStore({ graceMs }) returns a fresh, empty store. */
+/** Runner-agnostic cases every ConversationStore must pass. createStore({ graceMs }) returns a fresh, empty store.
+ *  Cases are run as run(createStore, { openPeer }). openPeer(store) must return another instance over the same backing
+ *  (a different window). Stores that signal via BroadcastChannel must pass a real peer, because a channel never hears
+ *  its own posts; the default (identity) only suits stores that notify their own instance (e.g. the memory store). */
 function check(condition, message) { if (!condition) throw new Error(`Store contract: ${message}`); }
 async function rejects(promise, predicate, message) {
   try { await promise; } catch (error) { check(predicate(error), `${message} (got ${error?.code || ''} ${error?.message})`); return; }

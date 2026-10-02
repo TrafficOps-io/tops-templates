@@ -50,6 +50,20 @@ export interface ConversationEntry { id: string; [key: string]: any }
 export interface ConversationDocument { schema: 1; projectId: string; revision: number; threads: ConversationEntry[]; runs: ConversationEntry[]; storageWarning?: string; [key: string]: any }
 /** Conversation revisions are independent of project content and published versions. */
 export interface ConversationPort { readonly projectId: string; load(): Promise<ConversationDocument>; save(document: ConversationDocument, options: { expectedRevision: number }): Promise<ConversationDocument>; subscribe?(listener: (document: ConversationDocument) => void): () => void }
+/** One dialogue file of folder format v1; large values are { $trafficopsBlob, encoding, size, mime? } references. */
+export interface ConversationThreadFile { schema: 1; id: string; revision: number; title?: string; updatedAt?: number; createdBy?: { id: string; name: string }; messages: ConversationEntry[]; runs: ConversationEntry[]; [key: string]: any }
+export interface ConversationStore {
+  listThreads(options?: { signal?: AbortSignal }): Promise<ConversationThreadFile[]>;
+  /** expectedRevision 0 creates; a mismatch rejects with ConflictError. The body revision is ignored. */
+  writeThread(thread: ConversationThreadFile, options: { expectedRevision: number; signal?: AbortSignal }): Promise<{ revision: number }>;
+  /** A missing thread resolves. */
+  deleteThread(id: string, options: { expectedRevision: number; signal?: AbortSignal }): Promise<void>;
+  putBlob(sha256: string, bytes: Uint8Array, options?: { signal?: AbortSignal }): Promise<void>;
+  getBlob(sha256: string, options?: { signal?: AbortSignal }): Promise<Uint8Array>;
+  watch?(onChange: () => void): () => void;
+  /** References are computed from persisted threads; unreferenced blobs inside the grace period are kept. */
+  collectGarbage?(options?: { signal?: AbortSignal }): Promise<void>;
+}
 export interface ImportedProject { files: ProjectFiles; folders: string[]; settings: Values; entrypoint?: string | null; metadata?: PortableMetadata; conversations?: ConversationDocument }
 export interface ExportOptions extends LocaleOptions { format: 'source' | 'html'; continueUrl?: string; history?: HistoryTarget; includeHistory?: boolean }
 export interface Download { name: string; bytes: Uint8Array; mime: string }
@@ -140,9 +154,28 @@ export function projectFolders(files: ProjectFiles, folders?: string[]): string[
 export function readZip(bytes: Uint8Array): ProjectFiles;
 export function readZipProject(bytes: Uint8Array): ImportedProject;
 export function inspectZip(bytes: Uint8Array): Map<string, { size: number; directory: boolean }>;
-export const CONVERSATION_LIMITS: Readonly<{ threads: number; runs: number; messages: number; total: number; nodes: number; depth: number; encoded: number }>;
+export const CONVERSATION_LIMITS: Readonly<{ threads: number; runs: number; messages: number; total: number; nodes: number; depth: number; encoded: number; threadEncoded: number; blob: number }>;
 export function clonePortablePayload<T>(value: T): T;
 export function validateConversationDocument(value: unknown, expectedProjectId?: string): ConversationDocument;
+export const BLOB_TAG: '$trafficopsBlob';
+export interface ConversationSplitCache { readonly runs: Map<string, unknown>; readonly attachments: Map<string, unknown> }
+export function createSplitCache(): ConversationSplitCache;
+export function seedSplitCache(cache: ConversationSplitCache, thread: ConversationThreadFile): ConversationSplitCache;
+export function threadsOf(document: ConversationDocument): ConversationThreadFile[];
+export function documentOf(projectId: string, threads: ConversationThreadFile[], revision: number): ConversationDocument;
+export function threadHash(thread: ConversationThreadFile): Promise<string>;
+export function sha256Hex(bytes: Uint8Array): Promise<string>;
+export function blobReferences(value: unknown, found?: Set<string>): Set<string>;
+export function validateBlobRef<T>(value: T): T;
+export function toBase64(bytes: Uint8Array): string;
+export function fromBase64(text: string): Uint8Array;
+export function canonicalJson(value: unknown): string;
+// The './conversation-store-contract' subpath is test tooling and stays untyped (JS only).
+export function createStoreConversationPort(store: ConversationStore, options: { projectId: string; hashBlob?: (bytes: Uint8Array) => Promise<string>; onError?: (error: unknown) => void; now?: () => number }): ConversationPort;
+export function createMemoryConversationStore(options?: { now?: () => number; graceMs?: number; refreshMs?: number }): ConversationStore;
+export function splitThread(thread: ConversationThreadFile, options?: { cache?: ConversationSplitCache; nextCache?: ConversationSplitCache; hash?: (bytes: Uint8Array) => Promise<string> }): Promise<{ thread: ConversationThreadFile; blobs: Map<string, Uint8Array> }>;
+export function joinThread(thread: ConversationThreadFile, getBlob: (sha256: string) => Uint8Array | Promise<Uint8Array>): Promise<ConversationThreadFile>;
+export function validateThreadFile(value: unknown): ConversationThreadFile;
 export function validatePortableMetadata(value: unknown): PortableMetadata;
 export function encodePortablePayload(value: unknown): string;
 export function decodePortablePayload(text: string): any;

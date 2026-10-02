@@ -12,6 +12,7 @@
     "./project": "./src/project.js",
     "./host-project": "./src/host-project.js",
     "./project-changes": "./src/project-changes.js",
+    "./conversation-store-contract": "./src/conversation-store-contract.js",
     "./contract": "./contract.d.ts",
     "./fixtures/*": "./fixtures/*"
   },
