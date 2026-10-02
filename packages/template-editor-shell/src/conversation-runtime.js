@@ -296,12 +296,16 @@ export function createConversationSession(initialHost, { workflows = defaultWork
     for (const run of doc.runs) if (run.state === 'queued' && run.owner?.sessionId === sessionId) enqueue(session, run.id);
   })();
   ready.catch(report);
+  // Routine heartbeat conflicts with other windows retry on the next tick; the lease (3 ticks) covers two misses.
+  let leaseMisses = 0, orphanMisses = 0;
+  const quietly = (error, misses) => { if (error?.code !== 'conflict' || misses >= 3) report(error); };
   const heartbeat = setInterval(() => {
     if (disposed) return;
     const owned = doc.runs.filter(run => active(run) && run.owner?.sessionId === sessionId).map(run => run.id);
-    if (owned.length) void mutate(next => { for (const run of next.runs) if (owned.includes(run.id) && active(run) && run.owner?.sessionId === sessionId) run.owner.expiresAt = now() + leaseMs; }).catch(report);
+    if (owned.length) void mutate(next => { for (const run of next.runs) if (owned.includes(run.id) && active(run) && run.owner?.sessionId === sessionId) run.owner.expiresAt = now() + leaseMs; })
+      .then(() => { leaseMisses = 0; }, error => quietly(error, ++leaseMisses));
     for (const run of doc.runs) if (run.state === 'queued' && run.owner?.sessionId === sessionId) enqueue(session, run.id);
-    void recoverOrphans().catch(report);
+    void recoverOrphans().then(() => { orphanMisses = 0; }, error => quietly(error, ++orphanMisses));
   }, Math.min(15000, leaseMs / 3)); heartbeat.unref?.();
 
   async function execute(runId) {

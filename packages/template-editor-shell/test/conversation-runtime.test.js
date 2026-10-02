@@ -568,3 +568,19 @@ test('two windows over one conversation store queue one initial request dialog',
   const threads = await store.listThreads();
   assert.equal(threads.length, 1); assert.equal(threads[0].runs.length, 1);
 });
+
+test('heartbeat-tick conflicts stay quiet for two ticks and report on the third', async t => {
+  const local = fixture('quiet-heartbeat'), wait = deferred(); let conflicts = 0;
+  const save = local.host.conversations.save, withoutOwners = document => JSON.stringify({ threads: document.threads, runs: document.runs.map(({ owner: _owner, ...run }) => run) });
+  local.host.conversations.save = async (next, options) => {
+    const current = local.read();
+    if (current.runs[0]?.state === 'running' && withoutOwners(next) === withoutOwners(current)) { conflicts++; throw Object.assign(new Error('Concurrent heartbeat'), { code: 'conflict' }); }
+    return save(next, options);
+  };
+  const session = createConversationSession(local.host, { locks: null, sessionId: 'owner', leaseMs: 60, workflows: basicWorkflows(() => wait.promise) });
+  t.after(() => { wait.resolve(); session.dispose(); }); await session.ready;
+  await session.submit({ prompt: 'Edit', snapshot: state() }); await until(() => local.connections.length === 1);
+  await until(() => conflicts >= 8);
+  assert.equal(session.getSnapshot().error, undefined);
+  await until(() => /Concurrent heartbeat/.test(session.getSnapshot().error || ''));
+});
