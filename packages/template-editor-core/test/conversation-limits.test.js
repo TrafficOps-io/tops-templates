@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { CONVERSATION_LIMITS, clonePortablePayload, validateConversationDocument } from '../src/project.js';
+import { CONVERSATION_LIMITS, clonePortablePayload, decodePortablePayload, encodePortablePayload, validateConversationDocument } from '../src/project.js';
 
 const doc = (threads, runs) => ({ schema: 1, projectId: 'p', revision: 0, threads, runs });
 
@@ -16,4 +16,14 @@ test('history assets may reach 24 MiB and the in-memory document 512 MiB', () =>
   assert.equal(CONVERSATION_LIMITS.threadEncoded, 16 * 1024 * 1024);
   assert.equal(clonePortablePayload({ asset: new Uint8Array(20 * 1024 * 1024) }).asset.byteLength, 20 * 1024 * 1024);
   assert.throws(() => clonePortablePayload({ asset: new Uint8Array(25 * 1024 * 1024) }), /24 MiB/);
+});
+
+test('portable history round-trips assets above 8 MiB', () => {
+  const decoded = decodePortablePayload(encodePortablePayload({ asset: new Uint8Array(9 * 1024 * 1024) }));
+  assert.equal(decoded.asset.byteLength, 9 * 1024 * 1024);
+});
+
+test('the document-wide run cap still applies', () => {
+  const runs = Array.from({ length: 10001 }, (_, index) => ({ id: `r${index}` }));
+  assert.throws(() => validateConversationDocument(doc([], runs)), /at most 10000 runs/);
 });

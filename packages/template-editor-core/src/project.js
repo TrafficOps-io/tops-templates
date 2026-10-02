@@ -118,7 +118,7 @@ export function decodePortablePayload(text) {
   const value = JSON.parse(text, (_key, item) => {
     if (!item || typeof item !== 'object' || !Object.hasOwn(item, BYTES_TAG)) return item;
     const base64 = item[BYTES_TAG];
-    if (Object.keys(item).length !== 1 || typeof base64 !== 'string' || base64.length > Math.ceil(LIMITS.file / 3) * 4 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(base64)) throw new Error('Invalid portable binary data.');
+    if (Object.keys(item).length !== 1 || typeof base64 !== 'string' || base64.length > Math.ceil(CONVERSATION_LIMITS.blob / 3) * 4 || base64.length % 4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) throw new Error('Invalid portable binary data.');
     const binary = atob(base64);
     return Uint8Array.from(binary, character => character.charCodeAt(0));
   });
