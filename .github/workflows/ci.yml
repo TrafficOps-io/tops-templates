@@ -94,6 +94,7 @@ jobs:
       - run: node editor/test/durable-ai-recovery-browser.mjs
       - run: node editor/test/ai-panel-ui-browser.mjs editor/dist
       - run: node editor/test/autosave-browser.mjs
+      - run: node editor/test/explicit-save-apply-browser.mjs
       - run: npm run build:embed --workspace=@trafficops/template-studio
       - run: node editor/test/creation-browser.mjs
       - uses: actions/upload-artifact@v7

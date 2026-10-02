@@ -103,7 +103,9 @@ export function useEditorProject(host, onSnapshot, recovered, externalBusy = fal
   const applyConversationDraft = useCallback(async (run, { allowStaleContext = false } = {}) => {
     if (applying.current) throw new Error('Changes are already being applied.');
     if (!run?.result?.files || !run.base || !run.result.valid || run.result.discussion || run.recoveredConflict || !['ready', 'interrupted'].includes(run.state)) throw new Error('This conversation has no validated draft ready to apply.');
-    await flush();
+    // Autosaving hosts persist pending edits first; explicit-save hosts (PW Apps) must not save the user's unsaved edits implicitly.
+    const persists = Boolean(host.capabilities.autosave);
+    if (persists) await flush(); else if (savePromise.current) await savePromise.current;
     const previous = current.current;
     if (!previous) throw new Error('Open the project before applying changes.');
     if (previous.appliedAiRuns?.includes(run.id)) return previous;
@@ -133,6 +135,12 @@ export function useEditorProject(host, onSnapshot, recovered, externalBusy = fal
     if (blockScope) {
       assertBlockScopeBase(blockScope, { files: current.current.files, rawValues: current.current.translations[targetLocale] || {} });
       assertBlockDraftScope(blockScope, { files: validated.files, rawValues: validated.translations[targetLocale] || {} });
+    }
+    if (!persists) {
+      // Explicit-save hosts: applied AI changes update only the working copy; Save draft persists them like any other edit.
+      editVersion.current++; current.current = validated; setState(validated); setAnalysis(validated.analysis); setDirty(true); dirtyRef.current = true;
+      previewConversationDraft(null); setNotice('Conversation changes applied.');
+      return validated;
     }
     applying.current = true; saving.current = true; setBusy(true);
     try {
