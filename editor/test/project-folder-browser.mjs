@@ -6,6 +6,7 @@ import { extname, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createStudioProject } from '../src/studio-library.js';
 import { readZipProject } from '@trafficops/template-editor-core';
+import { studioChat } from './support/studio-chat.js';
 
 // Real OPFS handles and real IndexedDB in a disposable profile. Some managed
 // macOS runners crash Chromium while cloning native directory handles. Set
@@ -92,7 +93,9 @@ try {
   }, { fixture: { ...fixture, files: { ...fixture.files, 'assets/pixel.png': Array.from(fixture.files['assets/pixel.png']) } }, document });
   await page.reload(); await page.getByRole('tab', { name: 'Content', exact: true }).click(); await page.getByLabel('Page title', { exact: false }).waitFor();
   assert.equal(await page.getByLabel('Page title', { exact: false }).inputValue(), 'Device content');
-  await page.getByRole('tab', { name: 'Conversations', exact: true }).click(); await page.getByRole('button', { name: 'Plan the page Conversation', exact: true }).waitFor();
+  await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
+  // The saved conversation is listed: in the list column when the chat is wide enough, otherwise in the header menu "Conversations".
+  { const chat = studioChat(page); await chat.root.waitFor(); if (await chat.threads.isVisible()) await chat.thread('Plan the page').waitFor(); else { const header = chat.root.locator('.studio-chat-header'); await header.getByRole('button', { name: 'Conversations', exact: true }).click(); await header.getByRole('menuitem', { name: 'Plan the page', exact: true }).waitFor(); await page.keyboard.press('Escape'); } }
   await page.evaluate(() => { window.__holdTransferWrite = true; });
   await page.getByRole('button', { name: 'Save to folder', exact: true }).click();
   await page.waitForFunction(() => window.__writeHeld === true);

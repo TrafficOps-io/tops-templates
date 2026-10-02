@@ -136,11 +136,9 @@ try {
   assert.equal(await page.evaluate(()=>window.recoveryTest.calls.some(call=>call.hasClarification)),true,'restored user instructions reach continuation tools');
   const working=chat.status('running').last(); await working.waitFor();
   // A clarification sent while the assistant works joins the running run (the former panel accepted messages during a run).
-  if (!process.env.T7_SKIP_CLARIFY) {
-    await chat.prompt.fill('Keep the requested button label in Polish.');
-    await chat.send.click();
-    await chat.user.getByText('Keep the requested button label in Polish.',{exact:true}).waitFor();
-  } // T7_SKIP
+  await chat.prompt.fill('Keep the requested button label in Polish.');
+  await chat.send.click();
+  await chat.user.getByText('Keep the requested button label in Polish.',{exact:true}).waitFor();
   await working.getByRole('button',{name:'Stop',exact:true}).click();
   const stopped=chat.status('cancelled').last(); await stopped.waitFor();
   await stopped.locator('[data-testid="studio-chat-continue"]').waitFor();

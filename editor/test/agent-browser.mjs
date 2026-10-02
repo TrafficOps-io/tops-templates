@@ -109,7 +109,7 @@ try {
   // A focused partial edit is visible while the response is held open; the project files stay unchanged until Apply.
   let running = await start('success');
   // A message sent while the assistant works is queued for the next model step.
-  if (!process.env.T7_SKIP_CLARIFY) { await chat.prompt.fill('Use Corrected title instead.'); await chat.send.click({ timeout: 5000 }); await chat.user.filter({ hasText: 'Use Corrected title instead.' }).waitFor(); } // T7_SKIP
+  await chat.prompt.fill('Use Corrected title instead.'); await chat.send.click({ timeout: 5000 }); await chat.user.filter({ hasText: 'Use Corrected title instead.' }).waitFor();
   await page.screenshot({ path: '/tmp/agent-live-stream.png' });
   await page.evaluate(() => window.aiTest.release());
   const ready = chat.status('ready'); await ready.waitFor();
@@ -122,10 +122,8 @@ try {
   await ready.getByRole('button', { name: 'Preview draft', exact: true }).click();
   await preview().getByRole('heading', { name: 'Corrected title', exact: true }).waitFor();
   const requests = await page.evaluate(() => window.aiTest.requests);
-  if (!process.env.T7_SKIP_CLARIFY) { // T7_SKIP
-    assert.equal(requests.length, 4, 'successful host validation goes straight to independent review');
-    assert.ok(requests[1].messages.some(message => message.role === 'user' && JSON.stringify(message.content).includes('Use Corrected title instead.')));
-  }
+  assert.equal(requests.length, 4, 'successful host validation goes straight to independent review');
+  assert.ok(requests[1].messages.some(message => message.role === 'user' && JSON.stringify(message.content).includes('Use Corrected title instead.')));
   await ready.getByRole('button', { name: 'Discard', exact: true }).click();
   await chat.status('discarded').waitFor();
   await preview().getByRole('heading', { name: 'Make room for something great.', exact: true }).waitFor({ timeout: 10000 });

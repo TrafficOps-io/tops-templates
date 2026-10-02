@@ -99,7 +99,7 @@ try {
   await chat.root.getByRole('alert').filter({ hasText: 'Connect your key in Settings to start.' }).waitFor();
   assert.equal(await chat.user.count(), 0);
   // A refused send keeps the typed message for a retry.
-  if (!process.env.T7_SKIP_SEND_TEXT) assert.equal(await chat.prompt.inputValue(), 'Test prompt'); // T7_SKIP
+  assert.equal(await chat.prompt.inputValue(), 'Test prompt');
   assert.deepEqual(keys, ['Bearer sk-or-second-test'], 'No provider request without a key');
   const tab = await browser.newPage();
   await tab.goto(url);

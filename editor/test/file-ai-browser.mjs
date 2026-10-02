@@ -329,7 +329,7 @@ try {
   assert.equal(await tab.getByRole('dialog',{name:'Edit file with AI',exact:true}).count(),0);
   report.states.push({width:1280,phase:'ordinary-browser-pwa-gate'});await browserContext.close();
   assert.deepEqual(report.pageErrors,[],'No browser page errors'); assert.deepEqual(report.blockedExternalRequests,[],'No unexpected external requests');
-  if (!process.env.T7_SKIP_TOUCH) assert.equal(report.controlIssues.length,0, // T7_SKIP
+  assert.equal(report.controlIssues.length,0,
    'All touch controls have reachable 44px areas: '+JSON.stringify([...new Map(report.controlIssues.map(issue=>[issue.text,issue])).values()]));
   report.passed=true; await writeFile(`${out}/report.json`,JSON.stringify(report,null,2));
   console.log('PASS: 390/1280px PNG/JPEG/WebP original first + preserved formats, raster/TXT/PDF references, real image draft, one-file Apply, Discard, Stop, CSS/SVG/TPL source edits, preserved neighbors/values, no overflow, ordinary-browser PWA gate. Zero paid requests.');

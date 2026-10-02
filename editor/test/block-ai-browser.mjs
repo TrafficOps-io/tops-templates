@@ -291,7 +291,7 @@ try {
     await startRun(latestRun().locator('[data-testid="studio-chat-continue"]'));
     assert.equal(await runStatus(), 'ready', await latestRun().innerText());
     await reviewLatest(); await preview().getByText(contentValue, { exact: true }).waitFor();
-    if (!process.env.T7_SKIP_CLARIFY) assert.ok(report.providerRequests.some(request => JSON.stringify(request.messages).includes(answer)), 'Continuation receives the clarification inside the frozen scope'); // T7_SKIP
+    assert.ok(report.providerRequests.some(request => JSON.stringify(request.messages).includes(answer)), 'Continuation receives the clarification inside the frozen scope');
     await capture(width, 'clarified-ready');
     await latestRun().getByRole('button', { name: 'Discard', exact: true }).click();
     await latestRun().and(page.locator('[data-run-status="discarded"]')).waitFor();
