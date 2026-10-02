@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStudioText } from '../i18n/StudioUiProvider.jsx';
+import { activeElement, inertOutside } from './focus.js';
 
 const defaultPanels = { sidebar: '.file-sidebar', author: '.author-panel', toolbar: '.studio-toolbar', previewCollapsed: 'preview-collapsed' };
 const defaultMinimums = { sidebar: 192, author: 320, preview: 288 };
-export default function ResizableWorkspace({ children, className, ref: forwardedRef, t: translate, panels = defaultPanels, minimums = defaultMinimums, storageKey = 'studio-panel-widths', ...attributes }) {
+const defaultModalSelector = 'dialog[open], [aria-modal="true"]';
+export default function ResizableWorkspace({ children, className, ref: forwardedRef, t: translate, panels = defaultPanels, minimums = defaultMinimums, storageKey = 'studio-panel-widths', modalSelector = defaultModalSelector, contentInert = false, ...attributes }) {
   const context = useStudioText();
   const t = translate || context;
   const root = useRef(null), drag = useRef(null);
@@ -25,6 +27,30 @@ export default function ResizableWorkspace({ children, className, ref: forwarded
     observer.observe(element); observer.observe(element.querySelector(panels.sidebar)); observer.observe(element.querySelector(panels.author));
     measure(); return () => observer.disconnect();
   }, [panels.sidebar, panels.author, panels.toolbar]);
+  // A modal layer inside the workspace (dialog[open] or aria-modal) takes modality: everything around it becomes inert,
+  // separators included. `contentInert` does the same for a modal the host renders outside the workspace.
+  useEffect(() => {
+    const element = root.current;
+    let current = null, release = null, lastFocus = null;
+    const apply = () => {
+      const layer = contentInert ? element : [...element.querySelectorAll(modalSelector)].at(-1) || null;
+      if (layer === current) return;
+      if (release) {
+        release(); release = null;
+        const active = activeElement(element);
+        if ((!active || !element.contains(active)) && lastFocus?.isConnected && !lastFocus.closest('[inert]')) lastFocus.focus();
+      }
+      current = layer;
+      if (layer === element) { const marked = [...element.children].filter(child => !child.hasAttribute('inert')); marked.forEach(child => child.setAttribute('inert', '')); release = () => marked.forEach(child => child.removeAttribute('inert')); }
+      else if (layer) release = inertOutside(element, layer);
+    };
+    const remember = event => { const owner = event.target.closest(modalSelector); if (!owner || owner === element) lastFocus = event.target; };
+    const observer = new MutationObserver(apply);
+    observer.observe(element, { subtree: true, childList: true, attributes: true, attributeFilter: ['open', 'aria-modal'] });
+    element.addEventListener('focusin', remember);
+    apply();
+    return () => { observer.disconnect(); element.removeEventListener('focusin', remember); release?.(); };
+  }, [modalSelector, contentInert]);
   useEffect(() => { try { localStorage.setItem(storageKey, JSON.stringify(widths)); } catch { /* Resizing still works without storage. */ } }, [widths, storageKey]);
   function resize(index, desired) {
     const element = root.current, total = element.clientWidth;

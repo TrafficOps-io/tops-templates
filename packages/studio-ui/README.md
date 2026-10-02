@@ -38,7 +38,9 @@ import { StudioUiProvider } from '@trafficops/studio-ui/i18n';
 
 ## Workspace (`@trafficops/studio-ui/workspace`)
 
-`ResizableWorkspace` lays out sidebar, author and preview panes with keyboard-operable separators. Props: `panels` (CSS selectors of the panes), `minimums` (`sidebar`, `author`, `preview` widths in px), `storageKey` (localStorage key for saved widths). Focus helpers live in `@trafficops/studio-ui/workspace/focus`.
+`ResizableWorkspace` lays out sidebar, author and preview panes with keyboard-operable separators. Props: `panels` (CSS selectors of the panes), `minimums` (`sidebar`, `author`, `preview` widths in px), `storageKey` (localStorage key for saved widths), `modalSelector`, `contentInert`. Focus helpers live in `@trafficops/studio-ui/workspace/focus`.
+
+Modality: when an element matching `modalSelector` (default `dialog[open], [aria-modal="true"]`) opens inside the workspace, everything around it becomes `inert` — sibling panes, the separators, and the siblings of each of its ancestors — so a modal workspace (`role="dialog" aria-modal="true"`) keeps `aria-modal` and the nested dialog owns keyboard and AT focus. When the layer closes, exactly the attributes it set are removed and, if focus was lost, it returns to the last element focused outside the layer. `contentInert` makes all workspace children inert for a modal the host renders outside the workspace. The helper `inertOutside(root, layer)` (returns an undo function) is exported from `./workspace` and `./workspace/focus`; it works inside a shadow root.
 
 ## i18n
 

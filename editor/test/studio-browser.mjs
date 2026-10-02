@@ -72,8 +72,11 @@ try {
  await page.getByRole('button',{name:'Create file or folder',exact:true}).click();
  await page.keyboard.press('Escape');assert.equal(await page.locator('.editor-shell.is-expanded').count(),1);assert.equal(await page.getByRole('menu',{name:'Create file or folder'}).count(),0);
  await page.getByRole('button',{name:'Rename',exact:true}).click();await page.getByRole('dialog',{name:'Rename file',exact:true}).waitFor();
- assert.equal(await page.locator('.editor-shell').getAttribute('aria-modal'),null);
+ // The nested dialog takes modality: the expanded shell keeps aria-modal, the panes and separators behind it are inert.
+ assert.equal(await page.locator('.editor-shell').getAttribute('aria-modal'),'true');assert.equal(await page.locator('.file-sidebar').getAttribute('inert'),'');assert.equal(await page.locator('.panel-resizer.resizer-1').getAttribute('inert'),'');
+ for(let step=0;step<3;step++){await page.keyboard.press('Tab');assert.equal(await page.evaluate(()=>Boolean(document.activeElement?.closest('.studio-dialog'))),true);}
  await page.keyboard.press('Escape'); assert.equal(await page.locator('.editor-shell.is-expanded').count(),1);
+ assert.equal(await page.locator('.file-sidebar').getAttribute('inert'),null);assert.equal(await page.locator('.panel-resizer.resizer-1').getAttribute('inert'),null);assert.equal(await page.evaluate(()=>document.activeElement?.textContent.trim()),'Rename');
  await page.getByRole('button',{name:'Mobile preview',exact:true}).click();assert.ok(Math.abs((await page.locator('.browser-frame').boundingBox()).width-375)<1);
  await page.locator('.editor-shell').screenshot({path:'/tmp/studio-shell-expanded.png'});
  await page.keyboard.press('Escape'); assert.equal(await page.locator('.editor-shell.is-expanded').count(),0);assert.equal(await page.evaluate(()=>document.body.style.overflow),'auto');
