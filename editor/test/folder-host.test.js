@@ -6,7 +6,7 @@ import { createFolderHost } from '../src/hosts/FolderHost.js';
 import { createStudioAiPort } from '../src/hosts/StudioAiPort.js';
 import { readProjectMeta, readValues, storePendingAi } from '../src/storage/project-meta.js';
 import { createProjectInRoot } from '../src/storage/project-root.js';
-import { listDirectory, readText, writeFile } from '../src/storage/write.js';
+import { listDirectory, readText, removePath, writeFile } from '../src/storage/write.js';
 import { MemoryDirectoryHandle } from './support/fs-access.js';
 
 const knownIds = ['safe-html-v1', 'fast-landings-v1'];
@@ -175,7 +175,7 @@ test('save as template writes a new template project through the App-provided ro
   await assert.rejects(sample.lifecycle.run('save-template', draft, { locale: 'en', inputValue: ' ' }), error => error.code === 'validation');
   assert.equal(requested.length, 0);
   const result = await sample.lifecycle.run('save-template', draft, { locale: 'en', inputValue: 'Bakery template' });
-  assert.equal(result.persisted, false); assert.equal(typeof result.notice, 'string'); assert.ok(result.notice);
+  assert.equal(result.persisted, false); assert.equal(result.notice, 'Template saved.');
   assert.deepEqual(result.state.files, draft.files);
   assert.deepEqual(requested, [{ kind: 'template', name: 'Bakery template' }]);
   assert.equal(created.length, 1); assert.equal(created[0][1], target);
@@ -191,9 +191,76 @@ test('save as template writes a new template project through the App-provided ro
   const eager = await host(root, meta, { createProjectRoot: () => { synchronous = true; return Promise.resolve(null); } });
   const pending = eager.lifecycle.run('save-template', opened, { locale: 'en', inputValue: 'Later' });
   assert.equal(synchronous, true);
-  assert.equal((await pending).persisted, false);
+  assert.deepEqual(await pending, { state: opened, persisted: false, notice: '' });
+  // A dismissed folder picker (AbortError) cancels silently too.
+  const dismissed = await host(root, meta, { createProjectRoot: async () => { throw new DOMException('The user aborted a request.', 'AbortError'); } });
+  assert.deepEqual(await dismissed.lifecycle.run('save-template', opened, { locale: 'en', inputValue: 'Later' }), { state: opened, persisted: false, notice: '' });
   // Templates do not offer the action.
   const template = await host(target, templateMeta, { createProjectRoot }), templateState = await template.project.open();
   assert.deepEqual(templateState.actions, []);
   await assert.rejects(template.lifecycle.run('save-template', templateState, { locale: 'en', inputValue: 'Again' }), error => error.code === 'policy');
+});
+
+test('folders are normalized on save, so an unlisted parent folder never stales the revision or conflicts', async () => {
+  const { root, meta } = await project(), sample = await host(root, meta), opened = await sample.project.open();
+  const saved = await sample.project.save({ ...opened, files: { ...opened.files, 'images/deep/a.png': new Uint8Array([1]) }, folders: [] });
+  assert.deepEqual(saved.folders, ['images', 'images/deep']);
+  const reopened = await sample.project.open();
+  assert.equal(reopened.revision, saved.revision);
+  const next = await sample.project.save({ ...reopened, files: { ...reopened.files, 'styles.css': 'b' } });
+  assert.equal(next.files['styles.css'], 'b');
+});
+
+test('a save that fails after writing rebuilds from disk on the next open', async () => {
+  for (const failing of ['values.json', 'project.json']) {
+    const { root, meta } = await project({ values: { title: 'Hi' } }), sample = await host(root, meta), opened = await sample.project.open();
+    const file = root.children.get('.trafficops').children.get(failing);
+    file.createWritable = async () => { throw new Error('Disk failure'); };
+    await assert.rejects(sample.project.save({ ...opened, files: { ...opened.files, 'styles.css': 'written' }, translations: { en: { title: 'New' } } }), /Disk failure/, failing);
+    delete file.createWritable;
+    const reopened = await sample.project.open();
+    assert.notEqual(reopened.revision, opened.revision, failing);
+    assert.equal(reopened.files['styles.css'], 'written', failing);
+    assert.deepEqual(reopened.translations.en, { title: failing === 'values.json' ? 'Hi' : 'New' }, failing);
+    const saved = await sample.project.save({ ...reopened, translations: { en: { title: 'New' } } });
+    assert.equal(saved.contentRevision, 1, failing);
+    assert.equal((await readProjectMeta(root)).contentRevision, 1, failing);
+  }
+});
+
+test('an AI brief that cannot be resolved is not started and the opened status says so', async t => {
+  const warnings = [], warn = console.warn; console.warn = (...args) => warnings.push(args.join(' ')); t.after(() => { console.warn = warn; });
+  const { root, meta } = await project({ brief });
+  await removePath(root, `.trafficops/conversations/blobs/${meta.pendingAi.attachments[0].blob.$trafficopsBlob}`);
+  const sample = await host(root, meta, { ai: ai() });
+  assert.equal(sample.ai.initialRequest, undefined);
+  assert.match((await sample.project.open()).status, /The saved AI request could not be started\./);
+  assert.equal(warnings.length, 1);
+});
+
+test('history exports pack in the archive worker, store blobs uncompressed, and fail early when too large', async t => {
+  const posted = [], self = globalThis.self;
+  let current = null;
+  globalThis.self = { postMessage: (data, transfer = []) => { const worker = current; queueMicrotask(() => worker.onmessage({ data: structuredClone(data, { transfer }) })); } };
+  await import('../src/archive.worker.js');
+  const handler = globalThis.self.onmessage;
+  globalThis.Worker = class { constructor() { current = this; } postMessage(data, transfer = []) { posted.push(data.type || 'read'); handler({ data: structuredClone(data, { transfer }) }); } terminate() {} };
+  t.after(() => { delete globalThis.Worker; globalThis.self = self; });
+  const { root, meta } = await project(), sample = await host(root, meta, { ai: ai() });
+  const opened = await sample.project.open(), state = { ...opened, files: { ...opened.files, 'image.bin': new Uint8Array([1, 2, 3]) } };
+  const zeros = new Uint8Array(200 * 1024), loaded = await sample.conversations.load();
+  await sample.conversations.save({ ...loaded, threads: [{ id: 'thread-one', title: 'A', messages: [{ id: 'm', role: 'user', parts: [], attachments: [{ id: 'z', name: 'zeros.bin', mime: 'application/octet-stream', dataUrl: `data:application/octet-stream;base64,${toBase64(zeros)}` }] }] }], runs: [] }, { expectedRevision: loaded.revision });
+  const archive = await sample.project.export(state, { format: 'source', locale: 'en' });
+  assert.deepEqual(posted, ['pack']);
+  assert.ok(archive.bytes.byteLength > zeros.byteLength, 'blobs are stored, not deflated');
+  assert.deepEqual(state.files['image.bin'], new Uint8Array([1, 2, 3]), 'the editor state keeps its buffers');
+  const imported = await sample.project.import(archive.bytes);
+  assert.deepEqual(posted, ['pack', 'read']);
+  assert.equal(imported.conversationFiles.blobs.size, 1);
+  // Thirty 20 MiB references exceed 512 MiB: rejected from the listing, before any blob is read.
+  const refs = Array.from({ length: 30 }, (_, index) => ({ $trafficopsBlob: index.toString(16).padStart(64, '0'), encoding: 'bytes', size: 20 * 1024 * 1024 }));
+  await writeFile(root, '.trafficops/conversations/huge.json', JSON.stringify({ schema: 1, id: 'huge', revision: 1, messages: [{ id: 'm', role: 'user', parts: [], refs }], runs: [] }));
+  await assert.rejects(sample.project.export(state, { format: 'source', locale: 'en' }), error => error.code === 'validation' && /512 MiB/.test(error.message));
+  assert.deepEqual(posted, ['pack', 'read']);
+  await sample.dispose();
 });

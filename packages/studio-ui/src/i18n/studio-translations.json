@@ -2443,5 +2443,9 @@
   "Show {count} more": ["Показать ещё {count}", "Показати ще {count}"],
   "Set up OpenRouter": ["Настройте OpenRouter", "Налаштуйте OpenRouter"],
   "Connect OpenRouter": ["Подключить OpenRouter", "Підключити OpenRouter"],
-  "Add your OpenRouter API key and choose a text model. Save the connection to start chatting without reloading Studio.": ["Добавьте API-ключ OpenRouter и выберите текстовую модель. Сохраните подключение, чтобы начать диалог без перезагрузки Studio.", "Додайте API-ключ OpenRouter і виберіть текстову модель. Збережіть підключення, щоб почати діалог без перезавантаження Studio."]
+  "Add your OpenRouter API key and choose a text model. Save the connection to start chatting without reloading Studio.": ["Добавьте API-ключ OpenRouter и выберите текстовую модель. Сохраните подключение, чтобы начать диалог без перезагрузки Studio.", "Додайте API-ключ OpenRouter і виберіть текстову модель. Збережіть підключення, щоб почати діалог без перезавантаження Studio."],
+  "Unsaved project": ["Несохранённый проект", "Незбережений проєкт"],
+  "Enter a template name.": ["Введите название шаблона.", "Введіть назву шаблону."],
+  "Template saved.": ["Шаблон сохранён.", "Шаблон збережено."],
+  "The saved AI request could not be started.": ["Сохранённый запрос к AI не удалось запустить.", "Збережений запит до AI не вдалося запустити."]
 }

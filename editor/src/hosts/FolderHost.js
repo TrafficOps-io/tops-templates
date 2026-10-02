@@ -1,7 +1,8 @@
 // @ts-check
+import { packArchive } from './pack-archive.js';
 import { readArchive } from './read-archive.js';
 import { translateStudio } from '@trafficops/template-editor-shell/translation';
-import { ConflictError, PolicyError, ValidationError, blobReferences, createStoreConversationPort, createZip, runOperation, validatePortableMetadata, validateProject } from '@trafficops/template-editor-core';
+import { BLOB_TAG, CONVERSATION_LIMITS, ConflictError, LIMITS, PolicyError, ValidationError, byteSize, createZip, createStoreConversationPort, projectFolders, runOperation, validatePortableMetadata, validateProject } from '@trafficops/template-editor-core';
 import { generateProject, generateEditorPreview } from '@trafficops/template-runtime';
 import { createDirectoryConversationStore } from '../storage/directory-conversation-store.js';
 import { projectSnapshotEqual, readProjectTree, syncProjectTree } from '../storage/files.js';
@@ -17,6 +18,17 @@ const sameJson = (left, right) => JSON.stringify(left) === JSON.stringify(right)
 // brief or a store-owned counter is not a change outside Studio.
 const tracked = meta => JSON.stringify([meta.projectId, meta.kind, meta.name, meta.contentRevision ?? 0, meta.appliedAiRuns || [], meta.sourceTemplateId ?? null]);
 /** @param {any} value @returns {any} */
+const HISTORY_BLOBS = 10000, TOO_LARGE = 'Project history exceeds 512 MiB. Export without history or archive older dialogues.';
+const encoder = new TextEncoder();
+// sha → size, from every blob reference in a split value.
+function blobSizes(value, found = new Map()) {
+  if (Array.isArray(value)) for (const item of value) blobSizes(item, found);
+  else if (value && typeof value === 'object') {
+    if (Object.hasOwn(value, BLOB_TAG)) found.set(value[BLOB_TAG], Math.max(found.get(value[BLOB_TAG]) || 0, value.size || 0));
+    else for (const child of Object.values(value)) blobSizes(child, found);
+  }
+  return found;
+}
 const withoutBrief = ({ pendingAi: _brief, pendingAiError: _error, ...meta }) => meta;
 /** @type {(root: FileSystemDirectoryHandle, options: { projectId: string }) => any} */
 const directoryStore = /** @type {any} */ (createDirectoryConversationStore);
@@ -41,7 +53,7 @@ export async function createFolderHost({ root, meta, language = 'en', messages =
   if (!projectId) throw new ValidationError('This folder is not a Studio project.');
   // unrecorded: content was written but project.json has not counted it yet (its write failed); the next save does.
   /** @type {any} */ let state = null, diskMeta = null, savedDisk = null, savedValues = {};
-  let revision = 0, queue = /** @type {Promise<any>} */ (Promise.resolve()), opening = /** @type {Promise<any> | null} */ (null), unrecorded = false;
+  let briefWarning = '', revision = 0, queue = /** @type {Promise<any>} */ (Promise.resolve()), opening = /** @type {Promise<any> | null} */ (null), unrecorded = false;
   const kind = () => (diskMeta || initialMeta || meta)?.kind || 'landing';
   const store = directoryStore(root, { projectId });
   const conversations = createStoreConversationPort(store, { projectId });
@@ -62,7 +74,7 @@ export async function createFolderHost({ root, meta, language = 'en', messages =
     const empty = !Object.keys(tree.files).length;
     state = { projectId, name: current.name || t('Untitled project'), revision: ++revision, contentRevision: current.contentRevision || 0, appliedAiRuns: [...(current.appliedAiRuns || [])],
       files: empty ? starterProject(true) : tree.files, folders: [...tree.folders], entrypoint: null, locale: language, translations: { [language]: clone(values) },
-      status: empty ? t('Unsaved project') : t('Saved to folder'), availability: { inlinePreview: true, externalPreview: false, ai: Boolean(ai) }, actions: [], history: [] };
+      status: [empty ? t('Unsaved project') : t('Saved to folder'), briefWarning].filter(Boolean).join(' · '), availability: { inlinePreview: true, externalPreview: false, ai: Boolean(ai) }, actions: [], history: [] };
     state.actions = actions();
     return state;
   }
@@ -84,21 +96,28 @@ export async function createFolderHost({ root, meta, language = 'en', messages =
           if (!state) await readState();
           if (next.revision !== state.revision) throw new ConflictError();
           validateProject(next.files);
-          const values = next.translations?.[next.locale] || {};
-          const filesChanged = !projectSnapshotEqual(savedDisk, next), valuesChanged = !sameJson(values, savedValues);
+          let folders;
+          try { folders = projectFolders(next.files, next.folders); } catch (error) { throw new ValidationError(error.message, { cause: error }); }
+          const values = next.translations?.[next.locale] || {}, tree = { files: next.files, folders };
+          const filesChanged = !projectSnapshotEqual(savedDisk, tree), valuesChanged = !sameJson(values, savedValues);
           const contentRevision = (diskMeta.contentRevision || 0) + Number(filesChanged || valuesChanged || unrecorded);
           let target;
           try { target = validatePortableMetadata({ ...diskMeta, name: next.name, contentRevision, appliedAiRuns: next.appliedAiRuns || [] }); } catch (error) { throw new ValidationError(error.message, { cause: error }); }
           const disk = /** @type {any} */ (await readProjectMeta(root));
           if (!disk || tracked(withoutBrief(disk)) !== tracked(diskMeta)) throw new ConflictError('Project metadata changed outside Studio. Reload the folder before saving.');
           if (!sameJson(await readValues(root), savedValues)) throw new ConflictError('Project values changed outside Studio. Reload the folder before saving.');
-          if (filesChanged) { await syncProjectTree(root, savedDisk, next); unrecorded = true; }
-          savedDisk = { files: clone(next.files), folders: [...next.folders] };
-          if (valuesChanged) { await writeValues(root, values); unrecorded = true; }
-          savedValues = clone(values);
-          if (tracked(target) !== tracked(diskMeta)) diskMeta = withoutBrief(await updateProjectMeta(root, projectId, { name: target.name, contentRevision, appliedAiRuns: target.appliedAiRuns }));
+          try {
+            if (filesChanged) { unrecorded = true; await syncProjectTree(root, savedDisk, tree); }
+            if (valuesChanged) { unrecorded = true; await writeValues(root, values); }
+            if (tracked(target) !== tracked(diskMeta)) diskMeta = withoutBrief(await updateProjectMeta(root, projectId, { name: target.name, contentRevision, appliedAiRuns: target.appliedAiRuns }));
+          } catch (error) {
+            // The folder may now hold part of this save: the next open rebuilds the baseline from disk.
+            if (unrecorded) state = null;
+            throw error;
+          }
           unrecorded = false;
-          state = { ...clone(next), projectId, name: diskMeta.name, contentRevision, status: t('Saved to folder'), revision: ++revision };
+          savedDisk = { files: clone(next.files), folders: [...folders] }; savedValues = clone(values);
+          state = { ...clone(next), folders: [...folders], projectId, name: diskMeta.name, contentRevision, status: t('Saved to folder'), revision: ++revision };
           state.actions = actions();
           return clone(state);
         }, 'validation'));
@@ -118,19 +137,30 @@ export async function createFolderHost({ root, meta, language = 'en', messages =
         const current = diskMeta || withoutBrief(initialMeta || { projectId, kind: kind(), name: next.name });
         const metadata = { schema: /** @type {const} */ (1), projectId, kind: kind(), name: next.name, contentRevision: next.contentRevision || 0, metadataRevision: current.metadataRevision || 0,
           appliedAiRuns: next.appliedAiRuns || [], ...(current.createdAt === undefined ? {} : { createdAt: current.createdAt }), ...(current.sourceTemplateId === undefined ? {} : { sourceTemplateId: current.sourceTemplateId }) };
-        const conversationFiles = includeHistory === false ? null : await historyFiles();
-        // Packed on the main thread; archive.worker.js only reads archives.
-        return { name: `${next.name || 'project'}-${format}.zip`, mime: 'application/zip', bytes: createZip(files, { directories: next.folders, settings: next.translations[locale], metadata,
-          ...(conversationFiles?.threads.length ? { conversationFiles } : {}) }) };
+        const conversationFiles = includeHistory === false ? null : await historyFiles(files);
+        const options = { directories: next.folders, settings: next.translations[locale], metadata, ...(conversationFiles?.threads.length ? { conversationFiles } : {}) };
+        // History exports can be large: packed in the archive worker. Only the blob buffers read for this export move.
+        const bytes = conversationFiles && options.conversationFiles ? await packArchive(files, options, { signal, transfer: [...conversationFiles.blobs.values()].map(blob => blob.buffer) }) : createZip(files, options);
+        return { name: `${next.name || 'project'}-${format}.zip`, mime: 'application/zip', bytes };
       }, 'validation');
     },
   };
   // The folder's split dialogue files and the blobs they reference, as stored: no join and no re-split.
-  async function historyFiles() {
+  // Limits are checked from the listing's references first, so an oversize export fails before any blob is read.
+  async function historyFiles(files) {
     const threads = await store.listThreads();
     if (threads.some(thread => thread.damaged)) throw new ValidationError('A dialogue file in this folder is damaged. Export without history, or repair the folder first.');
+    if (threads.length > CONVERSATION_LIMITS.threads) throw new ValidationError(`A project ZIP holds at most ${CONVERSATION_LIMITS.threads} dialogues.`);
+    const sizes = new Map();
+    for (const thread of threads) blobSizes(thread, sizes);
+    if (sizes.size > HISTORY_BLOBS) throw new ValidationError(`A project ZIP holds at most ${HISTORY_BLOBS} blobs.`);
+    let history = 0;
+    for (const thread of threads) history += encoder.encode(JSON.stringify(thread)).byteLength;
+    for (const size of sizes.values()) history += size;
+    const user = Object.values(files).reduce((sum, value) => sum + byteSize(value), 0);
+    if (history > CONVERSATION_LIMITS.total || history + user > LIMITS.portableArchive) throw new ValidationError(TOO_LARGE);
     const blobs = new Map();
-    for (const thread of threads) for (const sha of blobReferences(thread)) if (!blobs.has(sha)) blobs.set(sha, await store.getBlob(sha));
+    for (const sha of sizes.keys()) blobs.set(sha, await store.getBlob(sha));
     return { threads, blobs };
   }
 
@@ -143,13 +173,14 @@ export async function createFolderHost({ root, meta, language = 'en', messages =
         const name = inputValue.trim(), files = clone(next.files), folders = [...next.folders], values = clone(next.translations?.[next.locale] || {});
         validateProject(files);
         // First await of the click flow: the App may open a folder picker here.
-        const target = await createProjectRoot({ kind: 'template', name });
+        let target;
+        try { target = await createProjectRoot({ kind: 'template', name }); } catch (error) { if (error?.name !== 'AbortError') throw error; }
         if (!target) return { state: clone(next), persisted: false, notice: '' };
         const created = await createProject(target, { kind: 'template', name, files, folders, values, now });
         // The template is written; a failing App callback cannot turn that into a failed action.
         try { Promise.resolve(onProjectCreated?.(created, target)).catch(() => {}); } catch { /* View may have unmounted. */ }
         // Only the copy was persisted; the source keeps its unsaved state until its own autosave.
-        return { state: clone(next), persisted: false, notice: t('Template saved on this device.') };
+        return { state: clone(next), persisted: false, notice: t('Template saved.') };
       }, 'validation');
     },
   };
@@ -183,16 +214,22 @@ export async function createFolderHost({ root, meta, language = 'en', messages =
     },
   };
 
+  // The shell shows the opened state's status; the details go to the console.
+  function warnBrief(detail) {
+    briefWarning = t('The saved AI request could not be started.');
+    console.warn(`TrafficOps Studio: the pending AI request was not started: ${detail}`);
+  }
   // A brief stored in project.json starts the conversation once: claim() succeeds for exactly one host. A brief that
   // cannot be resolved (missing or invalid attachment) is not offered; the project still opens.
   /** @type {import('@trafficops/template-editor-core').InitialAiRequest | undefined} */
   let initialRequest;
+  if (ai && initialMeta?.pendingAiError) warnBrief(initialMeta.pendingAiError);
   if (ai && initialMeta?.pendingAi && initialMeta.projectId === projectId) {
     try {
       const { id, prompt, mode, generateImages, attachments } = await resolvePendingAi(root, initialMeta);
       initialRequest = { id, prompt, mode: mode === 'edit' ? 'edit' : 'create', generateImages, attachments, autoStart: true,
         claim: (/** @type {{ signal?: AbortSignal }} */ { signal } = {}) => runOperation(signal, () => claimPendingAi(root, projectId, id)) };
-    } catch { initialRequest = undefined; }
+    } catch (error) { initialRequest = undefined; warnBrief(error?.message); }
   }
   const aiPort = ai && (initialRequest ? { ...ai, initialRequest } : ai);
   return { language, messages, capabilities, dialect: studioDialect, project, analyzer, livePreview, lifecycle, conversations, ...(aiPort ? { ai: aiPort } : {}),

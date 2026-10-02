@@ -350,7 +350,8 @@ function historyEntries({ threads = [], blobs = new Map() }, { metadata, convers
       const bytes = byHash.get(sha);
       if (!(bytes instanceof Uint8Array)) throw new Error('A conversation attachment is missing.');
       if (bytes.byteLength > CONVERSATION_LIMITS.blob) throw new Error('Project history asset exceeds 24 MiB.');
-      written.add(sha); entries[`${BLOBS_DIR}${sha}`] = bytes; total += bytes.byteLength;
+      // Blobs are mostly compressed media: stored, not deflated again.
+      written.add(sha); entries[`${BLOBS_DIR}${sha}`] = [bytes, { level: 0 }]; total += bytes.byteLength;
     }
   }
   if (written.size > HISTORY_BLOBS) throw new Error(`A project ZIP holds at most ${HISTORY_BLOBS} blobs.`);
