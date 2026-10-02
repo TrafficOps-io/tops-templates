@@ -258,6 +258,9 @@ try {
   }));
   await page.getByLabel('Page title', { exact: false }).fill('Rescued unsaved value');
   await page.locator('.studio-navigation').getByRole('button', { name: 'Save as new project', exact: true }).waitFor();
+  const conflictStatus = page.locator('.studio-toolbar [role="status"]').filter({ hasText: 'Not saved: conflict' });
+  await conflictStatus.waitFor();
+  assert.ok(await conflictStatus.locator('.studio-badge-danger').count() === 1, 'the conflict badge uses the danger tone');
   await page.locator('.studio-navigation').getByRole('button', { name: 'Save as new project', exact: true }).click();
   await page.getByRole('tab', { name: 'Content', exact: true }).click();
   await page.locator('.studio-toolbar > strong').filter({ hasText: /^Deleted landing \(recovered\)$/ }).waitFor();

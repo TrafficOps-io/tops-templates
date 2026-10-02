@@ -295,6 +295,7 @@ textarea:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 3px
 [hidden] { display: none !important; }
 .studio-toolbar { display: flex; gap: 1rem; align-items: center; min-height: 4rem; padding: .5rem 1rem; border-bottom: 1px solid var(--ui-border); background: var(--ui-surface); z-index: var(--ui-z-sticky); }
 .studio-title { color: var(--ui-muted); font-size: .85rem; font-weight: 600; white-space: nowrap; }
+.studio-toolbar-storage { color: var(--ui-muted, inherit); font-size: .8125rem; }
 .studio-toolbar-actions { display: flex; gap: .375rem; align-items: center; margin-left: auto; }
 .source-export { display: flex; width: 100%; justify-content: flex-start; flex-wrap: nowrap; gap: .5rem; padding-inline: .625rem; font-size: .75rem; white-space: nowrap; height: 2rem; min-height: 2rem; }
 .source-export svg { flex-shrink: 0; }
@@ -542,4 +543,3 @@ fieldset:disabled { opacity: .65; }
 .studio-chat-loading > div > .studio-skeleton-line { margin-bottom: auto; }
 @container studio-chat-loading (width < 560px) { .studio-chat-loading > .studio-skeleton { display: none; } }
 @media (max-width: 640px) { .editor-shell.is-app.conversations-active > .author-panel:has(:is(.studio-chat, .studio-chat-loading)) { min-height: 36rem; height: max(36rem, calc(100dvh - 5rem)); } }
-.studio-toolbar-storage { color: var(--ui-muted, inherit); font-size: .8125rem; }
