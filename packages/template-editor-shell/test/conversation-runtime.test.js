@@ -423,3 +423,25 @@ test('discarding a stopped run with a checkpoint keeps its draft out of the next
   assert.equal(calls[1].files['style.css'], 'red', 'the discarded draft is not carried into the next run');
   waits[1].resolve({ files: calls[1].files, values: calls[1].values, valid: true }); await until(() => session.getSnapshot().runs[1].state === 'ready');
 });
+
+test('a discussion answer recovers a pre-output provider failure and streams its text', async () => {
+  const { MockLanguageModelV4 } = await import('ai/test');
+  const { simulateReadableStream } = await import('ai');
+  const { discuss } = await import('../src/conversation-runtime.js');
+  const { setAiRetrySleepForTesting } = await import('../src/ai-provider-recovery.js');
+  setAiRetrySleepForTesting(async () => {}); try {
+    const usage = { inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 5, text: 5, reasoning: 0 } };
+    const input = JSON.stringify({ text: 'The hero uses a two-column layout.' }), events = [];
+    const languageModel = new MockLanguageModelV4({ doStream: async () => {
+      if (languageModel.doStreamCalls.length === 1) throw Object.assign(new Error('Rate limited'), { statusCode: 429 });
+      return { stream: simulateReadableStream({ chunks: [{ type: 'stream-start', warnings: [] }, { type: 'tool-input-start', id: 'answer-1', toolName: 'answer' },
+        { type: 'tool-input-delta', id: 'answer-1', delta: input.slice(0, 20) }, { type: 'tool-input-delta', id: 'answer-1', delta: input.slice(20) }, { type: 'tool-input-end', id: 'answer-1' },
+        { type: 'tool-call', toolCallId: 'answer-1', toolName: 'answer', input }, { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage }] }) };
+    } });
+    const result = await discuss({ languageModel, signal: new AbortController().signal, timeout: 60000, conversationContext: 'None', values: {}, files: {}, prompt: 'Explain the hero', attachments: [], onProgress: event => events.push(event) });
+    assert.equal(result.summary, 'The hero uses a two-column layout.'); assert.equal(result.discussion, true);
+    assert.equal(languageModel.doStreamCalls.length, 2);
+    assert.equal(events.filter(event => event.type === 'provider-recovery').length, 1);
+    assert.equal(events.filter(event => event.type === 'text-delta').map(event => event.delta).join(''), 'The hero uses a two-column layout.');
+  } finally { setAiRetrySleepForTesting(null); }
+});
