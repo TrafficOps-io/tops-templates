@@ -7,7 +7,9 @@ const decoder = new TextDecoder('utf-8', { fatal: true });
 const VALUES_ENTRY = '.trafficops/values.json';
 const METADATA_ENTRY = '.trafficops/project.json';
 const CONVERSATIONS_ENTRY = '.trafficops/conversations.json';
-export const CONVERSATION_LIMITS = Object.freeze({ threads: 100, runs: 100, messages: 500, total: 128 * 1024 * 1024, encoded: 192 * 1024 * 1024, nodes: 500000, depth: 64 });
+const MiB = 1024 * 1024;
+// runs is per dialogue; total/nodes bound the joined in-memory document; encoded bounds the legacy single-file sidecar (removed in phase 2).
+export const CONVERSATION_LIMITS = Object.freeze({ threads: 100, runs: 100, messages: 500, total: 512 * MiB, encoded: 192 * MiB, nodes: 2000000, depth: 64, threadEncoded: 16 * MiB, blob: 24 * MiB });
 const BYTES_TAG = '$trafficopsBytes';
 
 function identifier(value, label) {
@@ -30,7 +32,7 @@ export function clonePortablePayload(value) {
       total += size; return item;
     }
     if (item instanceof Uint8Array) {
-      if (item.byteLength > LIMITS.file) throw new Error('Project history asset exceeds 8 MiB.');
+      if (item.byteLength > CONVERSATION_LIMITS.blob) throw new Error('Project history asset exceeds 24 MiB.');
       total += item.byteLength; return new Uint8Array(item);
     }
     if (!item || typeof item !== 'object' || (!Array.isArray(item) && ![Object.prototype, null].includes(Object.getPrototypeOf(item)))) throw new Error('Project history must contain JSON values or bytes.');
@@ -43,11 +45,11 @@ export function clonePortablePayload(value) {
       result = Object.fromEntries(Object.entries(item).map(([key, child]) => { total += encoder.encode(key).length; return [key, visit(child, depth + 1, key)]; }));
     }
     ancestors.delete(item);
-    if (total > CONVERSATION_LIMITS.total) throw new Error('Project history exceeds 128 MiB. Archive older dialogue snapshots before continuing.');
+    if (total > CONVERSATION_LIMITS.total) throw new Error('Project history exceeds 512 MiB. Archive older dialogue snapshots before continuing.');
     return result;
   }
   const result = visit(value, 0);
-  if (total > CONVERSATION_LIMITS.total) throw new Error('Project history exceeds 128 MiB. Archive older dialogue snapshots before continuing.');
+  if (total > CONVERSATION_LIMITS.total) throw new Error('Project history exceeds 512 MiB. Archive older dialogue snapshots before continuing.');
   return result;
 }
 
@@ -57,7 +59,7 @@ export function validateConversationDocument(value, expectedProjectId) {
   identifier(document.projectId, 'history project ID');
   if (expectedProjectId && document.projectId !== expectedProjectId) throw new Error('History belongs to a different project.');
   if (!Number.isSafeInteger(document.revision) || document.revision < 0) throw new Error('Invalid history revision.');
-  for (const [key, limit] of [['threads', CONVERSATION_LIMITS.threads], ['runs', CONVERSATION_LIMITS.runs]]) {
+  for (const [key, limit] of [['threads', CONVERSATION_LIMITS.threads], ['runs', CONVERSATION_LIMITS.threads * CONVERSATION_LIMITS.runs]]) {
     if (!Array.isArray(document[key]) || document[key].length > limit) throw new Error(`Project history supports at most ${limit} ${key}.`);
     const ids = new Set();
     for (const entry of document[key]) {
@@ -67,6 +69,12 @@ export function validateConversationDocument(value, expectedProjectId) {
       ids.add(id);
       if (key === 'threads' && entry.messages !== undefined && (!Array.isArray(entry.messages) || entry.messages.length > CONVERSATION_LIMITS.messages)) throw new Error('A dialogue supports at most 500 messages.');
     }
+  }
+  const perThread = new Map();
+  for (const run of document.runs) if (typeof run.threadId === 'string') {
+    const count = (perThread.get(run.threadId) || 0) + 1;
+    if (count > CONVERSATION_LIMITS.runs) throw new Error(`A dialogue supports at most ${CONVERSATION_LIMITS.runs} runs.`);
+    perThread.set(run.threadId, count);
   }
   return document;
 }
