@@ -68,9 +68,11 @@ export function runProjectPreview(snapshot, selectedPage) {
     addEventListener('pointermove', event => {
       if (!enabled) return;
       const next = instance(event.target);
-      if (hovered !== next) { hovered = next; report(); schedule(); }
+      // Hover only redraws the local overlay. Reporting the iframe's previous selection here
+      // can overwrite a newer selection made by the parent's section picker.
+      if (hovered !== next) { hovered = next; schedule(); }
     }, true);
-    addEventListener('mouseout', event => { if (enabled && !event.relatedTarget) { hovered = null; report(); schedule(); } }, true);
+    addEventListener('mouseout', event => { if (enabled && !event.relatedTarget) { hovered = null; schedule(); } }, true);
     addEventListener('scroll', schedule, true); addEventListener('resize', schedule);
     const loaded = () => {
       const observer = new MutationObserver(records => {

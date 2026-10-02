@@ -86,6 +86,12 @@ try {
   await page.waitForFunction(() => window.selectedIds.join(',') === 'comment-1');
   assert.equal(await frame().locator('body').evaluate(() => window.authorClicks), 1, 'selection captures before authored window handlers');
   await frame().getByRole('heading', { name: 'Selection page' }).waitFor();
+  // Hover feedback must not echo a stale selection back over a newer choice made in the parent.
+  await page.evaluate(() => { window.hoverSelectionReports = []; addEventListener('message', event => { if (event.data?.type === 'trafficops-preview-selection-change') window.hoverSelectionReports.push(event.data.selectedIds); }); });
+  await frame().locator('#submit').hover();
+  await choices.hover();
+  await page.waitForTimeout(100); // Drain cross-frame pointer/message events before the next click.
+  assert.deepEqual(await page.evaluate(() => window.hoverSelectionReports), [], 'hover does not report a selection change');
   await frame().locator('#submit').click();
   await page.waitForFunction(() => window.selectedIds.join(',') === 'comment-1,order');
   await frame().getByRole('heading', { name: 'Selection page' }).waitFor();

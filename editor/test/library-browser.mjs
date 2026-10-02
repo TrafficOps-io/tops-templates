@@ -210,8 +210,12 @@ try {
   await page.reload();
   await page.waitForFunction(() => Boolean(navigator.serviceWorker.controller));
   await page.locator('.studio.installed-app .library').waitFor();
+  // Linux Chromium 151 blocks network requests after an offline reload but resets navigator.onLine.
+  // Emulate that OS signal separately; the request assertion still verifies real network isolation.
+  await context.addInitScript(() => Object.defineProperty(navigator, 'onLine', { get: () => false, configurable: true }));
   await context.setOffline(true);
   await page.reload();
+  assert.equal(await page.evaluate(() => fetch('/offline-network-probe', { cache: 'no-store' }).then(() => false, () => true)), true, 'network requests fail while the service worker serves the app');
   await page.getByText('Offline · local editing available', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Open Independent landing', exact: true }).click();
   await page.locator('.editor-shell.is-app').waitFor();

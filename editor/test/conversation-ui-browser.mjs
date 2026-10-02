@@ -161,6 +161,7 @@ try {
   await page.locator('.preview-selection-chip').getByText('Comment (2/2)', { exact: true }).waitFor();
   await page.getByRole('combobox', { name: 'Search sections', exact: true }).fill('hero');
   await page.getByRole('option', { name: 'Main hero', exact: true }).click();
+  await page.locator('.preview-selection-chip').getByText('Main hero', { exact: true }).waitFor();
   assert.equal(await page.locator('.preview-selection-chip').count(), 2);
   await page.screenshot({ path: `${out}/section-picker.png`, fullPage: true });
   await page.getByRole('combobox', { name: 'Search sections', exact: true }).press('Escape');
