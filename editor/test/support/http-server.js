@@ -1,4 +1,5 @@
-import { ConflictError, encodeProject, decodeProject, createZip, readZipProject, runOperation, createMemoryConversationStore, sha256Hex, CONVERSATION_LIMITS } from '@trafficops/template-editor-core';
+import { encodeProject, decodeProject, createZip, readZipProject, runOperation, createMemoryConversationStore } from '@trafficops/template-editor-core';
+import { conversationHandler } from './conversation-endpoints.js';
 import { createStudioAnalyzer } from '../../src/hosts/studio-analyzer.js';
 import { studioDialect } from '../../src/studio-dialect.js';
 import { starterProject } from '../../src/starter.js';
@@ -7,48 +8,18 @@ import { starterProject } from '../../src/starter.js';
 // JSON/base64 serialization, Response parsing and HTTP status normalization.
 export function httpServer({ kind = 'page', aiEnabled = false, conversationsEnabled } = {}) {
   const calls = []; let failure = null;
-  const conversations = createMemoryConversationStore();
+  const conversations = createMemoryConversationStore(), conversationRoute = conversationHandler(conversations);
   let state = { name: 'Server project', files: starterProject(), folders: ['images'], revision: 1, locale: 'en', translations: { en: { title: 'Hello' } }, entrypoint: 'index.html',
     kind, status: 'draft', revisions: [], versions: [], draftHistory: [], previewEnabled: true, aiEnabled, ...(conversationsEnabled !== undefined ? { conversationsEnabled } : {}), dialect: studioDialect, canSaveTemplate: kind === 'page' };
   const analyzer = createStudioAnalyzer();
   const json = (value, status = 200) => Response.json(value, { status });
   const snapshot = async () => ({ ...structuredClone(state), files: encodeProject(state.files), ...await analyzer.analyze(state) });
-  // The host conversation contract, backed by the reference memory store.
-  async function conversationRoute(collection, id, init) {
-    const method = init.method || 'GET', match = /^"(\d+)"$/.exec(init.headers?.['If-Match'] || ''), expectedRevision = match ? Number(match[1]) : null;
-    const body = init.body === undefined ? new Uint8Array() : new Uint8Array(await new Response(init.body).arrayBuffer());
-    const fail = error => json({ message: error.message }, error.code === 'conflict' ? 409 : 422);
-    if (collection === 'conversations' && id !== undefined && !/^[A-Za-z0-9_-]{1,160}$/.test(id)) return json({ message: 'Dialogue IDs must use letters, digits, "-" or "_".' }, 422);
-    if (collection === 'conversation-blobs' && !/^[a-f0-9]{64}$/.test(id)) return json({ message: 'Invalid attachment hash.' }, 422);
-    if (collection === 'conversations' && id === undefined && method === 'GET') return json({ threads: await conversations.listThreads() });
-    if (collection === 'conversations' && id !== undefined && ['PUT', 'DELETE'].includes(method)) {
-      if (expectedRevision === null) return json({ message: 'If-Match with the thread revision is required.' }, 428);
-      if (method === 'DELETE') { try { await conversations.deleteThread(id, { expectedRevision }); return new Response(null, { status: 204 }); } catch (error) { return fail(error); } }
-      if (body.byteLength > CONVERSATION_LIMITS.threadEncoded) return json({ message: 'A dialogue exceeds 16 MiB. Start a new dialogue or remove old results.' }, 413);
-      let thread; try { thread = JSON.parse(new TextDecoder().decode(body)); } catch { return json({ message: 'The dialogue is not valid JSON.' }, 422); }
-      if (thread?.id !== id) return json({ message: 'The dialogue id does not match its path.' }, 422);
-      try { return json(await conversations.writeThread(thread, { expectedRevision })); } catch (error) { return fail(error); }
-    }
-    if (collection === 'conversation-blobs' && id !== undefined && method === 'PUT') {
-      if (body.byteLength > CONVERSATION_LIMITS.blob) return json({ message: 'A conversation attachment exceeds 24 MiB.' }, 413);
-      if (await sha256Hex(body) !== id) return json({ message: 'The conversation attachment does not match its hash.' }, 422);
-      const existed = await conversations.getBlob(id).then(() => true, () => false);
-      await conversations.putBlob(id, body); return new Response(null, { status: existed ? 200 : 201 });
-    }
-    if (collection === 'conversation-blobs' && id !== undefined && method === 'GET') {
-      try { return new Response(await conversations.getBlob(id), { headers: { 'Content-Type': 'application/octet-stream' } }); } catch { return json({ message: 'Not found' }, 404); }
-    }
-    return json({ message: `Unhandled conversation route ${method} ${collection}` }, 405);
-  }
   const fetchImpl = (url, init = {}) => runOperation(init.signal, async () => {
     // Endpoints are one path segment deep (/project, /ai): the segments after it are positional.
     const segments = new URL(url).pathname.split('/').slice(1), action = segments.at(-1), [, collection, id, ...extra] = segments;
     calls.push({ url: String(url), init });
     if (failure) { const next = failure; failure = null; if (next instanceof Error) throw next; return json(next.body || { message: 'Injected failure' }, next.status); }
-    if (['conversations', 'conversation-blobs'].includes(collection)) {
-      if (extra.length || (collection === 'conversation-blobs' && id === undefined)) return json({ message: 'Not found' }, 404);
-      return conversationRoute(collection, id === undefined ? undefined : decodeURIComponent(id), init);
-    }
+    if (['conversations', 'conversation-blobs'].includes(collection)) return conversationRoute(new Request(url, init), [collection, id, ...extra]);
     const wire = typeof init.body === 'string' ? JSON.parse(init.body) : {};
     const input = wire.files ? { ...wire, files: decodeProject(wire.files) } : state;
     if (init.method === 'GET' && action === 'project') return json(await snapshot());

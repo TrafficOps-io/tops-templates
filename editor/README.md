@@ -211,12 +211,71 @@ run. The host returns `{ started: true }` only once. Reloads can pass the same p
 with `autoStart: false` and `mode: 'edit'` for manual recovery. The server owns request
 identity and project access; client settings do not authorize a paid run by themselves.
 
-When the payload enables AI, `HttpHost` also provides `host.conversations` backed by the
-browser's IndexedDB (key `embed:<endpoint path>`), so the embedded editor uses the same
-conversation chat as Studio. Embedded dialogues are stored in the user's browser only: they
-are not synced to the server and are not visible to teammates (open question 2, a separate
-PWApps specification). Chat portals (mention menus, dialogs) mount inside the editor's
-shadow root through `StudioUiProvider`'s `portalContainer`.
+### Embedded conversation history (embed 0.7.0)
+
+The embedded editor stores AI chat history on the host. `HttpHost` enables AI only when
+the `GET {endpoint}` payload has both `aiEnabled: true` and `conversationsEnabled: true`.
+It then provides `host.conversations` through `embedded/src/http-conversation-store.js`
+(project key `embed:<endpoint path>`), so the embed uses the same conversation chat as
+Studio. Without `conversationsEnabled: true`, the embed has no AI capability: no chat, no
+`ai` port and `availability.ai: false`. Chat portals (mention menus, dialogs) mount
+inside the editor's shadow root through `StudioUiProvider`'s `portalContainer`.
+
+Paths are relative to `endpoint`. Every request carries `X-CSRF-TOKEN` and
+`credentials: 'same-origin'`, like the other editor calls.
+
+| Method and path | Request | Success response | Errors |
+|---|---|---|---|
+| `GET /conversations` | — | `200 { "threads": Thread[] }`: every stored thread, each with its current server `revision` | — |
+| `PUT /conversations/{id}` | `Content-Type: application/json`, `If-Match: "<revision>"`, body: one `Thread` | `200 { "revision": <new revision> }` | `409` revision mismatch, `413` thread too large, `422` invalid thread or missing blob, `428` (recommended) `If-Match` missing |
+| `DELETE /conversations/{id}` | `If-Match: "<revision>"` | `204`, also when the thread is already missing (`404` is accepted too) | `409` revision mismatch, `428` (recommended) `If-Match` missing |
+| `PUT /conversation-blobs/{sha256}` | `Content-Type: application/octet-stream`, raw bytes | `201` created or `200` already stored | `413` blob too large, `422` hash mismatch |
+| `GET /conversation-blobs/{sha256}` | `Accept: application/octet-stream` | `200` raw bytes | `404` unknown blob |
+
+- **Revisions.** `If-Match` holds the decimal revision in double quotes (an entity tag),
+  for example `If-Match: "3"`. `"0"` means "create": it succeeds only when the thread does
+  not exist. A write succeeds only when the stored revision equals the `If-Match` value; the
+  server then assigns the next revision and returns it. The `revision` field in the request
+  body is ignored. Revisions should stay monotonic across delete and recreate (keep the
+  last revision of a deleted id, and continue from it), so a stale client can never match a
+  recreated thread. A request without `If-Match` should be rejected with `428`.
+- **Identifiers.** Thread ids match `^[A-Za-z0-9_-]{1,160}$`, and the id in the path must
+  equal the body's `id`. Blob names are SHA-256 digests as 64 lowercase hex digits. The
+  server checks that the SHA-256 of the uploaded body equals the path and answers `422`
+  otherwise. Clients also verify downloaded blobs.
+- **Threads and blobs.** A `Thread` is a split dialogue file (`schema: 1`, `id`,
+  `revision`, `title`, `updatedAt`, `messages`, `runs`). Large values (file snapshots,
+  attachments) are replaced inside the thread JSON by blob references
+  `{ "$trafficopsBlob": "<sha256>", "encoding": "utf8" | "bytes" | "dataUrl", "size": <bytes>, "mime"?: "<type>" }`
+  (`mime` is present for `dataUrl`). The server can find every referenced blob by walking
+  the JSON for objects with a `$trafficopsBlob` key. It must answer `422` to a thread that
+  references a blob it does not have. The client uploads blobs before the thread, and after
+  a `422` it uploads all of the thread's blobs once more and retries.
+- **Limits.** A thread body is at most 16 MiB, and one blob is at most 24 MiB. Larger
+  requests get `413` with a `message`. The web server and PHP must accept these bodies,
+  for example `client_max_body_size 25m` in nginx and `post_max_size` /
+  `upload_max_filesize` of at least 25M in PHP. Otherwise the proxy returns its own `413`.
+- **Status mapping in the embed.** `409` becomes a `ConflictError`: the runtime reloads
+  and retries the change. `422` becomes a `ValidationError`. `413` shows the server's
+  `message`, or "The dialogue exceeds the server limit.". `404` on a blob download shows
+  "A conversation attachment is missing on the server.". Other statuses show the
+  server's `message`. Error bodies are JSON `{ "message": "..." }`.
+- **Garbage collection is the host's job.** The embed never deletes blobs. A host may
+  remove blobs that no stored thread references, after a grace period that covers uploads
+  whose thread write is still in flight (the reference stores use 10 minutes).
+- There is no change feed. Other tabs see new history after they reload.
+
+`editor/test/support/conversation-endpoints.js` is a reference implementation of these
+endpoints over `createMemoryConversationStore()`. It is used by the protocol mock and
+by `creation-browser.mjs`.
+
+**Upgrading PWApps.** Embed 0.7.0 no longer keeps dialogues in the browser's IndexedDB,
+and earlier embedded dialogues are not migrated. A host that installs 0.7.0 without these
+endpoints and without `conversationsEnabled: true` loses AI in the editor: the chat is
+hidden. If such a host passes `initialAiRequest`, the request is dropped and the console
+logs `TrafficOps editor: AI is disabled because the host does not expose conversation
+endpoints (conversationsEnabled).` Stay on 0.6.x until the endpoints ship, then set
+`conversationsEnabled: true` in the project payload.
 
 Page payloads can set `canSaveTemplate: true` to expose **Save as team template**.
 The named action submits all current editor state and `templateName` to
