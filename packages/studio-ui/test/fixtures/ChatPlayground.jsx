@@ -8,7 +8,7 @@ import { createFakeChatPort } from './FakeChatPort.js';
 // Test handles: window.fake (the port), window.threadId / window.setThreadId, window.setTheme(name), window.launch(launch),
 // window.actionCalls — texts passed to the header action, window.pickerChanges — values passed to onChange of the ModelPicker demo, window.scopes — scopes reported by onScopeChange, window.standaloneSubmit — onSubmit of the standalone composer.
 // ?clarify=1 turns on capabilities.clarifyWhileRunning, ?discardStopped=1 — capabilities.discardStopped; ?scopes=project,file overrides capabilities.scopes;
-// ?noBranching=1 removes regenerate, editMessage and switchBranch from the port.
+// ?noBranching=1 removes regenerate, editMessage and switchBranch from the port; ?portal=1 renders the ModelPicker demo popover into #picker-layer.
 const port = createFakeChatPort();
 const query = new URLSearchParams(location.search);
 if (query.has('clarify')) port.capabilities = { ...port.capabilities, clarifyWhileRunning: true };
@@ -40,9 +40,10 @@ const MODELS = [
 window.models = MODELS;
 
 function PickerDemo() {
-  const [value, setValue] = useState(null);
+  const [value, setValue] = useState(null), [layer, setLayer] = useState(null);
   return <div id="model-picker-demo" style={{ padding: '1rem' }}>
-    <ModelPicker label="Assistant model" value={value} onChange={next => { window.pickerChanges.push(next); setValue(next); }} options={MODELS}
+    <div id="picker-layer" ref={setLayer} />
+    <ModelPicker label="Assistant model" value={value} portalContainer={query.has('portal') ? layer ?? undefined : undefined} onChange={next => { window.pickerChanges.push(next); setValue(next); }} options={MODELS}
       recentIds={['openai/gpt-4o-mini', 'google/gemini-2.5-flash']} recommendedIds={['google/gemini-2.5-flash', 'meta-llama/llama-3.3-70b-instruct:free']}
       inherit={{ label: 'As in global settings', detail: 'Gemini 2.5 Flash' }} />
   </div>;

@@ -93,9 +93,13 @@ export default function ModelPicker({ value = null, options = NONE, onChange, re
     if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); select(rows[active]); }
   }
   // Focus leaving the picker (trigger and popover; React bubbles portal events to the root) closes it.
+  // Checked after the event: focus moving into a portal popover lands before its ref is attached.
   function blur(event) {
-    const next = event.relatedTarget;
-    if (open && next && !root.current?.contains(next) && !popup.current?.contains(next)) close(false);
+    if (!open || !event.relatedTarget) return;
+    setTimeout(() => {
+      const focused = root.current?.getRootNode().activeElement ?? root.current?.ownerDocument.activeElement;
+      if (focused && focused !== root.current?.ownerDocument.body && !root.current?.contains(focused) && !popup.current?.contains(focused)) close(false);
+    }, 0);
   }
   const toggleFilter = filter => setFilters(list => (list.includes(filter) ? list.filter(item => item !== filter) : [...list, filter]));
 

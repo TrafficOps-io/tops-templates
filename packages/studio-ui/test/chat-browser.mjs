@@ -461,6 +461,34 @@ try {
     await picking.close();
   }
 
+  // ModelPicker with portalContainer: the popover renders into the layer with fixed positioning and keeps the keyboard.
+  {
+    const portal = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+    await portal.goto(`${origin}/?portal=1`);
+    const trigger = portal.locator('#model-picker-demo').getByRole('button', { name: 'Assistant model: As in global settings' });
+    await trigger.scrollIntoViewIfNeeded();
+    await trigger.click();
+    const popover = portal.locator('#picker-layer .studio-model-popover');
+    await popover.waitFor();
+    assert.equal(await popover.evaluate(element => getComputedStyle(element).position), 'fixed');
+    const [popoverBox, triggerBox] = [await popover.boundingBox(), await trigger.boundingBox()];
+    assert.ok(popoverBox.y + popoverBox.height <= triggerBox.y + 1 || popoverBox.y >= triggerBox.y + triggerBox.height - 1, 'the popover sits next to the trigger');
+    assert.equal(await portal.evaluate(() => document.activeElement?.closest('#picker-layer') !== null), true, 'focus is in the layer');
+    await portal.keyboard.type('gpt-4o');
+    await portal.keyboard.press('Enter');
+    await popover.waitFor({ state: 'detached' });
+    assert.deepEqual(await portal.evaluate(() => window.pickerChanges), ['openai/gpt-4o-mini']);
+    const picked = portal.locator('#model-picker-demo').getByRole('button', { name: 'Assistant model: GPT-4o mini' });
+    assert.equal(await picked.evaluate(element => element === document.activeElement), true, 'focus returns to the trigger');
+    await picked.click();
+    await popover.waitFor();
+    await popover.getByRole('button', { name: 'Free models' }).click();
+    assert.equal(await popover.isVisible(), true, 'a click inside the layer keeps it open');
+    await portal.mouse.click(5, 5);
+    await popover.waitFor({ state: 'detached' });
+    await portal.close();
+  }
+
   // Branches, Regenerate, Edit, Retry and step cards (FakeChatPort keeps a tree).
   {
     const context = await browser.newContext({ viewport: { width: 1100, height: 900 }, permissions: ['clipboard-read', 'clipboard-write'] });
