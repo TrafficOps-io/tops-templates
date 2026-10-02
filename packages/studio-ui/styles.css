@@ -186,6 +186,18 @@
 .studio-card-check { display: flex; align-items: center; gap: var(--ui-space-2); font-size: var(--ui-text-xs); }
 .studio-card-check input { accent-color: var(--ui-accent); }
 
+/* chat: agent step (StepCard) — one compact line, not a framed card */
+.studio-step { display: flex; align-items: baseline; gap: var(--ui-space-2); min-width: 0; color: var(--ui-text); font-size: var(--ui-text-xs); line-height: var(--ui-text-xs--line-height); }
+.studio-step-icon { flex: none; align-self: center; color: var(--ui-muted); }
+.studio-step[data-status=done] .studio-step-icon { color: var(--ui-success); }
+.studio-step[data-status=error] .studio-step-icon { color: var(--ui-danger); }
+.studio-step[data-status=running] .studio-step-icon { color: var(--ui-info); animation: studio-spin 800ms linear infinite; }
+.studio-step-agent { flex: none; padding: 0 var(--ui-space-1); border-radius: var(--ui-radius-sm); background: var(--ui-surface-raised); color: var(--ui-muted); font-weight: 500; }
+.studio-step-label { min-width: 0; font-weight: 500; overflow-wrap: anywhere; }
+.studio-step-detail { min-width: 0; color: var(--ui-muted); overflow-wrap: anywhere; }
+.studio-step + .studio-step { margin-top: calc(var(--ui-space-1) * -1); }
+@media (prefers-reduced-motion: reduce) { .studio-step[data-status=running] .studio-step-icon { animation: none; } }
+
 /* chat: composer */
 .studio-chat-composer { position: relative; display: grid; gap: var(--ui-space-2); padding: var(--ui-space-2) var(--ui-space-3); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-lg); background: var(--ui-surface); color: var(--ui-text); transition: border-color var(--ui-motion-fast) var(--ui-ease); }
 .studio-chat-composer:focus-within { border-color: var(--ui-border-strong); }

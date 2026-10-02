@@ -100,8 +100,12 @@ test('scope chips and result cards carry their classes and attributes', () => {
   assert.ok(read('cards/index.js').includes('data-card'), 'data-card');
 });
 
-test('there are eight result card components', () => {
-  for (const name of ['DiffCard', 'ValuesCard', 'ImageCard', 'AudioCard', 'VideoCard', 'FileCard', 'OperationCard', 'QuestionCard']) assert.ok(existsSync(new URL(`cards/${name}.jsx`, chatRoot)), name);
+test('there are nine result card components, step among them', () => {
+  for (const name of ['DiffCard', 'ValuesCard', 'ImageCard', 'AudioCard', 'VideoCard', 'FileCard', 'OperationCard', 'QuestionCard', 'StepCard']) assert.ok(existsSync(new URL(`cards/${name}.jsx`, chatRoot)), name);
+  assert.match(read('cards/index.js'), /step: StepCard/);
+  const step = read('cards/StepCard.jsx');
+  for (const token of ['data-testid="studio-chat-card"', '{...frame}', 'LoaderCircle', 'studio-sr-only']) assert.ok(step.includes(token), token);
+  assert.ok(!imports(step).includes('CardFrame'), 'a step is a compact line, not a framed card');
 });
 
 test('no chat module uses useToast (errors are inline notices)', () => {

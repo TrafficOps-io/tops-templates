@@ -7,11 +7,12 @@ import VideoCard from './VideoCard.jsx';
 import FileCard from './FileCard.jsx';
 import OperationCard from './OperationCard.jsx';
 import QuestionCard from './QuestionCard.jsx';
+import StepCard from './StepCard.jsx';
 
-export const cardComponents = { diff: DiffCard, values: ValuesCard, image: ImageCard, audio: AudioCard, video: VideoCard, file: FileCard, operation: OperationCard, question: QuestionCard };
+export const cardComponents = { diff: DiffCard, values: ValuesCard, image: ImageCard, audio: AudioCard, video: VideoCard, file: FileCard, operation: OperationCard, question: QuestionCard, step: StepCard };
 
 // part: tool-call part { toolCallId, toolName, result }. Every card is an <article data-testid="studio-chat-card"
-// data-card={type}> (CardFrame); an unknown toolName or a non-object result falls back to FileCard with raw = the original result.
+// data-card={type}> (CardFrame), the step card a one-line <div> with the same hooks; an unknown toolName or a non-object result falls back to FileCard with raw = the original result.
 // options: { can(action) — the port supports the action, capabilities — port.capabilities }.
 export function renderCard(part, onAction, { can = () => false, capabilities } = {}) {
   // A missing or malformed result (not an object) falls back to FileCard instead of crashing the feed.
