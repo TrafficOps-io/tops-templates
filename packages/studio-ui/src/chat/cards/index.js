@@ -1,0 +1,21 @@
+import { createElement } from 'react';
+import DiffCard from './DiffCard.jsx';
+import ValuesCard from './ValuesCard.jsx';
+import ImageCard from './ImageCard.jsx';
+import AudioCard from './AudioCard.jsx';
+import VideoCard from './VideoCard.jsx';
+import FileCard from './FileCard.jsx';
+import OperationCard from './OperationCard.jsx';
+import QuestionCard from './QuestionCard.jsx';
+
+export const cardComponents = { diff: DiffCard, values: ValuesCard, image: ImageCard, audio: AudioCard, video: VideoCard, file: FileCard, operation: OperationCard, question: QuestionCard };
+
+// part: tool-call part { toolCallId, toolName, result }. Every card is an <article data-testid="studio-chat-card"
+// data-card={type}> (CardFrame); an unknown toolName falls back to FileCard with raw = the original result.
+// options: { can(action) — the port supports the action, capabilities — port.capabilities }.
+export function renderCard(part, onAction, { can = () => false, capabilities } = {}) {
+  const known = cardComponents[part.toolName];
+  const type = known ? part.toolName : 'file';
+  const card = known ? part.result : { type: 'file', name: part.toolName || 'result', bytes: undefined, raw: part.result };
+  return createElement(known ?? FileCard, { key: part.toolCallId, card, onAction, can, capabilities, frame: { 'data-card': type } });
+}
