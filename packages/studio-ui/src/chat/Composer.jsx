@@ -110,7 +110,9 @@ function RuntimeComposer({ chat, ...props }) {
   }, [text, onChange]);
   // StudioChat sends (text or attachments only) and owns clearing and restoring; composer.send() is not used, so a
   // rejected send can give the input back and a clarification during a run is not tied to assistant-ui's send rules.
-  function submit() { chat.onSubmit(text); }
+  // The composer clears itself as well: when typing and Enter land in one React batch, StudioChat's text never held the
+  // typed value, so its clear() does not change the value prop and would not reach the assistant-ui composer.
+  function submit() { chat.onSubmit(text); setText(''); }
   return <ComposerBody {...props} parts={parts} text={text} setText={setText} submit={submit} runtime busy={running} />;
 }
 
