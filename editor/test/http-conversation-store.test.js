@@ -11,8 +11,8 @@ const open = (server = httpServer({ aiEnabled: true, conversationsEnabled: true 
 // openPeer stays the identity: an HTTP store has no watch, so the watch case is skipped by the contract itself.
 for (const contract of conversationStoreContract) test(`HTTP conversation store contract: ${contract.name}`, () => contract.run(async () => open().store));
 
-test('HTTP conversation store sends credentials, CSRF, If-Match and encoded ids', async () => {
-  const { server, store } = open(), id = 'a/b c?', bytes = new TextEncoder().encode('blob'), sha = await sha256Hex(bytes);
+test('HTTP conversation store sends credentials, CSRF and If-Match', async () => {
+  const { server, store } = open(), id = 'initial-thread-13-abcdef12', bytes = new TextEncoder().encode('blob'), sha = await sha256Hex(bytes);
   await store.putBlob(sha, bytes);
   await store.writeThread({ schema: 1, id, revision: 0, title: 'T', messages: [], runs: [] }, { expectedRevision: 0 });
   await store.deleteThread(id, { expectedRevision: 1 });
@@ -37,5 +37,40 @@ test('HTTP conversation store maps status codes', async () => {
   server.fail({ status: 403 }); await assert.rejects(store.listThreads(), error => error.code === 'policy');
   server.fail(new TypeError('Network failed')); await assert.rejects(store.listThreads(), error => error.code === 'transport');
   const controller = new AbortController(); controller.abort();
+  await assert.rejects(store.listThreads({ signal: controller.signal }), error => error.code === 'abort');
+});
+
+test('HTTP dialogue ids are URL-safe: unsafe ids are rejected before any request, runtime ids pass', async () => {
+  const { server, store } = open(), thread = id => ({ schema: 1, id, revision: 0, title: 'T', messages: [], runs: [] });
+  for (const id of ['.', '..', 'a/b', 'a:b', '', 'x'.repeat(161)]) {
+    const before = server.calls.length;
+    await assert.rejects(store.writeThread(thread(id), { expectedRevision: 0 }), error => error.code === 'validation' && /letters, digits/.test(error.message), `write ${id}`);
+    await assert.rejects(store.deleteThread(id, { expectedRevision: 1 }), error => error.code === 'validation', `delete ${id}`);
+    assert.equal(server.calls.length, before, `no request for ${id}`);
+  }
+  for (const id of [crypto.randomUUID(), 'initial-thread-13-abcdef12']) {
+    assert.equal((await store.writeThread(thread(id), { expectedRevision: 0 })).revision, 1);
+    await store.deleteThread(id, { expectedRevision: 1 });
+  }
+  const put = (id, method = 'PUT') => server.fetchImpl(`${endpoint}/conversations/${id}`, { method, headers: { 'If-Match': '"0"' }, body: JSON.stringify(thread(decodeURIComponent(id))) });
+  for (const id of ['a.b', 'a%3Ab', 'a%2Fb']) { assert.equal((await put(id)).status, 422, `server rejects ${id}`); assert.equal((await put(id, 'DELETE')).status, 422); }
+  assert.equal((await server.fetchImpl(`${endpoint}/conversations/x/extra`, { method: 'GET' })).status, 404, 'deeper paths are not conversation routes');
+  assert.equal((await put('conversations')).status, 200, 'a thread named "conversations" is a thread route');
+});
+
+test('HTTP blob hashes are checked on both sides of the request', async () => {
+  const { server, store } = open(), bytes = new TextEncoder().encode('blob'), sha = await sha256Hex(bytes), before = server.calls.length;
+  for (const bad of ['XYZ', 'A'.repeat(64), '../' + 'a'.repeat(61)]) {
+    await assert.rejects(store.putBlob(bad, bytes), error => error.code === 'validation');
+    await assert.rejects(store.getBlob(bad), error => error.code === 'validation');
+  }
+  assert.equal(server.calls.length, before);
+  const damaged = createHttpConversationStore({ endpoint, csrf: 'csrf', fetchImpl: async () => new Response(new Uint8Array([1, 2, 3])) });
+  await assert.rejects(damaged.getBlob(sha), error => error.message === 'A conversation attachment is damaged on the server.');
+});
+
+test('HTTP error bodies are read abort-aware', async () => {
+  const controller = new AbortController();
+  const store = createHttpConversationStore({ endpoint, csrf: 'csrf', fetchImpl: async () => ({ ok: false, status: 409, json: async () => { controller.abort(); return { message: 'Conflict' }; } }) });
   await assert.rejects(store.listThreads({ signal: controller.signal }), error => error.code === 'abort');
 });

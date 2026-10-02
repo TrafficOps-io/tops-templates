@@ -204,6 +204,7 @@ export async function createHttpHost(options) {
     },
     finish,
   };
+  if (options.initialAiRequest && !capabilities.ai) console.warn('TrafficOps editor: AI is disabled because the host does not expose conversation endpoints (conversationsEnabled).');
   const projectId = `embed:${new URL(options.endpoint, globalThis.location?.href || 'http://localhost/').pathname}`;
   const conversations = capabilities.ai ? createStoreConversationPort(createHttpConversationStore({ endpoint: options.endpoint, csrf: options.csrf, fetchImpl }), { projectId }) : undefined;
   return { language: options.language || 'en', messages: options.messages || {}, capabilities, dialect: initial.dialect,

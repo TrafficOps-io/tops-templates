@@ -18,6 +18,8 @@ export function httpServer({ kind = 'page', aiEnabled = false, conversationsEnab
     const method = init.method || 'GET', match = /^"(\d+)"$/.exec(init.headers?.['If-Match'] || ''), expectedRevision = match ? Number(match[1]) : null;
     const body = init.body === undefined ? new Uint8Array() : new Uint8Array(await new Response(init.body).arrayBuffer());
     const fail = error => json({ message: error.message }, error.code === 'conflict' ? 409 : 422);
+    if (collection === 'conversations' && id !== undefined && !/^[A-Za-z0-9_-]{1,160}$/.test(id)) return json({ message: 'Dialogue IDs must use letters, digits, "-" or "_".' }, 422);
+    if (collection === 'conversation-blobs' && !/^[a-f0-9]{64}$/.test(id)) return json({ message: 'Invalid attachment hash.' }, 422);
     if (collection === 'conversations' && id === undefined && method === 'GET') return json({ threads: await conversations.listThreads() });
     if (collection === 'conversations' && id !== undefined && ['PUT', 'DELETE'].includes(method)) {
       if (expectedRevision === null) return json({ message: 'If-Match with the thread revision is required.' }, 428);
@@ -39,11 +41,14 @@ export function httpServer({ kind = 'page', aiEnabled = false, conversationsEnab
     return json({ message: `Unhandled conversation route ${method} ${collection}` }, 405);
   }
   const fetchImpl = (url, init = {}) => runOperation(init.signal, async () => {
-    const segments = new URL(url).pathname.split('/'), action = segments.at(-1);
+    // Endpoints are one path segment deep (/project, /ai): the segments after it are positional.
+    const segments = new URL(url).pathname.split('/').slice(1), action = segments.at(-1), [, collection, id, ...extra] = segments;
     calls.push({ url: String(url), init });
     if (failure) { const next = failure; failure = null; if (next instanceof Error) throw next; return json(next.body || { message: 'Injected failure' }, next.status); }
-    if (action === 'conversations') return conversationRoute(action, undefined, init);
-    if (['conversations', 'conversation-blobs'].includes(segments.at(-2))) return conversationRoute(segments.at(-2), decodeURIComponent(action), init);
+    if (['conversations', 'conversation-blobs'].includes(collection)) {
+      if (extra.length || (collection === 'conversation-blobs' && id === undefined)) return json({ message: 'Not found' }, 404);
+      return conversationRoute(collection, id === undefined ? undefined : decodeURIComponent(id), init);
+    }
     const wire = typeof init.body === 'string' ? JSON.parse(init.body) : {};
     const input = wire.files ? { ...wire, files: decodeProject(wire.files) } : state;
     if (init.method === 'GET' && action === 'project') return json(await snapshot());

@@ -54,6 +54,17 @@ test('HttpHost without host conversation endpoints exposes no AI chat and still 
     await runHostConformance(factory, { knownIds });
   }
 });
+test('HttpHost warns once when an initial AI request arrives without host conversation endpoints', async t => {
+  const warnings = [], warn = console.warn; console.warn = (...args) => warnings.push(args.join(' ')); t.after(() => { console.warn = warn; });
+  const options = { endpoint: 'https://app.test/project', aiEndpoint: 'https://app.test/ai', csrf: 'csrf' };
+  await createHttpHost({ ...options, fetchImpl: httpServer({ aiEnabled: true }).fetchImpl });
+  assert.deepEqual(warnings, []);
+  const host = await createHttpHost({ ...options, fetchImpl: httpServer({ aiEnabled: true }).fetchImpl, initialAiRequest: { id: 'request-1', prompt: 'Build', autoStart: true } });
+  assert.equal(Object.hasOwn(host, 'ai'), false);
+  assert.deepEqual(warnings, ['TrafficOps editor: AI is disabled because the host does not expose conversation endpoints (conversationsEnabled).']);
+  await createHttpHost({ ...options, fetchImpl: httpServer({ aiEnabled: true, conversationsEnabled: true }).fetchImpl, initialAiRequest: { id: 'request-2', prompt: 'Build', autoStart: true } });
+  assert.equal(warnings.length, 1);
+});
 test('HttpHost AI history persists through the host conversation endpoints and reloads in a fresh host', async t => {
   const server = httpServer({ aiEnabled: true, conversationsEnabled: true });
   const options = { endpoint: 'https://app.test/project', aiEndpoint: 'https://app.test/ai', csrf: 'csrf', fetchImpl: server.fetchImpl };
