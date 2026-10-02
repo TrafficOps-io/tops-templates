@@ -15,3 +15,16 @@ test('memory store: refreshing a blob postpones its collection', async () => {
   t = 30; await store.collectGarbage();
   await assert.rejects(store.getBlob(sha));
 });
+
+test('memory store: revisions stay monotonic across delete and recreate', async () => {
+  const store = createMemoryConversationStore(), thread = title => ({ schema: 1, id: 't1', revision: 0, title, messages: [], runs: [] });
+  await store.writeThread(thread('One'), { expectedRevision: 0 });
+  const { revision: previous } = await store.writeThread(thread('Two'), { expectedRevision: 1 });
+  await store.deleteThread('t1', { expectedRevision: previous });
+  await assert.rejects(store.writeThread(thread('Stale'), { expectedRevision: previous }), error => error.code === 'conflict', 'a stale revision cannot match the deleted thread');
+  const { revision } = await store.writeThread(thread('Again'), { expectedRevision: 0 });
+  assert.ok(revision > previous, `the recreated thread continues after revision ${previous}, got ${revision}`);
+  assert.equal((await store.listThreads())[0].revision, revision);
+  await store.deleteThread('t1', { expectedRevision: revision });
+  assert.equal((await store.writeThread(thread('Third'), { expectedRevision: 0 })).revision, revision + 1);
+});
