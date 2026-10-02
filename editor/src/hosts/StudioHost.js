@@ -108,7 +108,7 @@ export function createStudioHost({ directory, projectId, kind = 'landing', name,
         queue = task; return task;
       }, 'validation');
     },
-    import(bytes, { signal } = {}) { return runOperation(signal, () => readArchive(bytes, signal), 'validation'); },
+    import(bytes, { signal } = {}) { return runOperation(signal, () => readArchive(bytes, { signal }), 'validation'); },
     export(next, { signal, format, locale, history, includeHistory }) {
       return runOperation(signal, async () => {
         if (history) throw new PolicyError('Local projects have no published history.');
