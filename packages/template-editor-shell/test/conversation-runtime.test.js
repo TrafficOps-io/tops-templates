@@ -445,3 +445,23 @@ test('a discussion answer recovers a pre-output provider failure and streams its
     assert.equal(events.filter(event => event.type === 'text-delta').map(event => event.delta).join(''), 'The hero uses a two-column layout.');
   } finally { setAiRetrySleepForTesting(null); }
 });
+
+for (const binary of [true, false]) test(`a ${binary ? 'generated image' : 'text-only'} checkpoint ${binary ? 'is persisted before' : 'does not delay'} the next provider request`, async t => {
+  const local = fixture(binary ? 'durable-image' : 'background-text'), gate = deferred(), path = binary ? 'hero.png' : 'notes.md';
+  let checkpointSaved = false, savedBeforeRequest;
+  const save = local.host.conversations.save;
+  local.host.conversations.save = async (...args) => {
+    if (!args[0].runs[0]?.checkpoint?.files?.[path]) return save(...args);
+    await gate.promise; const result = await save(...args); checkpointSaved = true; return result;
+  };
+  local.host.ai.begin = async () => ({ apiKey: 'test', model: 'test/model', fetchImpl: async () => { savedBeforeRequest ??= checkpointSaved; return Response.json({ ok: true }); } });
+  const session = createConversationSession(local.host, { locks: null, sessionId: 'owner', workflows: basicWorkflows(async options => {
+    const files = { ...options.files, [path]: binary ? Uint8Array.of(137, 80, 78, 71) : 'Notes' };
+    options.onProgress({ type: 'file-set', path, paths: [path], files, values: options.values });
+    setTimeout(() => gate.resolve(), 30);
+    await options.fetchImpl('https://provider.invalid/next');
+    return { files, values: options.values, valid: true, summary: 'Done.' };
+  }) }); t.after(() => session.dispose()); await session.ready;
+  await session.submit({ prompt: 'Add a hero image', snapshot: state() }); await until(() => session.getSnapshot().runs[0]?.state === 'ready');
+  assert.equal(savedBeforeRequest, binary);
+});

@@ -333,7 +333,7 @@ export function createConversationSession(initialHost, { workflows = defaultWork
         if (!current || current.state !== 'running' || current.owner?.sessionId !== sessionId || current.owner?.fence !== fence) { controller.abort(); return false; }
         change(current, next); current.updatedAt = now();
       });
-      let started = false, timer, completed, readSet, credential = '', steps = [], streamText = '';
+      let started = false, timer, completed, readSet, credential = '', steps = [], streamText = '', durableImage = null;
       const timings = createRunTimings(now);
       const overlay = patch => overlays.set(runId, { ...(overlays.get(runId) || {}), ...patch });
       // Progress checkpoints are saved in the background; only the final
@@ -407,6 +407,9 @@ export function createConversationSession(initialHost, { workflows = defaultWork
           checkpoints.push({ ...(editScope ? { scope: { kind: 'block', editScope: clone(editScope) } } : {}), ...(checkpoint ? { checkpoint: clone(checkpoint) } : {}),
             ...(event.phase ? { phase: event.phase } : {}), ...(event.plan ? { plan: clone(event.plan) } : {}), ...(event.review ? { review: clone(event.review) } : {}),
             events: [{ type: event.type, ...(event.path ? { path: event.path } : {}), ...(event.tool ? { tool: event.tool } : {}), at: now() }] });
+          // A paid generated image is a durability barrier: the next provider
+          // request waits until its checkpoint is written (text stays background).
+          if (checkpoint && event.type === 'file-set' && [event.path, ...(event.paths || [])].some(path => event.files[path] instanceof Uint8Array)) durableImage = checkpoints.idle();
         };
         const consumed = new Set();
         const takeInstructions = () => {
@@ -417,9 +420,11 @@ export function createConversationSession(initialHost, { workflows = defaultWork
           attachments: modelAttachments, generateImages: run.generateImages, mode: run.mode || 'edit', signal: controller.signal, stream: true, timeout,
           conversationContext, validateDraft, takeInstructions, onProgress,
           fetchImpl: async (...args) => {
-            // Requests never wait for checkpoint writes (they run in the
-            // background); a failed checkpoint aborts the run and later requests.
-            controller.signal.throwIfAborted(); timings.countRequest();
+            // Requests wait only for a pending generated-image checkpoint; other
+            // writes run in the background. A failed checkpoint aborts the run.
+            controller.signal.throwIfAborted();
+            if (durableImage) { const write = durableImage; durableImage = null; await write; controller.signal.throwIfAborted(); }
+            timings.countRequest();
             return (connection.fetchImpl || globalThis.fetch)(...args);
           } };
         await ownedMutation(current => { current.settings = { model: connection.model || '', imageModel: connection.imageModel || '' }; });
