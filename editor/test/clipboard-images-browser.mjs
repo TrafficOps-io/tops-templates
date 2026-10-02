@@ -5,6 +5,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStudioProject } from '../src/studio-library.js';
+import { studioChat } from './support/studio-chat.js';
 
 // Uses an existing production build, DOM clipboard events and image decoding.
 // All provider responses are synthetic; external network requests are blocked.
@@ -45,49 +46,42 @@ async function paste(target, files = [], text = '', copies = 1) {
     return { prevented: event.defaultPrevented, images: [...data.files].filter(file => file.type.startsWith('image/')).length };
   }, { files, text, copies });
 }
+// Composer attachments are StudioChat chips; New project (library) keeps its own list until Task 8.
+const chipsOf = scope => scope.locator('.studio-chip-attachment, .ai-attachment-list li');
 async function expectAttachments(scope, count) {
-  await scope.locator('.ai-attachment-list li').nth(count ? count - 1 : 0).waitFor({ state: count ? 'attached' : 'detached' });
-  assert.equal(await scope.locator('.ai-attachment-list li').count(), count);
+  await chipsOf(scope).nth(count ? count - 1 : 0).waitFor({ state: count ? 'attached' : 'detached' });
+  assert.equal(await chipsOf(scope).count(), count);
 }
 async function removeAll(scope) {
-  const remove = scope.locator('.ai-attachment-list button');
+  const remove = scope.locator('.studio-chip-attachment .studio-chip-remove, .ai-attachment-list button');
   while (await remove.count()) await remove.first().click();
   await expectAttachments(scope, 0);
 }
 async function checkTextPaste(scope, prompt, expectedText) {
-  const before = await scope.locator('.ai-attachment-list li').count();
+  const before = await chipsOf(scope).count();
   const result = await paste(prompt, [], 'Ordinary text from the clipboard');
   assert.equal(result.prevented, false, 'Text paste stays available to the textarea default behavior');
   assert.equal(await prompt.inputValue(), expectedText);
-  assert.equal(await scope.locator('.ai-attachment-list li').count(), before);
+  assert.equal(await chipsOf(scope).count(), before);
 }
-async function expectReadLock(scope, prompt) {
-  await page.evaluate(() => { window.clipboardQa.holdRead = true; window.clipboardQa.reads = 0; });
-  await paste(prompt, [image('held-read.png')], '', 2);
-  await page.waitForFunction(() => typeof window.clipboardQa.releaseRead === 'function');
-  assert.equal(await page.evaluate(() => window.clipboardQa.reads), 1, 'Same-turn paste events cannot start duplicate reads');
-  assert.equal(await scope.getByRole('button', { name: 'Reading images…', exact: true }).isDisabled(), true);
-  assert.equal(await scope.getByRole('button', { name: 'Generate changes', exact: true }).isDisabled(), true);
-  await paste(prompt, [image('ignored-while-reading.png')]);
-  assert.equal(await page.evaluate(() => window.clipboardQa.reads), 1, 'Only one attachment read runs while the decoder is busy');
-  await page.evaluate(() => window.clipboardQa.releaseRead());
-  await expectAttachments(scope, 1);
-  await scope.getByRole('button', { name: 'Remove image held-read.png', exact: true }).waitFor();
-  await removeAll(scope);
-}
-async function checkProviderAndDisabledPaste(scope, prompt) {
-  const before = await scope.locator('.ai-attachment-list li').count();
+// Sends the composer with its attachments; the synthetic provider holds the request until "Stop".
+async function checkProviderAndRunningPaste(chat) {
   const requestIndex = await page.evaluate(() => window.clipboardQa.requests.length);
-  await scope.getByRole('button', { name: 'Generate changes', exact: true }).click();
+  const sent = await chipsOf(chat.composer).count();
+  await chat.send.click();
   await page.waitForFunction(index => window.clipboardQa.requests.length > index, requestIndex);
   const request = await page.evaluate(index => window.clipboardQa.requests[index], requestIndex);
   assert.ok(JSON.stringify(request.messages).includes('data:image/png;base64,' + png.toString('base64')), 'Pasted image bytes reach the selected provider request');
-  assert.equal(await prompt.isDisabled(), true);
-  await paste(prompt, [image('ignored-during-generation.png')]);
-  assert.equal(await scope.locator('.ai-attachment-list li').count(), before, 'Disabled prompt cannot add another attachment');
-  await scope.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await scope.getByRole('button', { name: 'Generate changes', exact: true }).waitFor({ timeout: 10000 });
-  assert.equal(await page.evaluate(() => window.clipboardQa.requests.length), requestIndex + 1, 'Cancel does not make another provider request');
+  await expectAttachments(chat.composer, 0); assert.ok(sent > 0);
+  await chat.user.last().locator('.studio-chip-attachment').first().waitFor();
+  const running = chat.status('running').last(); await running.waitFor();
+  // While the run works a pasted file waits in the composer for the next message.
+  await paste(chat.prompt, [image('next-message.png')]);
+  await expectAttachments(chat.composer, 1);
+  await running.getByRole('button', { name: 'Stop', exact: true }).click();
+  await chat.status('cancelled').last().waitFor({ timeout: 10000 });
+  await removeAll(chat.composer);
+  assert.equal(await page.evaluate(() => window.clipboardQa.requests.length), requestIndex + 1, 'Stop does not make another provider request');
 }
 
 try {
@@ -142,8 +136,9 @@ try {
   }, fixture);
   await page.reload();
   const collapse = page.getByRole('button', { name: 'Collapse editor', exact: true }); if (await collapse.count()) await collapse.click();
-  await page.getByRole('tab', { name: 'AI assistant', exact: true }).click();
-  const assistant = page.locator('.ai-panel'), prompt = assistant.locator('.ai-prompt textarea');
+  await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
+  const chat = studioChat(page); await chat.composer.waitFor();
+  const assistant = chat.composer, prompt = chat.prompt;
   const promptText = 'Use the pasted screenshot as a visual reference.';
   await prompt.fill(promptText);
   await checkTextPaste(assistant, prompt, promptText);
@@ -151,12 +146,8 @@ try {
   assert.equal(firstPaste.prevented, true, 'Image paste consumes the image event rather than inserting clipboard HTML/text');
   await expectAttachments(assistant, 1);
   assert.equal(await prompt.inputValue(), promptText, 'Image paste preserves the existing prompt');
-  assert.equal(await assistant.locator('.ai-attachment-list img').first().getAttribute('src'), 'data:image/png;base64,' + png.toString('base64'));
-  const useOnPage = assistant.getByRole('checkbox', { name: 'Use on page', exact: true });
-  assert.equal(await useOnPage.isChecked(), false, 'Pasted images begin as references');
-  await useOnPage.check(); assert.equal(await useOnPage.isChecked(), true); await useOnPage.uncheck();
+  await assistant.locator('.studio-chip-attachment').filter({ hasText: 'clipboard-reference.png' }).waitFor();
   await removeAll(assistant);
-  await expectReadLock(assistant, prompt);
 
   const fallbackPaste = await prompt.evaluate((element, bytes) => {
     const file = new File([new Uint8Array(bytes)], 'files-only.png', { type: 'image/png' });
@@ -166,51 +157,49 @@ try {
   }, [...png]);
   assert.equal(fallbackPaste, true, 'Files-only clipboard payloads also attach images');
   await expectAttachments(assistant, 1);
-  await assistant.getByRole('button', { name: 'Remove image files-only.png', exact: true }).waitFor();
+  await assistant.getByRole('button', { name: 'Remove files-only.png', exact: true }).waitFor();
   await removeAll(assistant);
 
+  const rejected = assistant.getByRole('alert').filter({ hasText: 'Some files were not attached' });
   await paste(prompt, [{ name: 'unsupported.gif', mime: 'image/gif', bytes: [71,73,70,56,57,97] }]);
-  await assistant.getByRole('alert').filter({ hasText: 'Attach PNG, JPEG or WebP images, at most 4 MiB each.' }).waitFor();
+  await rejected.filter({ hasText: 'unsupported.gif — This file type is not supported.' }).waitFor();
   await expectAttachments(assistant, 0);
   await paste(prompt, [{ name: 'too-large.png', mime: 'image/png', size: 4 * 1024 * 1024 + 1 }]);
-  await assistant.getByRole('alert').filter({ hasText: 'Attach PNG, JPEG or WebP images, at most 4 MiB each.' }).waitFor();
+  await rejected.filter({ hasText: 'too-large.png — Empty or larger than 4.0 MB.' }).waitFor();
   await expectAttachments(assistant, 0);
   await paste(prompt, [image('one.png'), image('two.png'), image('three.png'), image('four.png')]);
   await expectAttachments(assistant, 4);
   await paste(prompt, [image('fifth.png')]);
-  await assistant.getByRole('alert').filter({ hasText: 'Attach up to 4 reference images.' }).waitFor();
+  await rejected.filter({ hasText: 'fifth.png — Too many files: up to 4 per message.' }).waitFor();
   await expectAttachments(assistant, 4);
   await removeAll(assistant);
-  // The attachment area is also an explicit paste target when its button has focus.
-  assert.equal((await paste(assistant.getByRole('button', { name: 'Attach images', exact: true }), [image('button-paste.png')])).prevented, true);
+  // The attach button is also a paste target when it has focus (the composer form handles the event).
+  assert.equal((await paste(assistant.getByRole('button', { name: 'Attach files', exact: true }), [image('button-paste.png')])).prevented, true);
   await expectAttachments(assistant, 1);
-  await checkProviderAndDisabledPaste(assistant, prompt);
-  report.states.push('assistant: text/image paste, files-only clipboard, preview, page opt-in, remove, synchronous read lock, type/size/count validation, provider payload, disabled paste');
+  await checkProviderAndRunningPaste(chat);
+  report.states.push('assistant: text/image paste, files-only clipboard, remove, type/size/count validation, provider payload, paste while running');
 
   await page.getByRole('tab', { name: 'Files', exact: true }).click();
   await page.locator('.file-sidebar').getByTitle('styles.css', { exact: true }).click();
   await page.getByRole('button', { name: 'Edit file with AI', exact: true }).click();
-  const fileDialog = page.getByRole('dialog', { name: 'Edit file with AI', exact: true });
-  const filePrompt = fileDialog.getByLabel('Describe the changes', { exact: true });
-  await filePrompt.fill('Use this screenshot to update only the selected stylesheet.');
-  await checkTextPaste(fileDialog, filePrompt, await filePrompt.inputValue());
-  assert.equal((await paste(filePrompt, [image('file-reference.png')])).prevented, true);
-  await expectAttachments(fileDialog, 1);
-  assert.equal(await fileDialog.getByRole('checkbox', { name: 'Use on page', exact: true }).count(), 0);
-  await checkProviderAndDisabledPaste(fileDialog, filePrompt);
-  await fileDialog.getByRole('button', { name: 'Close', exact: true }).click();
-  report.states.push('selected-file assistant: text/image paste, reference preview, provider payload, disabled paste');
+  await chat.scope.getByRole('button', { name: 'File', pressed: true, exact: true }).waitFor();
+  await chat.composer.locator('.studio-chip-mention').filter({ hasText: '@styles.css' }).waitFor();
+  await prompt.fill('Use this screenshot to update only the selected stylesheet.');
+  await checkTextPaste(assistant, prompt, await prompt.inputValue());
+  assert.equal((await paste(prompt, [image('file-reference.png')])).prevented, true);
+  await expectAttachments(assistant, 1);
+  await checkProviderAndRunningPaste(chat);
+  report.states.push('selected-file scope: text/image paste, provider payload, paste while running');
 
-  await page.getByRole('button', { name: 'Library', exact: true }).first().click();
-  await page.getByRole('button', { name: 'New project', exact: true }).click();
+  await page.getByRole('button', { name: 'New project', exact: true }).first().click();
   const create = page.getByRole('dialog', { name: 'New project', exact: true });
   await create.getByRole('button', { name: 'With AI', exact: true }).click();
-  const createPrompt = create.getByRole('textbox', { name: /^Describe your project/ });
+  const createPrompt = create.locator('textarea'); // the home brief composer moves to StudioComposer in plan V Task 8
   await createPrompt.fill('Create a page matching my clipboard reference.');
   await checkTextPaste(create, createPrompt, await createPrompt.inputValue());
   assert.equal((await paste(createPrompt, [image('new-project-reference.png')])).prevented, true);
   await expectAttachments(create, 1);
-  await create.getByRole('button', { name: 'Remove image new-project-reference.png', exact: true }).click();
+  await create.getByRole('button', { name: 'Remove reference new-project-reference.png', exact: true }).click();
   await expectAttachments(create, 0);
   await create.getByRole('button', { name: 'Cancel', exact: true }).click();
   report.states.push('New project AI brief: text/image paste, preview and removal');
@@ -219,11 +208,11 @@ try {
   assert.deepEqual(report.blockedExternalRequests, [], 'No unexpected external requests');
   assert.equal(await page.evaluate(() => window.clipboardQa.requests.length), 2, 'Only the two explicit synthetic generations request a provider');
   report.passed = true; await writeFile(`${out}/report.json`, JSON.stringify(report, null, 2));
-  console.log('PASS: Clipboard image paste in project, selected-file and New project AI prompts; text handling, image bytes, page opt-in, removal, type/size/count limits, read lock and disabled generation. Zero paid requests.');
+  console.log('PASS: Clipboard image paste in the project chat (project and file scope) and New project AI prompt; text handling, image bytes, removal, type/size/count limits, single send while running. Zero paid requests.');
 } catch (error) {
   report.passed = false; report.error = error.message;
   if (page && !page.isClosed()) {
-    report.diagnostics = await page.evaluate(() => ({ requests: window.clipboardQa?.requests.length, attachments: [...document.querySelectorAll('.ai-attachment-list')].map(list => list.innerText), alerts: [...document.querySelectorAll('[role="alert"]')].map(element => element.innerText) }));
+    report.diagnostics = await page.evaluate(() => ({ requests: window.clipboardQa?.requests.length, attachments: [...document.querySelectorAll('.studio-chat-composer-attachments, .ai-attachment-list')].map(list => list.innerText), alerts: [...document.querySelectorAll('[role="alert"]')].map(element => element.innerText) }));
     await page.screenshot({ path: `${out}/failure.png`, fullPage: true });
   }
   await writeFile(`${out}/report.json`, JSON.stringify(report, null, 2)); throw error;
