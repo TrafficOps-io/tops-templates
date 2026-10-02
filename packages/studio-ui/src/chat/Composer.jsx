@@ -11,7 +11,7 @@ import ScopeChips from './ScopeChips.jsx';
 import { addMention, groupTargets, mentionAtCaret, mentionKey, removeMentionQuery } from './mentions.js';
 import { appendAttachments, filesFromClipboard, filesFromDrop } from './attachments.js';
 
-// StudioChat renders the composer under AssistantRuntimeProvider and sets this context to { onSubmitEmpty() }.
+// StudioChat renders the composer under AssistantRuntimeProvider and sets this context to { onSubmit(text), clarifyWhileRunning }.
 // assistant-ui 0.15 has no optional runtime hook (useAssistantRuntime({ optional }) / useThreadRuntime are gone),
 // so the runtime mode is signalled by this context; without it the composer is a plain <form> (home screens).
 export const ChatComposerContext = createContext(null);
@@ -86,7 +86,7 @@ function StandaloneComposer(props) {
 function RuntimeComposer({ chat, ...props }) {
   const aui = useAui();
   const text = useAuiState(state => state.composer.text);
-  const running = useAuiState(state => state.thread.isRunning);
+  const running = useAuiState(state => state.thread.isRunning) && !chat.clarifyWhileRunning;
   const parts = useComposerParts(props);
   // Text sync with the assistant-ui composer: initialText seeds it once, a controlled value is pushed when the prop changes,
   // and composer changes (typing, cleared after send) are reported through onChange. A push is not reported back until
@@ -108,11 +108,9 @@ function RuntimeComposer({ chat, ...props }) {
     reported.current = text; lastValue.current = text;
     onChange?.(text);
   }, [text, onChange]);
-  // ComposerPrimitive.Send is disabled for empty text; an attachments-only message goes straight to StudioChat.
-  function submit() {
-    if (text.trim()) aui.composer.send();
-    else chat.onSubmitEmpty?.();
-  }
+  // StudioChat sends (text or attachments only) and owns clearing and restoring; composer.send() is not used, so a
+  // rejected send can give the input back and a clarification during a run is not tied to assistant-ui's send rules.
+  function submit() { chat.onSubmit(text); }
   return <ComposerBody {...props} parts={parts} text={text} setText={setText} submit={submit} runtime busy={running} />;
 }
 

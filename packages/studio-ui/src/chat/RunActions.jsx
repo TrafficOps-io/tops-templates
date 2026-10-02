@@ -1,8 +1,11 @@
-import { useState } from 'react';
+import { createContext, useContext, useState } from 'react';
 import { Check, Eye, RotateCw, Undo2 } from 'lucide-react';
 import { useStudioText } from '../i18n/StudioUiProvider.jsx';
 import Button from '../primitives/Button.jsx';
 import InlineNotice from '../primitives/InlineNotice.jsx';
+
+// StudioChat provides { text, clear() } of its composer: Continue generation sends the draft as the continuation prompt.
+export const ChatDraftContext = createContext(null);
 
 const KEEP_DRAFT = new Set(['failed', 'interrupted']);
 const CONTINUE = new Set(['failed', 'interrupted', 'cancelled']);
@@ -10,9 +13,10 @@ const CONTINUE = new Set(['failed', 'interrupted', 'cancelled']);
 // Run-level actions under an assistant message. Apply/Preview/Discard only for 'ready' — the port reports 'ready'
 // only when the run is applicable, otherwise 'completed' (contract rule, README). Keep draft (failed/interrupted,
 // capabilities.keepDraft + port.keepDraft) and Continue generation (failed/interrupted/cancelled + port.continueRun)
-// appear only when the port offers them. Errors are inline notices, never toasts.
+// appear only when the port offers them; Continue passes the composer text as the prompt and clears the composer. Errors are inline notices, never toasts.
 export default function RunActions({ port, run }) {
   const t = useStudioText(), [busy, setBusy] = useState(''), [error, setError] = useState('');
+  const draft = useContext(ChatDraftContext);
   const capabilities = port.capabilities ?? {};
   const act = (name, call) => async () => {
     setBusy(name); setError('');
@@ -29,7 +33,10 @@ export default function RunActions({ port, run }) {
       <Button variant="ghost" size="sm" icon={Undo2} loading={busy === 'discard'} disabled={Boolean(busy)} onClick={act('discard', () => port.discard(run.id))}>{t('Discard')}</Button>
     </>}
     {keepDraft && <Button size="sm" loading={busy === 'keep'} disabled={Boolean(busy)} data-testid="studio-chat-keep-draft" onClick={act('keep', () => port.keepDraft(run.id))}>{t('Keep draft in editor')}</Button>}
-    {continueRun && <Button size="sm" icon={RotateCw} loading={busy === 'continue'} disabled={Boolean(busy)} data-testid="studio-chat-continue" onClick={act('continue', () => port.continueRun(run.id))}>{t('Continue generation')}</Button>}
+    {continueRun && <Button size="sm" icon={RotateCw} loading={busy === 'continue'} disabled={Boolean(busy)} data-testid="studio-chat-continue" onClick={act('continue', async () => {
+      const prompt = draft?.text?.trim();
+      if (prompt) { await port.continueRun(run.id, prompt); draft.clear(); } else await port.continueRun(run.id);
+    })}>{t('Continue generation')}</Button>}
     {run.status === 'applied' && <span className="studio-chat-run-applied"><Check size={14} aria-hidden="true" />{t('Changes applied')}</span>}
     {error && <InlineNotice tone="danger">{error}</InlineNotice>}
   </div>;

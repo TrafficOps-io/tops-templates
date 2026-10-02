@@ -108,15 +108,23 @@ export const appendMessageText = message => message.content.filter(part => part.
 
 // Thread model: an empty threadId means a new conversation. The port must return a real thread from createThread();
 // StudioChat switches to it through onThreadCreated and subscribes to messages(id), then the message is sent there.
-// Errors go to onError (StudioChat shows an InlineNotice tone="danger", never a toast).
-export async function sendToPort(port, threadId, input, { onSent, onThreadCreated, onError } = {}) {
+// A rejected send rolls back: a thread created for this send is deleted (port.deleteThread) and onThreadCreated gets the
+// previous threadId back, onRestore(input) returns text, mentions and attachments to the composer, then onError(error)
+// (StudioChat shows an InlineNotice tone="danger", never a toast).
+export async function sendToPort(port, threadId, input, { onSent, onThreadCreated, onRestore, onError } = {}) {
+  let created = '';
   try {
     let target = threadId;
-    if (!target) { const thread = await port.createThread(); target = thread.id; onThreadCreated?.(thread.id); }
+    if (!target) { const thread = await port.createThread(); created = target = thread.id; onThreadCreated?.(thread.id); }
     await port.send(target, input);
     onSent?.();
     return true;
   } catch (error) {
+    if (created) {
+      try { await port.deleteThread(created); } catch { /* the empty thread stays; the send error is the one to report */ }
+      onThreadCreated?.(threadId);
+    }
+    onRestore?.(input);
     onError?.(error);
     return false;
   }
@@ -134,7 +142,7 @@ export function handleCardAction(port, runId, action, card, value) {
   switch (action) {
     case 'open': return port.openTarget(cardTarget(card));
     case 'variants': case 'edit': case 'play': return port.openTarget(assetTarget(card));
-    case 'continue': return port.continueRun(runId);
+    case 'continue': return value ? port.continueRun(runId, value) : port.continueRun(runId);
     case 'answer': return port.answer(card.questionId, value);
     case 'apply': return value ? port.apply(runId, value) : port.apply(runId);
     case 'discard': return port.discard(runId);

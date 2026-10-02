@@ -9,7 +9,7 @@ const PROJECT_SCOPE = { kind: 'project' };
 // assistant-ui external-store runtime over a ChatPort (chat/port.d.ts).
 // threadId empty — a new conversation: on the first message the port's createThread() returns a real thread,
 // onThreadCreated(id) lets StudioChat switch to it, and the message is sent into that thread.
-export function useChatRuntime(port, threadId, { scope = PROJECT_SCOPE, mentions = [], attachments = [], generateImages, onSent, onThreadCreated, onError } = {}) {
+export function useChatRuntime(port, threadId, { scope = PROJECT_SCOPE, mentions = [], attachments = [], generateImages, onSent, onThreadCreated, onRestore, onError } = {}) {
   // base: the port's snapshot plus idempotent events (status, part-*); streamed: text-delta segments kept beside it.
   // Keyed by threadId so a thread switch renders the new snapshot at once, without an empty frame.
   const read = id => ({ threadId: id, base: id ? port.messages(id).get() : [], streamed: {} });
@@ -46,7 +46,7 @@ export function useChatRuntime(port, threadId, { scope = PROJECT_SCOPE, mentions
     isRunning: messages.some(isActiveRun),
     convertMessage: message => message,
     async onNew(message) {
-      await sendToPort(port, threadId, { text: appendMessageText(message), mentions, attachments, scope, generateImages }, { onSent, onThreadCreated, onError });
+      await sendToPort(port, threadId, { text: appendMessageText(message), mentions, attachments, scope, generateImages }, { onSent, onThreadCreated, onRestore, onError });
     },
     async onCancel() {
       const run = messages.findLast(isActiveRun)?.status;

@@ -48,7 +48,7 @@ import { StudioUiProvider } from '@trafficops/studio-ui/i18n';
 
 ### ChatPort
 
-`ChatPort` is the contract between a product and the chat UI: see [`chat/port.d.ts`](chat/port.d.ts) (types only, no React or assistant-ui types; `@trafficops/studio-ui/chat/port`). Optional members (`previewDraft`, `answer`, `continueRun`, `keepDraft`, `dispose`, `capabilities.conflictReview`, `capabilities.keepDraft`) may be left out; `StudioChat` hides the matching actions. Product-specific methods (for example `registerBlockScope`) are not part of the contract and stay on the adapter object. Two rules:
+`ChatPort` is the contract between a product and the chat UI: see [`chat/port.d.ts`](chat/port.d.ts) (types only, no React or assistant-ui types; `@trafficops/studio-ui/chat/port`). Optional members (`previewDraft`, `answer`, `continueRun`, `keepDraft`, `dispose`, `capabilities.conflictReview`, `capabilities.keepDraft`, `capabilities.clarifyWhileRunning`) may be left out; `StudioChat` hides the matching actions. Product-specific methods (for example `registerBlockScope`) are not part of the contract and stay on the adapter object. Two rules:
 
 - `RunState.id` equals the `id` of the assistant message. Otherwise `stop/apply/discard(runId)` cannot find the message.
 - `toolCallId` is deterministic and unique within a message (it keys `part-update` events and React lists). The recommended form is `` `${messageId}:${index}` `` by the part's position in `parts`; any other stable key is fine (Landing Studio uses the file path, `r1:diff:index.tpl`). `StudioChat` only compares `toolCallId` for equality.
@@ -74,6 +74,20 @@ const port = {
   capabilities: { scopes: ['project'], cost: true, previewDraft: false, generateImages: false },
 };
 ```
+
+### Capabilities
+
+`ChatCapabilities` tells `StudioChat` what the port supports:
+
+- `scopes: ScopeKind[]` — scope chips above the composer (`project` is the default when listed or when the list is empty).
+- `cost: boolean` — the conversation total `Thread.cost` in the header.
+- `previewDraft: boolean` — "Preview draft" for a `ready` run (with `port.previewDraft`).
+- `generateImages: boolean` — the "Generate images" toggle in the composer (`SendInput.generateImages`).
+- `conflictReview?: boolean` — the port sends `QuestionCard` with `kind: 'conflict'` as the apply gate.
+- `keepDraft?: boolean` — "Keep draft in editor" for failed/interrupted runs (with `port.keepDraft`).
+- `clarifyWhileRunning?: boolean` — the port accepts `send()` during an active run as a clarification of that run in the same thread. With `true` the composer is not blocked while running (Enter and the send button work, the message goes to the current `threadId`); without it sending waits for the run to end.
+
+"Continue generation" (failed/interrupted/cancelled runs, with `port.continueRun`) passes the current composer text as the prompt — `continueRun(runId, prompt)` — and clears the composer; with an empty composer it calls `continueRun(runId)`.
 
 ### StudioChat (`@trafficops/studio-ui/chat`)
 
@@ -106,11 +120,11 @@ setLaunch({ id: crypto.randomUUID(), text, mentions, attachments: files });
 
 ### Errors
 
-`StudioChat` does not use `useToast`, so the consumer does not need a `ToastProvider`. A failed `send` (including `createThread` on the first message) shows an `InlineNotice` tone `danger` ("The message was not sent") above the composer; failed thread actions show the same notice titled "The action failed"; a rejected card action (answer, apply from a conflict card, …) shows an `InlineNotice` under its message; run actions (Apply, Discard, Keep draft, Continue) show theirs under the run. A card with a malformed `result` is rendered as a `FileCard` instead of breaking the feed.
+`StudioChat` does not use `useToast`, so the consumer does not need a `ToastProvider`. A failed `send` (including `createThread` on the first message) shows an `InlineNotice` tone `danger` ("The message was not sent") above the composer and gives the composer its text, mention targets and files back (unless the user has already started a new message); a thread created by `createThread` for that send is removed with `deleteThread` and `onThreadChange` gets the previous `threadId` back, so no empty conversation is left; failed thread actions show the same notice titled "The action failed"; a rejected card action (answer, apply from a conflict card, …) shows an `InlineNotice` under its message; run actions (Apply, Discard, Keep draft, Continue) show theirs under the run. A card with a malformed `result` is rendered as a `FileCard` instead of breaking the feed.
 
 ### Test hooks
 
-`data-testid` values (exactly this list): `studio-chat` (root), `studio-chat-threads` (the conversation list column; hidden below 560 px), `studio-chat-composer`, `studio-chat-feed` (the scrolling feed), `studio-chat-card` (with `data-card` set to the card type), `studio-chat-apply`, `studio-chat-keep-draft`, `studio-chat-continue`. Messages carry `data-role` (`user` / `assistant`), and assistant messages `data-run-id` and `data-run-status`. In a narrow chat the conversation list is the header button named "Conversations".
+`data-testid` values (exactly this list): `studio-chat` (root), `studio-chat-threads` (the conversation list column; hidden below 560 px), `studio-chat-composer`, `studio-chat-feed` (the scrolling feed), `studio-chat-card` (with `data-card` set to the card type), `studio-chat-apply`, `studio-chat-keep-draft`, `studio-chat-continue`. Messages carry `data-role` (`user` / `assistant`), and assistant messages `data-run-id` and `data-run-status`. In a narrow chat the conversation list is the header button named "Conversations". The composer send button is named "Send message"; it is disabled during a run unless `capabilities.clarifyWhileRunning`. `studio-chat-continue` sends the composer text as the `continueRun` prompt. On touch screens (`pointer: coarse`) every chat button — header, conversation list, composer (attach, mention, send, scope chips, chips), run actions and card actions — is at least 44 × 44 px; `test/chat-browser.mjs` checks this with Playwright `hasTouch`/`isMobile`.
 
 ## Tests
 

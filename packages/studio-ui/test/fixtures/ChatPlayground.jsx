@@ -6,7 +6,9 @@ import { createFakeChatPort } from './FakeChatPort.js';
 // StudioChat on FakeChatPort for test/chat-browser.mjs. Deliberately without ToastProvider: StudioChat must not need it.
 // Test handles: window.fake (the port), window.threadId / window.setThreadId, window.setTheme(name), window.launch(launch),
 // window.actionCalls — texts passed to the header action, window.standaloneSubmit — onSubmit of the standalone composer.
+// ?clarify=1 turns on capabilities.clarifyWhileRunning.
 const port = createFakeChatPort();
+if (new URLSearchParams(location.search).has('clarify')) port.capabilities = { ...port.capabilities, clarifyWhileRunning: true };
 window.fake = port;
 window.actionCalls = [];
 const actions = [{ id: 'recreate', label: 'Create the project anew', onSelect: ({ text }) => window.actionCalls.push(text) }];

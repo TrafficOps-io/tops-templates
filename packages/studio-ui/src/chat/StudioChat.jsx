@@ -6,6 +6,8 @@ import Button from '../primitives/Button.jsx';
 import EmptyState from '../primitives/EmptyState.jsx';
 import InlineNotice from '../primitives/InlineNotice.jsx';
 import { useChatRuntime } from './useChatRuntime.js';
+import { sendToPort } from './chat-model.js';
+import { ChatDraftContext } from './RunActions.jsx';
 import { ChatComposerContext } from './Composer.jsx';
 import Composer from './Composer.jsx';
 import { AssistantMessage, UserMessage } from './Messages.jsx';
@@ -36,17 +38,23 @@ export default function StudioChat({ port, threadId = '', onThreadChange, launch
   }, [launch?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const clear = () => { setText(''); setMentions([]); setAttachments([]); setNotice(null); };
-  const runtime = useChatRuntime(port, threadId, { scope, mentions, attachments, generateImages, onSent: clear, onThreadCreated: onThreadChange, onError: sendFailed });
+  // A rejected send gives the composer its text, mentions and files back unless the user has started a new message.
+  const restore = input => {
+    setText(current => (current.trim() ? current : input.text));
+    setMentions(current => (current.length ? current : input.mentions));
+    setAttachments(current => (current.length ? current : input.attachments));
+  };
+  const runtime = useChatRuntime(port, threadId, { scope, mentions, attachments, generateImages, onSent: clear, onThreadCreated: onThreadChange, onRestore: restore, onError: sendFailed });
 
-  // Attachments-only message: ComposerPrimitive.Send is disabled for empty text, so the composer calls this instead.
-  async function submitEmpty() {
-    try {
-      let target = threadId;
-      if (!target) { const thread = await port.createThread(); target = thread.id; onThreadChange?.(thread.id); }
-      await port.send(target, { text: '', mentions, attachments, scope, generateImages });
-      setMentions([]); setAttachments([]); setNotice(null);
-    } catch (cause) { sendFailed(cause); }
+  // The composer sends here instead of composer.send(): the input is cleared at once and restored if the port rejects it,
+  // a thread created for a rejected send is removed (sendToPort), and with capabilities.clarifyWhileRunning a message
+  // sent during a run goes to the same thread as a clarification. Attachments-only messages take the same path.
+  function submitMessage(value) {
+    const input = { text: value.trim() ? value : '', mentions, attachments, scope, generateImages };
+    clear();
+    return sendToPort(port, threadId, input, { onThreadCreated: onThreadChange, onRestore: restore, onError: sendFailed });
   }
+  const draft = { text, clear: () => setText('') };
   async function createThread() {
     try { const thread = await port.createThread(); onThreadChange?.(thread.id); } catch (cause) { actionFailed(cause); }
   }
@@ -60,14 +68,16 @@ export default function StudioChat({ port, threadId = '', onThreadChange, launch
         <section className="studio-chat-main" aria-label={t('Project assistant')}>
           <ChatHeader port={port} threadId={threadId} onThreadChange={onThreadChange} onCreate={createThread} actions={actions} composerText={text} onError={actionFailed} />
           <ThreadPrimitive.Root className="studio-chat-thread">
+            <ChatDraftContext.Provider value={draft}>
             <ThreadPrimitive.Viewport className="studio-chat-feed" data-testid="studio-chat-feed">
               <AuiIf condition={state => state.thread.isEmpty}>{emptyState || <EmptyState icon={Sparkles} title={t('What shall we create?')} description={t('Describe an idea or a change. Mention sections, scenes and files with @.')} />}</AuiIf>
               <ThreadPrimitive.Messages>{({ message }) => message.role === 'user' ? <UserMessage port={port} /> : <AssistantMessage port={port} />}</ThreadPrimitive.Messages>
             </ThreadPrimitive.Viewport>
+            </ChatDraftContext.Provider>
             <div className="studio-chat-bottom">
               <ThreadPrimitive.ScrollToBottom className="studio-chat-scroll-bottom" aria-label={t('Scroll to the latest message')} title={t('Scroll to the latest message')}><ArrowDown size={16} aria-hidden="true" /></ThreadPrimitive.ScrollToBottom>
               {notice && <InlineNotice tone="danger" title={notice.title} actions={<Button variant="ghost" size="sm" onClick={() => setNotice(null)}>{t('Dismiss')}</Button>}>{notice.message}</InlineNotice>}
-              <ChatComposerContext.Provider value={{ onSubmitEmpty: submitEmpty }}>
+              <ChatComposerContext.Provider value={{ onSubmit: submitMessage, clarifyWhileRunning: Boolean(port.capabilities?.clarifyWhileRunning) }}>
                 <Composer port={port} value={text} onChange={setText} disabled={disabled} scope={scope} onScopeChange={setScope} mentions={mentions} onMentionsChange={setMentions}
                   attachments={attachments} onAttachmentsChange={setAttachments} generateImages={generateImages} onGenerateImagesChange={setGenerateImages} />
               </ChatComposerContext.Provider>

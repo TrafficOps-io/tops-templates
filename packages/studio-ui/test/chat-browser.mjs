@@ -26,7 +26,7 @@ const css = ['../../studio-tokens/tokens.css', '../styles.css'].map(file => read
 const html = `<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;font-family:system-ui,sans-serif}${themeCss}\n${css}</style></head><body><div id="root"></div><script src="/chat.js"></script></body></html>`;
 const server = createServer((request, response) => {
   if (request.url === '/chat.js') { response.writeHead(200, { 'Content-Type': 'text/javascript' }); response.end(script); }
-  else if (request.url === '/') { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end(html); }
+  else if (request.url.split('?')[0] === '/') { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end(html); }
   else { response.writeHead(404); response.end(); }
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -128,6 +128,10 @@ try {
   assert.equal(await feed.locator('.studio-chat-run-status[data-status="running"]').count(), 1, 'run status carries data-status');
   assert.equal(await input.inputValue(), '', 'the composer is cleared after send');
   assert.equal(await composer.locator('.studio-chip-mention').count(), 0, 'mentions are cleared after send');
+  // Without capabilities.clarifyWhileRunning the composer does not send during a run.
+  await input.fill('Not yet');
+  assert.equal(await composer.getByRole('button', { name: 'Send message' }).isDisabled(), true, 'send is disabled while running');
+  await input.fill('');
   const threadItem = title => page.getByTestId('studio-chat-threads').locator('.studio-chat-threads-open', { hasText: title });
   await threadItem('New chat').locator('.studio-chat-threads-running').waitFor();
 
@@ -195,9 +199,12 @@ try {
   await feed.locator('[data-role="assistant"][data-run-status="failed"]').waitFor();
   await page.getByTestId('studio-chat-keep-draft').click();
   await page.waitForFunction(() => window.fake.calls.some(([name]) => name === 'keepDraft'));
+  // Continue generation sends the composer text as the prompt and clears the composer.
+  await input.fill('Use a warmer tone');
   await page.getByTestId('studio-chat-continue').click();
   await feed.locator('[data-role="assistant"][data-run-status="running"]').waitFor();
-  assert.ok(await lastCall('continueRun'));
+  assert.equal((await lastCall('continueRun'))[2], 'Use a warmer tone', 'continueRun gets the composer text');
+  await page.waitForFunction(() => document.querySelector('[data-testid="studio-chat-composer"] textarea[role="combobox"]').value === '');
 
   // Conflict gate: Apply after reviewing is disabled until the checkbox is ticked.
   await page.evaluate(() => window.fake.emitCard({ type: 'question', kind: 'conflict', questionId: 'q1', text: 'The project changed while the assistant worked.', references: ['hero.tpl'], options: ['reviewed', 'rebase'] }));
@@ -216,8 +223,29 @@ try {
   await notice.waitFor();
   assert.ok((await notice.textContent()).includes('The message was not sent'));
   assert.equal(await page.locator('.studio-toasts, .studio-toast').count(), 0, 'no toasts');
+  await page.waitForFunction(() => document.querySelector('[data-testid="studio-chat-composer"] textarea[role="combobox"]').value === 'This will fail', null, { timeout: 5000 });
   await notice.getByRole('button', { name: 'Dismiss' }).click();
+  // A rejected first message of a new conversation: the created thread is deleted, the previous (empty) thread id comes back,
+  // text, mentions and files return to the composer.
+  await page.evaluate(() => window.setThreadId(''));
+  await page.waitForFunction(() => window.threadId === '');
+  await page.evaluate(() => window.launch({ id: crypto.randomUUID(), text: 'Rejected first message', mentions: [{ kind: 'scene', id: 'scene:s1', label: 'Scene 1' }], attachments: [new File(['x'], 'note.txt', { type: 'text/plain' })] }));
+  await page.waitForFunction(() => document.querySelector('[data-testid="studio-chat-composer"] textarea[role="combobox"]').value === 'Rejected first message');
+  const threadsBefore = await page.evaluate(() => window.fake.threads.get().length);
+  await input.click(); await page.keyboard.press('Enter');
+  await page.waitForFunction(() => window.fake.calls.at(-1)?.[0] === 'deleteThread');
+  const rejectedThread = await lastCall('deleteThread');
+  assert.equal((await lastCall('createThread'))[1], rejectedThread[1], 'the thread created for the send is deleted');
+  await page.waitForFunction(() => window.threadId === '');
+  assert.equal(await page.evaluate(() => window.fake.threads.get().length), threadsBefore, 'no empty thread is left');
+  await page.getByRole('alert').filter({ hasText: 'AI key is not configured.' }).waitFor();
+  await page.waitForFunction(() => document.querySelector('[data-testid="studio-chat-composer"] textarea[role="combobox"]').value === 'Rejected first message', null, { timeout: 5000 });
+  await composer.locator('.studio-chip-mention', { hasText: 'Scene 1' }).waitFor();
+  await composer.getByText('note.txt').waitFor();
+  await page.getByRole('alert').filter({ hasText: 'AI key is not configured.' }).getByRole('button', { name: 'Dismiss' }).click();
   await page.evaluate(() => { window.fake.rejectSend = false; });
+  await page.evaluate(id => window.setThreadId(id), created);
+  await page.waitForFunction(id => window.threadId === id, created);
 
   // Header actions menu: onSelect gets the composer text; Escape closes the menu.
   await input.fill('Draft for the action');
@@ -305,5 +333,72 @@ try {
 
   assert.deepEqual(blocked, [], 'no external requests');
   assert.deepEqual(errors, [], 'no page errors');
+  await page.close();
+
+  // capabilities.clarifyWhileRunning: the composer sends during a run into the same thread (a clarification).
+  {
+    const clarify = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+    await clarify.goto(`${origin}/?clarify=1`);
+    const box = clarify.getByTestId('studio-chat').getByTestId('studio-chat-composer'), field = box.getByRole('combobox');
+    await field.click(); await field.fill('First request'); await clarify.keyboard.press('Enter');
+    await clarify.getByTestId('studio-chat-feed').locator('[data-run-status="running"]').waitFor();
+    const thread = await clarify.evaluate(() => window.threadId);
+    await field.fill('Make it blue');
+    assert.equal(await box.getByRole('button', { name: 'Send message' }).isDisabled(), false, 'send is enabled while running');
+    await clarify.keyboard.press('Enter');
+    await clarify.waitForFunction(() => window.fake.calls.some(([name, , input]) => name === 'send' && input.text === 'Make it blue'));
+    const calls = await clarify.evaluate(() => window.fake.calls.filter(([name]) => name === 'send').map(([, id]) => id));
+    assert.deepEqual(calls, [thread, thread], 'the clarification goes to the same thread');
+    assert.equal(await clarify.evaluate(() => window.fake.calls.filter(([name]) => name === 'createThread').length), 1);
+    await clarify.waitForFunction(() => document.querySelector('[data-testid="studio-chat-composer"] textarea[role="combobox"]').value === '');
+    await clarify.close();
+  }
+
+  // Touch screens (pointer: coarse): every button of the chat — header, thread list, composer (attach, mention, send,
+  // scope chips, chips), run actions and cards — is at least 44 × 44 px.
+  {
+    const context = await browser.newContext({ viewport: { width: 1100, height: 900 }, hasTouch: true, isMobile: true });
+    const touch = await context.newPage();
+    await touch.goto(origin);
+    assert.equal(await touch.evaluate(() => matchMedia('(pointer: coarse)').matches), true, 'pointer: coarse is emulated');
+    const root = touch.getByTestId('studio-chat'), box = root.getByTestId('studio-chat-composer');
+    await root.waitFor();
+    const assertTouchTargets = async stage => {
+      const targets = root.locator('button:visible, .studio-chip-main:visible');
+      const count = await targets.count();
+      assert.ok(count > 0, `${stage}: buttons rendered`);
+      const small = [];
+      for (let index = 0; index < count; index++) {
+        const target = targets.nth(index);
+        const rect = await target.boundingBox();
+        if (!rect) continue;
+        const name = (await target.getAttribute('aria-label')) || (await target.textContent()).trim() || await target.evaluate(element => element.className);
+        if (rect.width < 44 || rect.height < 44) small.push(`${name} ${Math.round(rect.width)}×${Math.round(rect.height)}`);
+      }
+      assert.deepEqual(small, [], `${stage}: touch targets below 44 × 44 px`);
+    };
+    await touch.evaluate(() => window.launch({ id: crypto.randomUUID(), text: 'Touch request', mentions: [{ kind: 'scene', id: 'scene:s1', label: 'Scene 1' }], attachments: [new File(['x'], 'note.txt', { type: 'text/plain' })] }));
+    await box.getByText('note.txt').waitFor();
+    await box.getByRole('group', { name: 'Assistant task' }).getByRole('button', { name: 'Scene', exact: true }).click();
+    for (const name of ['Attach files', 'Mention', 'Send message', 'Remove Scene']) assert.ok(await box.getByRole('button', { name, exact: true }).isVisible(), name);
+    await assertTouchTargets('composer');
+    await box.getByRole('combobox').click(); await touch.keyboard.press('Enter');
+    const touchFeed = touch.getByTestId('studio-chat-feed');
+    await touchFeed.locator('[data-run-status="running"]').waitFor();
+    await assertTouchTargets('running');
+    await touch.evaluate(image => {
+      const { fake } = window;
+      fake.emitCard({ type: 'diff', path: 'index.tpl', added: 1, removed: 1, before: '<h1>Old</h1>', after: '<h1>New</h1>' });
+      fake.emitCard({ type: 'values', section: 'Hero', changes: [{ path: 'title', before: 'Old', after: 'New' }] });
+      fake.emitCard({ type: 'image', name: 'hero.png', after: image, width: 8, height: 8 });
+      fake.emitCard({ type: 'file', name: 'brief.txt', bytes: 2048 });
+      fake.emitCard({ type: 'operation', label: 'Trim scene', target: { kind: 'scene', id: 'scene:s1', label: 'Scene 1' }, before: '0:05', after: '0:03' });
+      fake.emitCard({ type: 'question', questionId: 'q0', text: 'Which voice?', options: ['Calm', 'Bright'] });
+      fake.finish('ready');
+    }, IMAGE);
+    await touch.getByTestId('studio-chat-apply').waitFor();
+    await assertTouchTargets('ready with cards');
+    await context.close();
+  }
   console.log('chat-browser: OK');
 } finally { await browser.close(); server.close(); }

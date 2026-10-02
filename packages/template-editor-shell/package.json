@@ -59,7 +59,7 @@
     "parse5": "^8.0.1",
     "zod": "^4.6.5",
     "@trafficops/studio-tokens": "0.1.0",
-    "@trafficops/studio-ui": "0.2.2"
+    "@trafficops/studio-ui": "0.2.3"
   },
   "peerDependencies": {
     "daisyui": "^5.5.0",

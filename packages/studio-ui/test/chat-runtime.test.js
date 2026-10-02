@@ -118,6 +118,46 @@ test('a rejected send reaches onError with its code and onSent is not called', a
   assert.equal(sent, 0);
 });
 
+test('a rejected send into a thread created for it deletes that thread, returns the previous id and restores the input', async () => {
+  const port = createFakeChatPort();
+  port.rejectSend = true;
+  const switched = [], restored = [], errors = [];
+  const full = { ...input, mentions: [{ kind: 'scene', id: 'scene:s1', label: 'Scene 1' }], attachments: [{ name: 'a.txt', size: 3 }] };
+  const ok = await sendToPort(port, '', full, { onThreadCreated: id => switched.push(id), onRestore: value => restored.push(value), onError: error => errors.push(error) });
+  assert.equal(ok, false);
+  const created = port.calls[0][1];
+  assert.deepEqual(port.calls.map(call => call[0]), ['createThread', 'send', 'deleteThread']);
+  assert.equal(port.calls[2][1], created);
+  assert.deepEqual(switched, [created, '']);
+  assert.deepEqual(port.threads.get(), []);
+  assert.equal(restored.length, 1);
+  assert.equal(restored[0], full);
+  assert.equal(errors[0].code, 'policy');
+});
+
+test('a rejected send into an existing thread keeps the thread and restores the input', async () => {
+  const port = createFakeChatPort();
+  const thread = await port.createThread();
+  port.rejectSend = true;
+  const switched = [], restored = [];
+  const ok = await sendToPort(port, thread.id, input, { onThreadCreated: id => switched.push(id), onRestore: value => restored.push(value) });
+  assert.equal(ok, false);
+  assert.deepEqual(port.calls.map(call => call[0]), ['createThread', 'send']);
+  assert.deepEqual(switched, []);
+  assert.deepEqual(restored, [input]);
+  assert.equal(port.threads.get().length, 1);
+});
+
+test('continue passes the prompt to continueRun', async () => {
+  const port = createFakeChatPort();
+  const thread = await port.createThread();
+  await port.send(thread.id, input);
+  const runId = port.messages(thread.id).get()[1].id;
+  port.finish('failed');
+  await handleCardAction(port, runId, 'continue', {}, 'Use a warmer tone');
+  assert.deepEqual(port.calls.at(-1), ['continueRun', runId, 'Use a warmer tone']);
+});
+
 test('card actions route to port methods', async () => {
   const port = createFakeChatPort();
   const thread = await port.createThread();
