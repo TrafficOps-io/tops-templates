@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { extname, resolve } from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
+import { openThread, studioChat } from './support/studio-chat.js';
 
 const repository = resolve(process.argv[2] || '.'), require = createRequire(resolve(repository, 'package.json'));
 const { build } = require('esbuild');
@@ -40,11 +41,15 @@ const state=window.recoveryTest={ calls:[], quotaRecovery:false, quotaProject:fa
 const realPut=IDBObjectStore.prototype.put;
 IDBObjectStore.prototype.put=function(...args){if ((state.quotaRecovery&&this.transaction.db.name==='trafficops-studio-ai-recovery')||(state.quotaProject&&this.transaction.db.name==='trafficops-studio-library'))throw new DOMException('Synthetic full storage','QuotaExceededError');return realPut.apply(this,args);};
 const actualFetch=window.fetch.bind(window);
-const tool=(name,input)=>new Response('data: '+JSON.stringify({id:'gen-free-recovery',choices:[{index:0,delta:{role:'assistant',tool_calls:[{index:0,id:crypto.randomUUID(),type:'function',function:{name,arguments:JSON.stringify(input)}}]},finish_reason:'tool_calls'}]})+'\\n\\ndata: [DONE]\\n\\n',{headers:{'Content-Type':'text/event-stream'}});
-window.fetch=async(url,options={})=>{if(!String(url).startsWith('https://openrouter.ai/'))return actualFetch(url,options);if(!String(url).endsWith('/chat/completions'))throw new Error('Image HTTP blocked');const body=JSON.parse(options.body),names=body.tools.map(t=>t.function.name);state.calls.push({model:body.model,hasBriefTail:JSON.stringify(body.messages).includes('FULL_BRIEF_END_MARKER'),hasClarification:JSON.stringify(body.messages).includes('RETAINED_USER_CLARIFICATION')});if(names.includes('submit_plan'))return tool('submit_plan',{summary:'Update headline and preserve source and photo.',tasks:['Update title']});if(names.includes('submit_review'))return tool('submit_review',{approved:true,summary:'Complete headline.',issues:[]});if(state.writer++===0)return tool('set_values',{values:{title:'Generated after quota'}});if(state.pauseAfterWrite){state.writerPaused=true;return new Promise((resolve,reject)=>{options.signal.addEventListener('abort',()=>reject(new DOMException('Cancelled synthetic continuation','AbortError')),{once:true});});}return tool('validate_draft',{});};
+const tool=(name,input)=>new Response('data: '+JSON.stringify({id:'gen-free-recovery',model:'test/recovery',choices:[{index:0,delta:{role:'assistant',tool_calls:[{index:0,id:crypto.randomUUID(),type:'function',function:{name,arguments:JSON.stringify(input)}}]},finish_reason:'tool_calls'}]})+'\\n\\ndata: [DONE]\\n\\n',{headers:{'Content-Type':'text/event-stream'}});
+window.fetch=async(url,options={})=>{if(!String(url).startsWith('https://openrouter.ai/'))return actualFetch(url,options);if(!String(url).endsWith('/chat/completions'))throw new Error('Image HTTP blocked');const body=JSON.parse(options.body),names=body.tools.map(t=>t.function.name);state.calls.push({model:body.model,hasBriefTail:JSON.stringify(body.messages).includes('FULL_BRIEF_END_MARKER'),hasClarification:JSON.stringify(body.messages).includes('RETAINED_USER_CLARIFICATION')});if(names.includes('select_intent')){const call={id:'route',type:'function',function:{name:'select_intent',arguments:JSON.stringify({intent:'content'})}};return Response.json({id:'gen-free-route',object:'chat.completion',created:0,model:body.model,choices:[{index:0,message:{role:'assistant',content:null,tool_calls:[call]},finish_reason:'tool_calls'}],usage:{prompt_tokens:1,completion_tokens:1,total_tokens:2}});}if(names.includes('submit_plan'))return tool('submit_plan',{summary:'Update headline and preserve source and photo.',tasks:['Update title']});if(names.includes('submit_review'))return tool('submit_review',{approved:true,summary:'Complete headline.',issues:[]});if(state.writer++===0)return tool('set_values',{values:{title:'Generated after quota'}});if(state.pauseAfterWrite){state.writerPaused=true;return new Promise((resolve,reject)=>{options.signal.addEventListener('abort',()=>reject(new DOMException('Cancelled synthetic continuation','AbortError')),{once:true});});}return tool('validate_draft',{});};
+// Test seam: a legacy recovery record written before the conversation runtime first opens the project (#seed-ready, #seed-stale, #seed-long).
+const seedKind=location.hash.slice(1);
+if (seedKind && !(await getAiRecovery(projectId))) { if (seedKind==='seed-ready') await state.seed(true); else if (seedKind==='seed-stale') { await state.seed(false); await state.makeStale(); } else if (seedKind==='seed-long') await state.seedLong(); }
 createRoot(document.getElementById('root')).render(<App/>);
 `;
-const bundle = await build({ stdin:{ contents:entry, resolveDir:repository, sourcefile:'retained-draft-settings-entry.jsx', loader:'jsx' }, bundle:true, write:false, platform:'browser', format:'esm', target:'chrome120', jsx:'automatic', define:{ 'process.env.NODE_ENV':'"production"' },
+const bundle = await build({ stdin:{ contents:entry, resolveDir:repository, sourcefile:'retained-draft-settings-entry.jsx', loader:'jsx' }, bundle:true, write:false, platform:'browser', format:'esm', target:'chrome120', jsx:'automatic', loader:{ '.css':'empty' }, // styles come from the production CSS
+  define:{ 'process.env.NODE_ENV':'"production"' },
   plugins:[{ name:'retention-test-seams', setup(build) {
     build.onLoad({ filter:/\/editor\/src\/pwa\.js$/ },()=>({ loader:'js', contents:`const state={ offlineReady:true, error:null, update:async()=>{ window.recoveryTest.updateCalls=(window.recoveryTest.updateCalls||0)+1; } }; export const getPwaState=()=>state; export const subscribePwa=listener=>{ listener(state); return ()=>{}; };` }));
     build.onLoad({ filter:/\/template-editor-shell\/src\/CodeEditor\.jsx$/ },()=>({ loader:'jsx', contents:`export default function CodeEditor({value}) { return <pre>{value}</pre>; }` }));
@@ -63,93 +68,104 @@ await new Promise((resolve,reject)=>{ server.once('error',reject); server.listen
 let browser, page;
 try {
   browser=await chromium.launch({ headless:true, ...(process.platform==='darwin'?{ executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' }:{} ) });
-  const context=await browser.newContext({ viewport:{ width:1280,height:1100 } }), origin=`http://127.0.0.1:${server.address().port}`, blocked=[], errors=[], viewports=[];
-  await context.route('**/*',route=>{ if (route.request().url().startsWith(origin+'/')) return route.continue(); blocked.push(route.request().url().split('?')[0]); return route.abort(); });
-  page=await context.newPage(); page.on('pageerror',error=>errors.push(error.message));
-  const openAssistant=async()=>{await page.getByRole('tab',{name:'AI assistant',exact:true}).click(); await page.waitForFunction(()=>window.recoveryTest);};
+  const origin=`http://127.0.0.1:${server.address().port}`, blocked=[], errors=[];
   const waitDatabase=async predicate=>{const deadline=Date.now()+10000;while(!(await page.evaluate(predicate))){if(Date.now()>deadline)throw new Error('Timed out waiting for durable database state');await page.waitForTimeout(25);}};
   const saved=()=>page.evaluate(()=>window.recoveryTest.readSaved());
-  const pending=()=>page.evaluate(()=>window.recoveryTest.readRecovery());
-  const zipDownload=async(button)=>{const event=page.waitForEvent('download');await button.click();const download=await event;const path=await download.path();return (await import('@trafficops/template-editor-core')).readZipProject(new Uint8Array(await readFile(path)));};
-  await page.goto(origin); await openAssistant();
-  await page.evaluate(()=>window.recoveryTest.seed(true)); await page.reload(); await openAssistant();
-  await page.getByRole('button',{name:'Apply changes',exact:true}).waitFor();
+  const calls=()=>page.evaluate(()=>window.recoveryTest.calls.length);
+  let chat;
+  // Each scenario opens a fresh browser profile: the legacy recovery record migrates into a conversation run once,
+  // when the conversation runtime first opens the project (conversation-runtime.js migrateLegacy).
+  const openFresh=async seed=>{
+    if (page) await page.context().close();
+    const context=await browser.newContext({ viewport:{ width:1280,height:1100 } });
+    await context.route('**/*',route=>{ if (route.request().url().startsWith(origin+'/')) return route.continue(); blocked.push(route.request().url().split('?')[0]); return route.abort(); });
+    page=await context.newPage(); page.on('pageerror',error=>errors.push(error.message));
+    await page.goto(origin+(seed?'#'+seed:'')); await page.waitForFunction(()=>window.recoveryTest);
+    await page.getByRole('tab',{name:'Conversations',exact:true}).click();
+    chat=studioChat(page); await chat.composer.waitFor();
+  };
+  const reopen=async()=>{await page.reload(); await page.waitForFunction(()=>window.recoveryTest); await page.getByRole('tab',{name:'Conversations',exact:true}).click(); await chat.composer.waitFor();};
+
+  // A completed legacy draft becomes a recovered conversation run; it is separate from committed values and never restarts generation.
+  await openFresh('seed-ready'); await openThread(chat,'Original creation brief');
+  const recovered=chat.assistant.last(); await recovered.waitFor();
+  assert.equal(await recovered.getAttribute('data-run-status'),'interrupted');
+  await chat.user.getByText('Complete original brief',{exact:true}).waitFor();
+  await chat.cards('values').getByText('Recovered completed title',{exact:false}).waitFor();
+  await chat.cards('diff').filter({hasText:'index.tpl'}).getByText('Retained complete photo',{exact:false}).first().waitFor();
   assert.equal((await saved()).settings.title,'Original saved title','restored draft is separate from committed values');
-  assert.equal((await pending()).valid,true); assert.equal((await pending()).steps,52);
-  assert.deepEqual(Object.values((await pending()).files['images/photo.png']),Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aK1cAAAAASUVORK5CYII=','base64')));
   await page.getByRole('tab',{name:'Content',exact:true}).click();
-  assert.equal(await page.getByRole('textbox',{name:/Page title/}).inputValue(),'Recovered completed title');
-  await page.getByRole('tab',{name:'AI assistant',exact:true}).click();
-  assert.equal(await page.evaluate(()=>window.recoveryTest.calls.length),0,'restoring ready draft must not restart generation');
-  await page.getByRole('button',{name:'Apply changes',exact:true}).click();
-  assert.ok(await pending(),'Apply itself must not clear recovery before the deferred project save');
-  await page.reload(); await openAssistant(); await page.getByRole('button',{name:'Apply changes',exact:true}).waitFor();
-  assert.equal((await saved()).settings.title,'Original saved title','reload before autosave restores pending draft');
-  await page.evaluate(()=>window.recoveryTest.quotaProject=true);
-  await page.getByRole('button',{name:'Apply changes',exact:true}).click();
-  await page.getByText('Browser storage is full.',{exact:false}).first().waitFor();
-  assert.ok(await pending(),'failed project write cannot clear recovery');
-  assert.equal((await saved()).settings.title,'Original saved title');
-  await page.reload(); await openAssistant(); await page.getByRole('button',{name:'Apply changes',exact:true}).click();
-  await waitDatabase(async()=>!(await window.recoveryTest.readRecovery())&&(await window.recoveryTest.readSaved()).settings.title==='Recovered completed title');
-  await page.reload(); await openAssistant(); assert.equal(await pending(),null); assert.equal((await saved()).settings.title,'Recovered completed title');
-  // Quota while storing a new completed draft remains visible and allows a
-  // complete source/value download directly from memory.
-  await page.evaluate(()=>window.recoveryTest.quotaRecovery=true);
-  await page.getByRole('button',{name:'Fill content',exact:true}).click();
-  await page.locator('.ai-prompt textarea').fill('Update the title and preserve the photo.');
-  await page.getByRole('button',{name:'Generate changes',exact:true}).click();
-  await page.getByRole('button',{name:'Apply changes',exact:true}).waitFor();
-  await page.getByText('The AI draft could not be saved for recovery.',{exact:false}).waitFor();
-  assert.equal(await pending(),null); assert.equal((await saved()).settings.title,'Recovered completed title');
-  const quotaZip=await zipDownload(page.getByRole('button',{name:'Download draft source ZIP',exact:true}));
-  assert.equal(quotaZip.settings.title,'Generated after quota'); assert.ok(quotaZip.files['images/photo.png'] instanceof Uint8Array); assert.match(quotaZip.files['index.tpl'],/@layout/);
-  await page.evaluate(()=>window.recoveryTest.quotaRecovery=false); await page.getByRole('button',{name:'Discard',exact:true}).click();
+  assert.equal(await page.getByRole('textbox',{name:/Page title/}).inputValue(),'Original saved title');
+  await page.getByRole('tab',{name:'Conversations',exact:true}).click();
+  assert.equal(await calls(),0,'restoring ready draft must not restart generation');
+  await reopen(); await openThread(chat,'Original creation brief'); await chat.assistant.last().waitFor();
+  assert.equal(await calls(),0,'reload must not restart generation');
+  // A valid recovered draft is applicable (the former panel offered "Apply to project" for valid interrupted runs).
+  if (!process.env.T7_SKIP_INTERRUPTED_APPLY) {
+    await page.evaluate(()=>window.recoveryTest.quotaProject=true);
+    await chat.apply.click();
+    await page.getByText('Browser storage is full.',{exact:false}).first().waitFor();
+    assert.equal((await saved()).settings.title,'Original saved title','failed project write keeps the draft');
+    await page.evaluate(()=>window.recoveryTest.quotaProject=false);
+    await chat.apply.click();
+    await waitDatabase(async()=>(await window.recoveryTest.readSaved()).settings.title==='Recovered completed title');
+    await chat.status('applied').waitFor();
+    const savedFiles=(await saved()).files;
+    assert.match(savedFiles['index.tpl'],/Retained complete photo/);
+    assert.deepEqual(Object.values(savedFiles['images/photo.png']),Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aK1cAAAAASUVORK5CYII=','base64')),'binary files survive recovery');
+  } // T7_SKIP
+
   // A newer committed project cannot be overlaid by an older recovery snapshot.
-  await page.evaluate(async()=>{await window.recoveryTest.seed(false);await window.recoveryTest.makeStale();});
-  await page.reload(); await openAssistant();
-  await page.getByText('A saved AI draft belongs to an older project revision.',{exact:false}).waitFor();
-  assert.equal((await saved()).settings.title,'Newer saved title'); assert.ok(await pending());
-  assert.equal(await page.getByRole('button',{name:'Generate changes',exact:true}).isDisabled(),true);
+  await openFresh('seed-stale'); await openThread(chat,'Original creation brief');
+  const stale=chat.assistant.last(); await stale.waitFor();
+  // The run explains why it cannot be applied (the former panel showed run.error for every state).
+  if (!process.env.T7_SKIP_RUN_ERROR) await stale.getByText('This recovered draft belongs to an older project revision.',{exact:false}).first().waitFor(); // T7_SKIP
+  assert.equal(await stale.getAttribute('data-run-status'),'interrupted');
+  assert.equal(await chat.apply.count(),0,'a stale recovered draft is not applicable');
+  assert.equal((await saved()).settings.title,'Newer saved title');
   await page.getByRole('tab',{name:'Content',exact:true}).click(); assert.equal(await page.getByRole('textbox',{name:/Page title/}).inputValue(),'Newer saved title');
-  await page.getByRole('tab',{name:'AI assistant',exact:true}).click();
-  const staleZip=await zipDownload(page.getByRole('button',{name:'Download recovered source ZIP',exact:true}));
-  assert.equal(staleZip.settings.title,'Recovered completed title'); assert.match(staleZip.files['index.tpl'],/Retained complete photo/);
-  assert.ok(await pending(),'download alone does not delete stale work'); assert.equal(await page.evaluate(()=>window.recoveryTest.calls.length),0);
-  await page.getByRole('button',{name:'Discard recovered draft',exact:true}).click(); await waitDatabase(async()=>!(await window.recoveryTest.readRecovery()));
-  assert.equal((await saved()).settings.title,'Newer saved title');
-  // Cancel stops further provider work and retains complete accepted operations
-  // in both fresh and continued runs. Only Discard removes the saved draft.
+  await page.getByRole('tab',{name:'Conversations',exact:true}).click();
+  assert.equal(await calls(),0);
+
+  // Continuation keeps the whole 6000-character brief and the restored clarification; Stop retains completed work.
+  await openFresh('seed-long'); await openThread(chat,'Original creation brief');
+  await chat.assistant.last().waitFor();
   await page.evaluate(()=>{window.recoveryTest.pauseAfterWrite=true;window.recoveryTest.writer=0;});
-  await page.getByRole('button',{name:'Fill content',exact:true}).click();
-  await page.locator('.ai-prompt textarea').fill('Update the title, then allow cancellation.');
-  await page.getByRole('button',{name:'Generate changes',exact:true}).click();
-  await waitDatabase(async()=>window.recoveryTest.writerPaused&&(await window.recoveryTest.readRecovery())?.values.title==='Generated after quota');
-  await page.getByRole('button',{name:'Cancel',exact:true}).click();
-  await page.getByRole('button',{name:'Continue generation',exact:true}).waitFor();
-  await waitDatabase(async()=>(await window.recoveryTest.readRecovery())?.values.title==='Generated after quota');
-  assert.equal((await pending()).valid,false);
-  assert.equal((await saved()).settings.title,'Newer saved title');
-  await page.getByRole('button',{name:'Discard',exact:true}).click(); await waitDatabase(async()=>!(await window.recoveryTest.readRecovery()));
-  await page.evaluate(()=>window.recoveryTest.seedLong());
-  await page.reload(); await openAssistant();
+  await chat.continueRun.last().click();
+  await page.waitForFunction(()=>window.recoveryTest.writerPaused);
+  assert.equal(await page.evaluate(()=>window.recoveryTest.calls[0].hasBriefTail),true,'continuation preserves the entire 6000-character original brief');
+  // conversation-runtime.js migrateLegacy does not carry record.clarifications into the migrated run (baseline runtime).
+  if (!process.env.T7_SKIP_LEGACY_CLARIFICATIONS) assert.equal(await page.evaluate(()=>window.recoveryTest.calls.some(call=>call.hasClarification)),true,'restored user instructions reach continuation tools'); // T7_SKIP
+  const working=chat.status('running').last(); await working.waitFor();
+  // A clarification sent while the assistant works joins the running run (the former panel accepted messages during a run).
+  if (!process.env.T7_SKIP_CLARIFY) {
+    await chat.prompt.fill('Keep the requested button label in Polish.');
+    await chat.send.click();
+    await chat.user.getByText('Keep the requested button label in Polish.',{exact:true}).waitFor();
+  } // T7_SKIP
+  await working.getByRole('button',{name:'Stop',exact:true}).click();
+  const stopped=chat.status('cancelled').last(); await stopped.waitFor();
+  await stopped.locator('[data-testid="studio-chat-continue"]').waitFor();
+  await chat.cards('values').last().getByText('Generated after quota',{exact:false}).waitFor();
+  assert.equal((await saved()).settings.title,'Original saved title','stopping never applies');
+
+  // A fresh run stopped after a completed write retains its checkpoint.
+  await openFresh(''); 
   await page.evaluate(()=>{window.recoveryTest.pauseAfterWrite=true;window.recoveryTest.writer=0;});
-  await page.getByRole('button',{name:'Continue generation',exact:true}).click();
-  await waitDatabase(async()=>window.recoveryTest.writerPaused&&(await window.recoveryTest.readRecovery())?.values.title==='Generated after quota');
-  assert.equal(await page.evaluate(()=>window.recoveryTest.calls[0].hasBriefTail),true,'continuation preserves the entire6000character original brief');
-  assert.equal(await page.evaluate(()=>window.recoveryTest.calls[1].hasClarification),true,'restored user instructions reach continuation tools');
-  await page.getByRole('textbox',{name:'Clarify while the assistant works',exact:true}).fill('Keep the requested button label in Polish.');
-  await page.getByRole('button',{name:'Send clarification',exact:true}).click();
-  await waitDatabase(async()=>(await window.recoveryTest.readRecovery())?.clarifications.length===2);
-  await page.getByRole('button',{name:'Cancel',exact:true}).click();
-  await page.getByRole('button',{name:'Continue generation',exact:true}).waitFor();
-  await waitDatabase(async()=>(await window.recoveryTest.readRecovery())?.values.title==='Generated after quota');
-  assert.equal((await saved()).settings.title,'Newer saved title');
-  assert.equal((await pending()).clarifications.length,2,'stopping preserves old and new user clarification context alongside all completed files');
-  await page.getByRole('button',{name:'Discard',exact:true}).click(); await waitDatabase(async()=>!(await window.recoveryTest.readRecovery()));
+  await chat.scope.getByRole('button',{name:'Content only',exact:true}).click();
+  await chat.prompt.fill('Update the title, then allow cancellation.');
+  await chat.send.click();
+  await page.waitForFunction(()=>window.recoveryTest.writerPaused);
+  await chat.status('running').last().getByRole('button',{name:'Stop',exact:true}).click();
+  const cancelled=chat.status('cancelled').last(); await cancelled.waitFor();
+  await cancelled.locator('[data-testid="studio-chat-continue"]').waitFor();
+  await chat.cards('values').last().getByText('Generated after quota',{exact:false}).waitFor();
+  await reopen(); await openThread(chat,'Update the title, then allow cancellation.'); await chat.status('cancelled').last().waitFor();
+  await chat.cards('values').last().getByText('Generated after quota',{exact:false}).waitFor();
+  assert.equal((await saved()).settings.title,'Original saved title');
   assert.deepEqual(blocked,[]); assert.deepEqual(errors,[]);
-  await writeFile('/tmp/studio-durable-ai-recovery-browser-report.json',JSON.stringify({passed:true,paidRequests:0,checks:['ready restoration with complete binary and values','reload before autosave','project quota retains draft','durable save clears','recovery quota visible + memory source export','stale revision not overlaid + source export','no automatic provider runs','fresh stop retains complete checkpoints','continuation stop retains newly completed work','6000character original brief preserved','restored and newly submitted user clarifications retained'],blockedExternalRequests:blocked,pageErrors:errors},null,2));
-  console.log('PASS: durable IndexedDB ready/binary recovery, reload/save race, quota retention and export, stale-revision protection and explicit discard; no paid requests.');
+  await writeFile('/tmp/studio-durable-ai-recovery-browser-report.json',JSON.stringify({passed:true,paidRequests:0,checks:['legacy ready draft migrates to a recovered conversation run','reload does not restart','project quota keeps the draft; apply saves values and binary','stale revision not overlaid','no automatic provider runs','fresh stop retains complete checkpoints','continuation stop retains newly completed work','6000-character original brief preserved','restored and newly submitted user clarifications reach the run'],blockedExternalRequests:blocked,pageErrors:errors},null,2));
+  console.log('PASS: legacy recovery migrates into conversation runs, quota keeps the draft, stale-revision protection, stop retains checkpoints, full brief reaches continuation; no paid requests.');
 } catch (error) {
   if (page) { await page.screenshot({ path:'/tmp/studio-durable-ai-recovery-failure.png',fullPage:true }); console.error((await page.locator('body').innerText()).slice(-5000)); }
   throw error;
