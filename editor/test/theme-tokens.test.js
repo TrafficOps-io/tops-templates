@@ -17,7 +17,7 @@ const ALLOW = [
   { selector: /crop-stage canvas|asset-image-stage/, property: /^background/, value: /repeating-conic-gradient/ },
   { selector: /brand-wordmark/, property: /^color$/ },
 ];
-const LITERAL = /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(|(?<![-\w])(?:white|black|red|green|blue|gray|grey|orange|yellow)(?![-\w])/;
+const LITERAL = /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(|\b(?:oklch|oklab|lab|lch|color)\(|(?<![-\w])(?:white|black|red|green|blue|gray|grey|orange|yellow)(?![-\w])/;
 const RULE = /([^{}]+)\{([^{}]*)\}/g, DECLARATION = /([-\w]+)\s*:\s*([^;]+)/g;
 
 test('editor styles carry no literal colours outside the allow-list', () => {
