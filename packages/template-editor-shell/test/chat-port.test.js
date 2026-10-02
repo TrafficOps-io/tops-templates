@@ -221,7 +221,7 @@ test('discard and apply close the preview of their own draft only', async () => 
   await port.discard('r1'); assert.deepEqual(previews, [null], 'discarding the previewed draft returns the preview to the project');
   previewRunId = 'other'; await port.discard('r1'); assert.deepEqual(previews, [null], 'another run keeps its preview');
   previewRunId = 'r1'; await port.apply('r1'); assert.deepEqual(previews, [null, null]);
-  assert.equal(port.capabilities.clarifyWhileRunning, true);
+  assert.equal(port.capabilities.clarifyWhileRunning, true); assert.equal(port.capabilities.discardStopped, true, 'the runtime accepts discard of stopped runs');
 });
 
 test('a saved section mention keeps its source and opens the file at the section', async () => {

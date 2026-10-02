@@ -212,7 +212,7 @@ export function createChatPort(session, context) {
       if (target.kind === 'file') onOpenFile?.(target.id); else if (source) onOpenFile?.(source.path, source.selection); else onOpenSection?.(target);
     },
     attachmentLimits: { count: FILE_ATTACHMENT_LIMITS.count, bytesPerFile: FILE_ATTACHMENT_LIMITS.bytes, bytesTotal: FILE_ATTACHMENT_LIMITS.total, accept: FILE_ATTACHMENT_ACCEPT },
-    get capabilities() { const { settings, onKeepDraft } = context(); return { scopes: ['project', 'file', 'block', 'content', 'discussion'], clarifyWhileRunning: true, cost: false, previewDraft: true, generateImages: Boolean(settings?.imageModel), conflictReview: true, keepDraft: Boolean(onKeepDraft) }; },
+    get capabilities() { const { settings, onKeepDraft } = context(); return { scopes: ['project', 'file', 'block', 'content', 'discussion'], clarifyWhileRunning: true, discardStopped: true, cost: false, previewDraft: true, generateImages: Boolean(settings?.imageModel), conflictReview: true, keepDraft: Boolean(onKeepDraft) }; },
     dispose() { for (const close of [...streams]) close(); disposed = true; unsubscribe(); listeners.clear(); messageStores.clear(); },
   };
   return {
