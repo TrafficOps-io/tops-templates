@@ -1,10 +1,12 @@
+// The project library on folder storage: every create, duplicate and Save as template picks a real OPFS folder through
+// the user-activation-gated picker (support/studio-folders.js), and the checks read the folders themselves.
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 import { unzipSync, strFromU8 } from 'fflate';
+import { editorReady, installFolderPicker, listOpfs, readOpfs, until, usePicker } from './support/studio-folders.js';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -23,48 +25,46 @@ const server = createServer(async (request, response) => {
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 let browser, page;
 
-async function readRecords() {
-  return page.evaluate(() => new Promise((resolve, reject) => {
-    const request = indexedDB.open('trafficops-studio-library', 1);
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => {
-      const database = request.result, transaction = database.transaction('projects', 'readonly');
-      const records = transaction.objectStore('projects').getAll();
-      records.onsuccess = () => resolve(records.result);
-      records.onerror = () => reject(records.error);
-      transaction.oncomplete = () => database.close();
-    };
-  }));
+// A project folder under picker/<folder>: { meta, values, files: { path: text } } once project.json exists, else null.
+async function readProject(folder) {
+  const meta = await readOpfs(page, `picker/${folder}/.trafficops/project.json`);
+  if (!meta) return null;
+  const files = {};
+  for (const name of await listOpfs(page, `picker/${folder}`) || []) if (/\.(tpl|css|html|js)$/.test(name)) files[name] = await readOpfs(page, `picker/${folder}/${name}`);
+  return { meta: JSON.parse(meta), values: JSON.parse(await readOpfs(page, `picker/${folder}/.trafficops/values.json`) || '{}'), files };
+}
+async function waitForSaved(folder, { headline, cssIncludes } = {}) {
+  let project;
+  await until(async () => {
+    project = await readProject(folder);
+    return project && (headline === undefined || project.values.headline === headline) && (cssIncludes === undefined || project.files['styles.css']?.includes(cssIncludes));
+  }, `durable save in ${folder}`, 20000);
+  return project;
 }
 
-async function waitForSaved(name, { headline, cssIncludes } = {}) {
-  const deadline = Date.now() + 20000;
-  while (Date.now() < deadline) {
-    const records = await readRecords();
-    const record = records.find(item => item.name === name);
-    if (record && (headline === undefined || record.settings.headline === headline) && (cssIncludes === undefined || record.files['styles.css']?.includes(cssIncludes))) return record;
-    await delay(100);
-  }
-  throw new Error(`Timed out waiting for durable save: ${name}`);
-}
-
+// The editor opens on the assistant when AI is available; field checks use the Content form.
+const contentTab = () => page.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click();
 function card(name) { return page.locator('.library-card').filter({ has: page.getByRole('heading', { name, exact: true }) }); }
 
 async function library() {
   const toolbar = page.locator('.studio-toolbar');
   const navigation = await toolbar.isVisible() ? toolbar : page.locator('.studio-project-bar');
   await navigation.getByRole('button', { name: 'Projects', exact: true }).click();
-  await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
+  await page.locator('.library').waitFor();
 }
 
-async function create(name, { template = false } = {}) {
+// Fills the open New project dialog; Create opens the picker, which returns picker/<folder>.
+async function create(name, folder, { template = false, mode } = {}) {
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
+  if (mode) await dialog.getByRole('button', { name: mode, exact: true }).click();
   await dialog.getByLabel('Project name', { exact: true }).fill(name);
   if (template) await dialog.getByRole('button', { name: /Reusable template/ }).click();
+  await usePicker(page, folder);
   await dialog.getByRole('button', { name: template ? 'Create template' : 'Create landing', exact: true }).click();
   await dialog.waitFor({ state: 'hidden' });
-  await page.locator('.browser-frame iframe.is-visible').waitFor();
-  return waitForSaved(name);
+  await editorReady(page);
+  await contentTab();
+  return waitForSaved(folder);
 }
 
 async function sourceExport() {
@@ -108,38 +108,41 @@ async function captureLibrary(path) {
 try {
   browser = await chromium.launch({ headless: true, ...(process.platform === 'darwin' ? { executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' } : {}) });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1080 }, serviceWorkers: 'allow' });
+  await installFolderPicker(context);
   page = await context.newPage();
   page.setDefaultTimeout(20000);
-  const errors = [];
+  const errors = [], confirms = [];
   page.on('pageerror', error => errors.push(error.message));
+  page.on('dialog', dialog => { confirms.push(dialog.message()); dialog.accept(); });
   await page.goto(`http://127.0.0.1:${server.address().port}`);
-  await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
+  await page.locator('.library').getByRole('heading', { name: 'Your projects', exact: true }).waitFor();
   assert.equal(await page.locator('.starter-grid .library-card').count(), 3);
 
-  await page.getByRole('button', { name: /Start from scratch/ }).click();
-  const blank = await create('Blank draft');
-  assert.equal(blank.kind, 'landing');
+  await page.locator('.library-manual-actions').getByRole('button', { name: 'New project', exact: true }).click();
+  const blank = await create('Blank draft', 'blank-draft', { mode: 'From scratch' });
+  assert.equal(blank.meta.kind, 'landing');
   assert.ok(Object.hasOwn(blank.files, 'index.tpl'));
   await page.reload();
   await page.locator('.hosted-title').getByRole('heading', { name: 'Blank draft', exact: true }).waitFor();
   await library();
-  console.log('PASS: blank creation and active-project restore.');
+  console.log('PASS: blank creation into a picked folder and last-project restore.');
 
   await page.getByRole('button', { name: 'Use Product spotlight', exact: true }).click();
-  await create('Browser template', { template: true });
+  await create('Browser template', 'browser-template', { template: true });
   await page.getByLabel('Headline', { exact: false }).fill('Template baseline');
-  const template = await waitForSaved('Browser template', { headline: 'Template baseline' });
-  assert.equal(template.kind, 'template');
+  const template = await waitForSaved('browser-template', { headline: 'Template baseline' });
+  assert.equal(template.meta.kind, 'template');
   await library();
-  await card('Browser template').getByRole('button', { name: 'Use template', exact: true }).click();
-  const landing = await create('Independent landing');
-  assert.equal(landing.sourceTemplateId, template.id);
-  assert.notEqual(landing.id, template.id);
+  // A user template: its card click reads it (D2); Create then picks the landing's folder.
+  await card('Browser template').getByRole('button', { name: 'Use template Browser template', exact: true }).click();
+  const landing = await create('Independent landing', 'independent-landing');
+  assert.equal(landing.meta.sourceTemplateId, template.meta.projectId);
+  assert.notEqual(landing.meta.projectId, template.meta.projectId);
   assert.equal(await page.getByLabel('Headline', { exact: false }).inputValue(), 'Template baseline');
   await page.getByLabel('Headline', { exact: false }).fill('Landing-only headline');
   // Between the edit and the durable write the badge reads Saving… (the single live region outside the expanded editor).
   await page.locator('.hosted-status[role="status"]').filter({ hasText: 'Saving…' }).waitFor();
-  await waitForSaved('Independent landing', { headline: 'Landing-only headline' });
+  await waitForSaved('independent-landing', { headline: 'Landing-only headline' });
   // Save state is text: a badge with the save time, shown once per mode; the sidebar footer keeps the storage label only.
   assert.equal(await page.locator('.sidebar-footer [role="status"]').count(), 0);
   await page.locator('.hosted-status[role="status"]').filter({ hasText: /^Saved \d{1,2}:\d{2}/ }).waitFor();
@@ -149,18 +152,22 @@ try {
   assert.equal(await page.locator('[role="status"]:visible').filter({ hasText: /^Saved \d{1,2}:\d{2}/ }).count(), 1, 'one live save region while expanded');
   assert.equal(await page.locator('.editor-shell.is-expanded').getByText(/^Saved \d{1,2}:\d{2}/).count(), 1, 'the expanded editor shows the save status once');
   await page.keyboard.press('Escape'); await page.locator('.editor-shell.is-expanded').waitFor({ state: 'detached' });
-  assert.equal((await readRecords()).find(item => item.id === template.id).settings.headline, 'Template baseline');
+  assert.equal((await readProject('browser-template')).values.headline, 'Template baseline');
 
+  // Save as template (D4): the dialog's submit picks the template's folder.
   await page.getByRole('button', { name: 'Save as template', exact: true }).click();
   const saveTemplate = page.getByRole('dialog', { name: 'Save as template', exact: true });
   await saveTemplate.getByLabel('Template name', { exact: true }).fill('Saved landing template');
+  await usePicker(page, 'saved-landing-template');
   await saveTemplate.getByRole('button', { name: 'Save as template', exact: true }).click();
   await saveTemplate.waitFor({ state: 'hidden' });
-  const copied = await waitForSaved('Saved landing template', { headline: 'Landing-only headline' });
-  assert.equal(copied.kind, 'template');
-  assert.notEqual(copied.id, landing.id);
-  assert.equal((await readRecords()).find(item => item.id === landing.id).kind, 'landing');
+  const copied = await waitForSaved('saved-landing-template', { headline: 'Landing-only headline' });
+  assert.equal(copied.meta.kind, 'template');
+  assert.equal(copied.meta.name, 'Saved landing template');
+  assert.notEqual(copied.meta.projectId, landing.meta.projectId);
+  assert.equal((await readProject('independent-landing')).meta.kind, 'landing');
   await page.reload();
+  await editorReady(page); await contentTab();
   await page.getByLabel('Headline', { exact: false }).waitFor();
   await page.waitForFunction(() => document.querySelector('#setting-headline')?.value === 'Landing-only headline');
   assert.equal(await page.getByLabel('Headline', { exact: false }).inputValue(), 'Landing-only headline');
@@ -168,16 +175,19 @@ try {
   assert.ok(archive['index.tpl']);
   assert.equal(JSON.parse(strFromU8(archive['.trafficops/values.json'])).headline, 'Landing-only headline');
   await library();
-  console.log('PASS: built-in template, independent landing, autosave, save as template, persisted fields and source ZIP.');
+  console.log('PASS: built-in template, independent landing from a user template, autosave, save as template, persisted fields and source ZIP.');
 
+  await usePicker(page, 'independent-landing-copy');
   await card('Independent landing').getByRole('button', { name: 'Duplicate Independent landing', exact: true }).click();
   await card('Independent landing (copy)').waitFor();
-  const duplicate = await waitForSaved('Independent landing (copy)', { headline: 'Landing-only headline' });
-  assert.notEqual(duplicate.id, landing.id);
-  page.once('dialog', dialog => dialog.accept());
+  const duplicate = await waitForSaved('independent-landing-copy', { headline: 'Landing-only headline' });
+  assert.notEqual(duplicate.meta.projectId, landing.meta.projectId);
+  assert.equal(duplicate.meta.name, 'Independent landing (copy)');
+  // Delete (folder): only the list entry goes; the folder stays on disk.
   await card('Independent landing (copy)').getByRole('button', { name: 'Delete Independent landing (copy)', exact: true }).click();
   await card('Independent landing (copy)').waitFor({ state: 'hidden' });
-  assert.equal((await readRecords()).some(item => item.id === duplicate.id), false);
+  assert.match(confirms.at(-1), /^Remove “Independent landing \(copy\)” from Studio\? The folder stays on your disk\./);
+  assert.equal((await readProject('independent-landing-copy')).meta.projectId, duplicate.meta.projectId, 'the folder stays on disk');
   await page.getByLabel('Search projects', { exact: true }).fill('Independent landing');
   assert.equal(await page.locator('.library-grid:not(.starter-grid) .library-card').count(), 1);
   await page.getByLabel('Search projects', { exact: true }).fill('');
@@ -190,11 +200,11 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await captureLibrary('/tmp/studio-library-mobile.png');
   await assertNoOverflow('mobile library');
-  await page.getByRole('button', { name: 'New project', exact: true }).click();
+  await page.locator('.library-manual-actions').getByRole('button', { name: 'New project', exact: true }).click();
   await page.getByRole('dialog', { name: 'New project', exact: true }).waitFor();
   await assertNoOverflow('mobile creation dialog');
   await page.getByRole('button', { name: 'Close new project', exact: true }).click();
-  console.log('PASS: duplicate/delete, search, project filters and mobile library/creation layout.');
+  console.log('PASS: duplicate into a picked folder, delete keeps the folder, search, project filters and mobile library/creation layout.');
 
   // Headless Chrome has no operating-system install UI; emulate the installed
   // display-mode signal while exercising a real production service worker.
@@ -216,22 +226,21 @@ try {
   await code.focus();
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+End');
   await page.keyboard.insertText('\n/* edited while offline */\n');
-  await waitForSaved('Independent landing', { cssIncludes: 'edited while offline' });
-  const afterOfflineEdit = await readRecords();
-  assert.equal(afterOfflineEdit.find(item => item.id === template.id).files['styles.css'].includes('edited while offline'), false);
-  assert.equal(afterOfflineEdit.find(item => item.id === copied.id).files['styles.css'].includes('edited while offline'), false);
+  await waitForSaved('independent-landing', { cssIncludes: 'edited while offline' });
+  assert.equal((await readProject('browser-template')).files['styles.css'].includes('edited while offline'), false);
+  assert.equal((await readProject('saved-landing-template')).files['styles.css'].includes('edited while offline'), false);
   const offlineArchive = await sourceExport();
   assert.match(strFromU8(offlineArchive['styles.css']), /edited while offline/);
   assert.equal(JSON.parse(strFromU8(offlineArchive['.trafficops/values.json'])).headline, 'Landing-only headline');
   await page.reload();
   await page.locator('.editor-shell.is-app').waitFor();
-  assert.match((await waitForSaved('Independent landing')).files['styles.css'], /edited while offline/);
+  assert.match((await waitForSaved('independent-landing')).files['styles.css'], /edited while offline/);
   assert.deepEqual(errors, []);
-  console.log('PASS: installed display mode, real service-worker offline reload, offline Monaco editing/autosave and source ZIP export.');
+  console.log('PASS: installed display mode, real service-worker offline reload, offline Monaco editing/autosave into the folder and source ZIP export.');
 } catch (error) {
   if (page) {
     await page.screenshot({ path: '/tmp/studio-library-failure.png', fullPage: true }).catch(() => {});
-    console.error('Saved records:', (await readRecords().catch(() => [])).map(({ name, revision, settings }) => ({ name, revision, settings })));
+    console.error('Picker folders:', await listOpfs(page, 'picker').catch(() => null));
     console.error((await page.locator('body').innerText().catch(() => '')).slice(0, 7000));
   }
   throw error;

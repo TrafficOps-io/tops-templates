@@ -76,7 +76,8 @@ jobs:
       - run: node "$PLAYWRIGHT_MODULE/cli.js" install --with-deps chromium
       - run: npm run build:editor
       - run: node editor/test/studio-browser.mjs editor/dist
-      - run: node editor/test/pwa-access-browser.mjs editor/dist
+      - run: node editor/test/storage-access-browser.mjs editor/dist
+      - run: node editor/test/storage-contract-browser.mjs editor/dist
       - run: node editor/test/library-browser.mjs editor/dist
       - run: node editor/test/library-ai-browser.mjs editor/dist
       - run: node editor/test/conversations-browser.mjs editor/dist
@@ -88,7 +89,7 @@ jobs:
       - run: node editor/test/fill-content-browser.mjs editor/dist
       - run: node editor/test/optiheart-ai-browser.mjs editor/dist
       - run: node editor/test/generated-image-browser.mjs
-      - run: node editor/test/recovery-browser.mjs editor/dist
+      - run: node editor/test/folder-access-browser.mjs editor/dist
       - run: node editor/test/agent-browser.mjs editor/dist
       - run: node editor/test/retained-draft-settings-browser.mjs
       - run: node editor/test/ai-panel-ui-browser.mjs editor/dist

@@ -1,164 +1,442 @@
+// Project folders, end to end with production storage (no filesystem mocks): a user-activation-gated folder picker
+// returns real OPFS directories (support/studio-folders.js). Covers create into an empty folder, an existing project,
+// a non-empty folder (subfolder), cancel, adopt, a Finder copy (Make independent), seeded binary assets, empty folders
+// and history (ZIP export), ZIP import (D1 + D8), AI create with a brief, Save as template, user templates, Save a copy,
+// duplicate (D8), delete semantics, OPFS mode and the unsupported screen.
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
-import { readFile, writeFile } from 'node:fs/promises';
-import { extname, resolve } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
-import { createStudioProject } from '../src/studio-library.js';
+import { readFile } from 'node:fs/promises';
+import { join, extname, resolve } from 'node:path';
 import { readZipProject } from '@trafficops/template-editor-core';
 import { studioChat } from './support/studio-chat.js';
-
-// Real OPFS handles and real IndexedDB in a disposable profile. Some managed
-// macOS runners crash Chromium while cloning native directory handles. Set
-// STUDIO_NATIVE_HANDLES=0 there to bridge only the handle reference by its OPFS
-// name; file reads/writes, permissions, content CAS and history remain real.
-const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
-const nativeHandles = process.env.STUDIO_NATIVE_HANDLES !== '0';
+import { copyFolder, editorReady, installFolderPicker, listOpfs, metaOf, openProject, pageSource, readOpfs, removeFolder, revokeAccess, seedProjectFolder, until, usePicker, writeOpfs } from './support/studio-folders.js';
+const require = createRequire(import.meta.url);
+const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = resolve(process.argv[2] || 'editor/dist');
-const source = '@template "Folder continuity"\n@section content "Content"\n@param title String = "Initial title" label="Page title"\n@endsection\n@layout\n<html><head><meta charset="utf-8"><title>{{title}}</title></head><body><h1>{{title}}</h1></body></html>\n@endlayout\n';
-const fixture = { ...createStudioProject({ kind: 'landing', name: 'Folder continuity', files: { 'index.tpl': source, 'notes.txt': 'Keep the same project and dialogues.', 'assets/pixel.png': new Uint8Array([0, 1, 255]) }, folders: ['empty', 'assets'], settings: { title: 'Device content' }, appliedAiRuns: ['already-applied-run'] }, { id: 'folder-continuity-project' }), revision: 1 };
-const now = Date.now();
-const document = { schema: 1, projectId: fixture.id, revision: 1, legacyMigrated: true, threads: [
-  { id: 'thread-alpha', title: 'Plan the page', archived: false, createdAt: now, updatedAt: now, messages: [{ id: 'message-alpha', role: 'user', prompt: 'Keep this conversation when saving to a folder.', createdAt: now }, { id: 'answer-alpha', role: 'assistant', text: 'Saved conversations stay with the same project.', createdAt: now + 1 }] },
-  { id: 'thread-beta', title: 'Review typography', archived: true, createdAt: now + 2, updatedAt: now + 2, messages: [{ id: 'message-beta', role: 'user', prompt: 'A second saved conversation.', createdAt: now + 2 }] },
-], runs: [] };
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.woff2': 'font/woff2', '.ttf': 'font/ttf' };
-const server = createServer(async (request, response) => {
-  try { const path = new URL(request.url, 'http://localhost').pathname, file = resolve(root, '.' + (path === '/' ? '/index.html' : path)); if (!file.startsWith(root + '/')) throw new Error('Invalid path'); response.writeHead(200, { 'Content-Type': types[extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' }); response.end(await readFile(file)); }
-  catch { response.writeHead(404); response.end('Not found'); }
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.woff2': 'font/woff2' };
+const server = createServer(async (req, res) => {
+  try {
+    const path = decodeURIComponent(new URL(req.url, 'http://localhost').pathname), file = resolve(join(root, path === '/' ? 'index.html' : path));
+    if (!file.startsWith(root + '/')) throw Error('path');
+    const value = await readFile(file); res.writeHead(200, { 'Content-Type': types[extname(file)] || 'application/octet-stream' }); res.end(value);
+  } catch { res.writeHead(404); res.end('Not found'); }
 });
 await new Promise(done => server.listen(0, '127.0.0.1', done));
-const origin = `http://127.0.0.1:${server.address().port}`;
+
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4n+DwHwAGoAKfr+/eKAAAAABJRU5ErkJggg==', 'base64');
+const generated = '@template "Smoke AI"\n@section content "Content"\n@param title String = "Smoke AI launch" label="Title"\n@endsection\n@layout\n<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{title}}</title></head><body><h1>{{title}}</h1></body></html>\n@endlayout\n';
+// Synthetic OpenRouter: one agent loop (write index.tpl, then validate). No paid requests.
+async function mockProvider(context, origin, counter) {
+  let step = 0;
+  await context.route('**/*', async route => {
+    const url = route.request().url();
+    if (url.startsWith(origin + '/') || url.startsWith('data:') || url.startsWith(`blob:${origin}/`)) return route.continue();
+    if (!url.startsWith('https://openrouter.ai/api/v1/')) return route.abort();
+    counter.requests++;
+    if (!url.endsWith('/chat/completions')) return route.fulfill({ json: { data: [] } });
+    const call = ++step % 2 === 1 ? ['set_file', { path: 'index.tpl', content: generated }] : ['validate_draft', {}];
+    const value = { id: `smoke-${counter.requests}`, model: 'test/smoke', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: `call-${counter.requests}`, type: 'function', function: { name: call[0], arguments: JSON.stringify(call[1]) } }] }, finish_reason: 'tool_calls' }] };
+    return route.fulfill({ contentType: 'text/event-stream', body: `data: ${JSON.stringify(value)}\n\ndata: [DONE]\n\n` });
+  });
+}
+const configureAi = page => page.evaluate(async () => {
+  const db = await new Promise((done, reject) => { const request = indexedDB.open('trafficops-template-studio-ai', 1); request.onupgradeneeded = () => request.result.createObjectStore('settings', { keyPath: 'id' }); request.onsuccess = () => done(request.result); request.onerror = () => reject(request.error); });
+  await new Promise((done, reject) => { const tx = db.transaction('settings', 'readwrite'); tx.objectStore('settings').put({ id: 'openrouter', apiKey: 'mock-no-paid-requests', model: 'test/smoke', imageModel: '' }); tx.oncomplete = done; tx.onerror = () => reject(tx.error); }); db.close();
+  window.dispatchEvent(new Event('trafficops-ai-settings'));
+});
+const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || (process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : undefined);
+
 let browser, page;
-const report = { handles: nativeHandles ? 'native isolated OPFS and IndexedDB handle cloning' : 'real isolated OPFS; name-reference bridge around native handle cloning', paidRequests: 0, errors: [], checks: [] };
-async function poll(read, predicate, label) { const end = Date.now() + 20000; while (Date.now() < end) { const value = await read(); if (predicate(value)) return value; await delay(100); } throw new Error(`Timed out: ${label}`); }
-async function readStorage() {
-  return page.evaluate(async () => {
-    const read = (name, stores) => new Promise((done, reject) => { const request = indexedDB.open(name, 1); request.onerror = () => reject(request.error); request.onsuccess = () => { const db = request.result, tx = db.transaction(stores, 'readonly'), result = {}; for (const store of stores) { const value = tx.objectStore(store).getAll(); value.onsuccess = () => { result[store] = value.result; }; } tx.oncomplete = () => { db.close(); done(result); }; tx.onabort = () => { db.close(); reject(tx.error); }; }; });
-    const library = await read('trafficops-studio-library', ['projects', 'preferences']);
-    const bindings = await read('trafficops-template-studio', ['directory-projects']);
-    const history = await read('trafficops-studio-conversations', ['documents']);
-    return { records: library.projects.map(record => ({ ...record, files: Object.fromEntries(Object.entries(record.files).map(([path, value]) => [path, value instanceof Uint8Array ? Array.from(value) : value])) })), bindings: bindings['directory-projects'].map(binding => ({ id: binding.id, projectId: binding.projectId, name: binding.name, kind: binding.handle.kind, handleName: binding.handle.name })), histories: history.documents };
-  });
-}
-async function readFolder(name) {
-  return page.evaluate(async name => {
-    const handle = await (await navigator.storage.getDirectory()).getDirectoryHandle(name), entries = [], files = {};
-    async function visit(directory, prefix = '') { for await (const entry of directory.values()) { const path = prefix + entry.name; entries.push(path); if (entry.kind === 'directory') await visit(entry, path + '/'); else { const file = await entry.getFile(); files[path] = path.endsWith('.png') ? Array.from(new Uint8Array(await file.arrayBuffer())) : await file.text(); } } }
-    await visit(handle);
-    return { entries: entries.sort(), files, metadata: files['.trafficops/project.json'] ? JSON.parse(files['.trafficops/project.json']) : null, conversations: files['.trafficops/conversations.json'] ? JSON.parse(files['.trafficops/conversations.json']) : null };
-  }, name);
-}
-async function chooseFolder(name) { await page.evaluate(name => localStorage.setItem('test-folder-picker', name), name); }
 try {
-  const executablePath = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || (process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : undefined);
   browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
-  const context = await browser.newContext({ viewport: { width: 1440, height: 1080 }, serviceWorkers: 'allow', reducedMotion: 'reduce' });
-  await context.route('**/*', route => { const url = route.request().url(); if (url.startsWith(origin + '/') || url.startsWith(`blob:${origin}/`) || url.startsWith('data:')) return route.continue(); if (/openrouter\.ai|\/chat\/completions/.test(url)) report.paidRequests++; return route.abort(); });
-  await context.addInitScript(({ nativeHandles }) => {
-    if (window.top !== window) return;
-    Object.defineProperty(navigator, 'standalone', { configurable: true, value: true });
-    const nativeDirectory = async name => (await navigator.storage.getDirectory()).getDirectoryHandle(name, { create: true });
-    function reference(name) {
-      return { kind: 'directory', name, __testOpfs: name,
-        async queryPermission(options) { return (await nativeDirectory(name)).queryPermission(options); }, async requestPermission(options) { return (await nativeDirectory(name)).requestPermission(options); },
-        async getDirectoryHandle(...args) { return (await nativeDirectory(name)).getDirectoryHandle(...args); }, async getFileHandle(...args) { return (await nativeDirectory(name)).getFileHandle(...args); },
-        async removeEntry(...args) { return (await nativeDirectory(name)).removeEntry(...args); }, async *values() { yield* (await nativeDirectory(name)).values(); },
-        async isSameEntry(other) { return (await nativeDirectory(name)).isSameEntry(other.__testOpfs ? await nativeDirectory(other.__testOpfs) : other); },
-      };
-    }
-    window.showDirectoryPicker = async () => { const name = localStorage.getItem('test-folder-picker') || 'continuity-folder'; return nativeHandles ? nativeDirectory(name) : reference(name); };
-    if (!nativeHandles) {
-      const put = IDBObjectStore.prototype.put, getAll = IDBObjectStore.prototype.getAll;
-      IDBObjectStore.prototype.put = function (value, ...args) { return put.call(this, this.name === 'directory-projects' && value.handle ? { ...value, handle: { kind: 'directory', name: value.handle.name, __testOpfs: value.handle.name } } : value, ...args); };
-      IDBObjectStore.prototype.getAll = function (...args) { const request = getAll.apply(this, args); if (this.name === 'directory-projects') request.addEventListener('success', () => { const result = request.result.map(record => record.handle?.__testOpfs ? { ...record, handle: reference(record.handle.__testOpfs) } : record); Object.defineProperty(request, 'result', { value: result }); }); return request; };
-    }
-    if (typeof FileSystemFileHandle === 'undefined') return;
-    const createWritable = FileSystemFileHandle.prototype.createWritable;
-    FileSystemFileHandle.prototype.createWritable = async function (...args) {
-      const writer = await createWritable.apply(this, args), name = this.name;
-      return { async write(value) { if (name === 'index.tpl' && window.__holdTransferWrite) { window.__holdTransferWrite = false; window.__writeHeld = true; await new Promise(done => { window.__releaseTransferWrite = done; }); } return writer.write(value); }, close: () => writer.close(), abort: reason => writer.abort(reason) };
-    };
-  }, { nativeHandles });
-  page = await context.newPage(); page.setDefaultTimeout(20000); page.on('pageerror', error => report.errors.push(error.message));
-  await page.goto(origin); await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
-  await page.evaluate(async ({ fixture, document }) => {
-    const open = (name, initialize) => new Promise((done, reject) => { const request = indexedDB.open(name, 1); request.onupgradeneeded = () => initialize?.(request.result); request.onsuccess = () => done(request.result); request.onerror = () => reject(request.error); });
-    const write = (db, stores, callback) => new Promise((done, reject) => { const tx = db.transaction(stores, 'readwrite'); callback(tx); tx.oncomplete = done; tx.onabort = () => reject(tx.error); });
-    fixture.files['assets/pixel.png'] = new Uint8Array(fixture.files['assets/pixel.png']);
-    const library = await open('trafficops-studio-library'); await write(library, ['projects', 'preferences'], tx => { tx.objectStore('projects').put(fixture); tx.objectStore('preferences').put(fixture.id, 'active-project'); }); library.close();
-    const conversations = await open('trafficops-studio-conversations', db => { db.createObjectStore('documents', { keyPath: 'projectId' }); db.createObjectStore('disk-sync', { keyPath: 'projectId' }); }); await write(conversations, ['documents'], tx => tx.objectStore('documents').put(document)); conversations.close();
-    const target = await (await navigator.storage.getDirectory()).getDirectoryHandle('continuity-folder', { create: true });
-    if (await target.queryPermission({ mode: 'readwrite' }) !== 'granted') throw new Error('Native OPFS handle permission must be granted.');
-  }, { fixture: { ...fixture, files: { ...fixture.files, 'assets/pixel.png': Array.from(fixture.files['assets/pixel.png']) } }, document });
-  await page.reload(); await page.getByRole('tab', { name: 'Content', exact: true }).click(); await page.getByLabel('Page title', { exact: false }).waitFor();
+  const context = await browser.newContext({ viewport: { width: 1500, height: 1000 } });
+  await installFolderPicker(context);
+  page = await context.newPage();
+  const errors = [];
+  await page.route('https://openrouter.ai/**', route => route.abort());
+  page.on('pageerror', error => errors.push(error.message));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  await page.goto(url);
+  // Projects with conversations open on the AI tab; the checks read the Content form.
+  const editorWithContent = async () => { await editorReady(page); await page.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click(); };
+  const newBlank = async name => {
+    await page.getByRole('button', { name: 'New project', exact: true }).first().click();
+    const dialog = page.getByRole('dialog', { name: 'New project' });
+    await dialog.getByRole('button', { name: 'From scratch', exact: true }).click();
+    await dialog.getByRole('textbox', { name: 'Project name', exact: true }).fill(name);
+    await dialog.getByRole('button', { name: 'Create landing', exact: true }).click();
+  };
+
+  // Folder mode in a plain tab: Open folder is offered, nothing is listed yet.
+  await page.getByRole('button', { name: 'Open folder', exact: true }).waitFor();
+
+  // Cancel: the dialog and its input stay, nothing is written.
+  await usePicker(page, '!abort');
+  await newBlank('Smoke project');
+  await page.waitForFunction(() => window.__pickerCalls === 1);
+  const dialog = page.getByRole('dialog', { name: 'New project' });
+  await dialog.getByRole('button', { name: 'Create landing', exact: true }).waitFor();
+  assert.equal(await dialog.getByRole('textbox', { name: 'Project name', exact: true }).inputValue(), 'Smoke project');
+  assert.equal(await page.getByRole('alert').count(), 0, 'a cancelled picker is not an error');
+  assert.equal(await listOpfs(page, 'picker'), null, 'a cancelled picker writes nothing');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+  // Empty folder: a blank project is created in it and the editor mounts.
+  await usePicker(page, 'smoke-1');
+  await newBlank('Smoke project');
+  await editorWithContent();
+  const meta = await metaOf(page, 'picker/smoke-1');
+  assert.equal(meta.name, 'Smoke project');
+  assert.equal(meta.kind, 'landing');
+  assert.match(await readOpfs(page, 'picker/smoke-1/index.tpl'), /@template "Untitled project"/);
+  assert.equal((await listOpfs(page, 'projects'))?.length ?? 0, 0, 'folder mode never creates OPFS project roots');
+  await page.getByText('Saved to folder smoke-1').first().waitFor();
+
+  // An edit autosaves into the folder.
+  await page.locator('#setting-title').fill('Hello from the smoke test');
+  await until(async () => JSON.parse(await readOpfs(page, 'picker/smoke-1/.trafficops/values.json') || '{}').title === 'Hello from the smoke test', 'the edit autosaves to values.json');
+  // project.json records the save after the content is written.
+  await until(async () => (await metaOf(page, 'picker/smoke-1')).contentRevision >= 1, 'contentRevision is recorded');
+
+  // Reload: the last project reopens without a prompt (its access is granted) and shows the saved value.
+  await page.reload();
+  await editorWithContent();
+  assert.equal(await page.locator('#setting-title').inputValue(), 'Hello from the smoke test');
+
+  // The library lists it; opening the card reopens it.
+  await openProject(page, 'Smoke project');
+  await page.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click();
+  assert.equal(await page.locator('#setting-title').inputValue(), 'Hello from the smoke test');
+  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+
+  // A folder that already holds a project: the choice opens it instead of overwriting it.
+  await usePicker(page, 'smoke-1');
+  await newBlank('Another project');
+  const existing = page.getByRole('dialog', { name: '“smoke-1” already holds a project' });
+  await existing.getByRole('button', { name: 'Open Smoke project', exact: true }).click();
+  await editorWithContent();
+  assert.equal(await page.locator('#setting-title').inputValue(), 'Hello from the smoke test');
+  assert.equal((await metaOf(page, 'picker/smoke-1')).projectId, meta.projectId, 'the existing project is never overwritten');
+  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+
+  // A folder with other files: create a subfolder named after the project.
+  await writeOpfs(page, 'picker/busy/notes.txt', 'keep me');
+  await usePicker(page, 'busy');
+  await newBlank('Second project');
+  const files = page.getByRole('dialog', { name: '“busy” already has files' });
+  await files.getByRole('button', { name: 'Create subfolder second-project', exact: true }).click();
+  await editorWithContent();
+  assert.deepEqual(await listOpfs(page, 'picker/busy'), ['notes.txt', 'second-project']);
+  assert.equal((await metaOf(page, 'picker/busy/second-project')).name, 'Second project');
+  assert.equal(await readOpfs(page, 'picker/busy/notes.txt'), 'keep me');
+
+  // Open folder: a Finder copy of a known project is offered "Make independent", which gives it its own projectId.
+  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+  await copyFolder(page, 'smoke-1', 'smoke-copy');
+  await usePicker(page, 'smoke-copy');
+  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  const duplicate = page.getByRole('dialog', { name: 'This folder is a copy of Smoke project' });
+  await duplicate.getByRole('button', { name: 'Make independent', exact: true }).click();
+  await editorWithContent();
+  const copyMeta = await metaOf(page, 'picker/smoke-copy');
+  assert.notEqual(copyMeta.projectId, meta.projectId);
+  assert.equal((await metaOf(page, 'picker/smoke-1')).projectId, meta.projectId);
+  // Open folder on plain files adopts them in place: only .trafficops/ is added.
+  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+  await writeOpfs(page, 'picker/plain/index.html', '<!doctype html><title>Plain</title><h1>Plain</h1>');
+  await usePicker(page, 'plain');
+  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  await editorReady(page);
+  assert.deepEqual(await listOpfs(page, 'picker/plain'), ['.trafficops', 'index.html']);
+  assert.equal((await metaOf(page, 'picker/plain')).name, 'plain');
+  assert.equal(await readOpfs(page, 'picker/plain/index.html'), '<!doctype html><title>Plain</title><h1>Plain</h1>', 'adopting never rewrites the files');
+  // Switcher: opening a project whose folder is gone shows the reason in the editor; the open project stays.
+  await removeFolder(page, 'busy/second-project');
+  await page.getByRole('button', { name: 'Switch project', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Second project' }).click();
+  await page.getByRole('alert').filter({ hasText: 'Could not open “Second project”' }).waitFor();
+  await page.getByText('Saved to folder plain').first().waitFor();
+  assert.deepEqual(await listOpfs(page, 'picker/busy'), ['notes.txt']);
+
+  // A seeded folder with binary assets, an empty folder and two dialogues: the editor shows its files, and the editable
+  // ZIP keeps its identity, bytes, folders and history.
+  const now = Date.now();
+  const seeded = await seedProjectFolder(page, { name: 'Folder continuity', files: { 'index.tpl': pageSource('Initial title'), 'notes.txt': 'Keep the same project and dialogues.', 'assets/pixel.png': new Uint8Array([0, 1, 255]) }, folders: ['empty', 'assets'], values: { title: 'Device content' },
+    conversations: { threads: [
+      { schema: 1, id: 'thread-alpha', title: 'Plan the page', archived: false, createdAt: now, updatedAt: now, messages: [{ id: 'message-alpha', role: 'user', prompt: 'Keep this conversation in the folder.', createdAt: now }, { id: 'answer-alpha', role: 'assistant', text: 'Saved conversations stay with the same project.', createdAt: now + 1 }], runs: [] },
+      { schema: 1, id: 'thread-beta', title: 'Review typography', archived: true, createdAt: now + 2, updatedAt: now + 2, messages: [{ id: 'message-beta', role: 'user', prompt: 'A second saved conversation.', createdAt: now + 2 }], runs: [] },
+    ] } });
+  await openProject(page, 'Folder continuity');
+  {
+    const chat = studioChat(page); await chat.root.waitFor();
+    if (await chat.threads.isVisible()) await chat.thread('Plan the page').waitFor(); else { const header = chat.root.locator('.studio-chat-header'); await header.getByRole('button', { name: 'Conversations', exact: true }).click(); await header.getByRole('menuitem', { name: 'Plan the page', exact: true }).waitFor(); await page.keyboard.press('Escape'); }
+  }
+  await page.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click();
   assert.equal(await page.getByLabel('Page title', { exact: false }).inputValue(), 'Device content');
-  await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
-  // The saved conversation is listed: in the list column when the chat is wide enough, otherwise in the header menu "Conversations".
-  { const chat = studioChat(page); await chat.root.waitFor(); if (await chat.threads.isVisible()) await chat.thread('Plan the page').waitFor(); else { const header = chat.root.locator('.studio-chat-header'); await header.getByRole('button', { name: 'Conversations', exact: true }).click(); await header.getByRole('menuitem', { name: 'Plan the page', exact: true }).waitFor(); await page.keyboard.press('Escape'); } }
-  await page.evaluate(() => { window.__holdTransferWrite = true; });
-  await page.getByRole('button', { name: 'Save to folder', exact: true }).click();
-  await page.waitForFunction(() => window.__writeHeld === true);
-  await page.evaluate(() => new Promise((done, reject) => {
-    const request = indexedDB.open('trafficops-studio-conversations', 1); request.onerror = () => reject(request.error); request.onsuccess = () => { const db = request.result, tx = db.transaction('documents', 'readwrite'), store = tx.objectStore('documents'), get = store.get('folder-continuity-project'); get.onsuccess = () => { const document = get.result; document.revision++; document.threads[1].messages.push({ id: 'message-during-transfer', role: 'assistant', text: 'A checkpoint completed during transfer.', createdAt: Date.now() }); store.put(document); }; tx.oncomplete = () => { db.close(); done(); }; tx.onabort = () => { db.close(); reject(tx.error); }; };
-  }));
-  await page.evaluate(() => window.__releaseTransferWrite());
-  await poll(async () => ({ storage: await readStorage(), folder: await readFolder('continuity-folder') }), value => value.storage.bindings.some(binding => binding.id === fixture.id) && value.folder.metadata?.projectId === fixture.id, 'transfer preserves the logical project ID');
-  await page.getByText('Folder: continuity-folder', { exact: false }).first().waitFor();
-  let storage = await readStorage(), folder = await readFolder('continuity-folder');
-  assert.equal(storage.records.length, 1); assert.equal(storage.records[0].id, fixture.id); assert.equal(storage.bindings.length, 1); assert.equal(storage.bindings[0].projectId, fixture.id); assert.equal(storage.bindings[0].kind, 'directory');
-  assert.equal(folder.files['index.tpl'], source); assert.deepEqual(folder.files['assets/pixel.png'], [0, 1, 255]); assert.ok(folder.entries.includes('empty'));
-  assert.equal(folder.metadata.kind, 'landing'); assert.equal(folder.metadata.name, fixture.name); assert.deepEqual(folder.metadata.appliedAiRuns, ['already-applied-run']); assert.deepEqual(folder.conversations.threads.map(thread => thread.id), ['thread-alpha', 'thread-beta']);
-  folder = await poll(() => readFolder('continuity-folder'), value => value.conversations?.threads[1].messages.some(message => message.id === 'message-during-transfer'), 'latest history is mirrored after rebinding during a transfer');
-  assert.equal(folder.conversations.revision, 2);
-  report.checks.push('device project transfers to native OPFS without duplicate project, with bytes, empty folders, metadata, applied markers and history');
-  await page.reload(); await page.getByText('Folder: continuity-folder', { exact: false }).first().waitFor(); await page.getByRole('tab', { name: 'Content', exact: true }).click(); await page.getByLabel('Page title', { exact: false }).waitFor();
-  assert.equal(await page.getByLabel('Page title', { exact: false }).inputValue(), 'Device content');
-  await page.getByLabel('Page title', { exact: false }).fill('Folder content after reload');
-  await poll(async () => ({ storage: await readStorage(), folder: await readFolder('continuity-folder') }), value => value.storage.records[0]?.settings.title === 'Folder content after reload' && JSON.parse(value.folder.files['.trafficops/values.json'] || '{}').title === 'Folder content after reload', 'folder autosave also updates the same cache record');
-  await page.reload(); await page.getByRole('tab', { name: 'Content', exact: true }).click(); await page.getByLabel('Page title', { exact: false }).waitFor(); assert.equal(await page.getByLabel('Page title', { exact: false }).inputValue(), 'Folder content after reload');
-  await page.getByRole('button', { name: 'Projects', exact: true }).click(); await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor(); assert.equal(await page.locator('.library-grid:not(.starter-grid) .library-card').count(), 1);
-  report.checks.push(`${nativeHandles ? 'native handle survives IndexedDB cloning' : 'OPFS handle restores through the name-reference bridge'} and reload; folder changes update one gallery/cache record`);
-  await page.evaluate(async () => {
-    const root = await navigator.storage.getDirectory(), source = await root.getDirectoryHandle('continuity-folder'), target = await root.getDirectoryHandle('alternate-folder', { create: true });
-    async function copy(from, to) { for await (const entry of from.values()) { if (entry.kind === 'directory') await copy(entry, await to.getDirectoryHandle(entry.name, { create: true })); else { const writer = await (await to.getFileHandle(entry.name, { create: true })).createWritable(); await writer.write(await entry.getFile()); await writer.close(); } } }
-    await copy(source, target);
-  });
-  await chooseFolder('alternate-folder'); await page.getByRole('button', { name: 'Open folder', exact: true }).click();
-  const review = page.getByRole('dialog', { name: 'Continue this project or create a copy?', exact: true }); await review.waitFor(); await review.getByRole('button', { name: 'Cancel', exact: true }).click();
-  assert.equal((await readStorage()).bindings[0].name, 'continuity-folder', 'Cancelling a same-ID alternate folder must retain the existing durable binding');
-  report.checks.push('cancel alternate same-ID folder leaves the existing binding untouched');
-  await chooseFolder('untouched-empty-folder'); await page.getByRole('button', { name: 'Open folder', exact: true }).click();
-  await page.getByText('Folder: untouched-empty-folder', { exact: false }).first().waitFor(); await page.getByRole('button', { name: 'Save draft', exact: true }).waitFor();
-  await delay(700); assert.deepEqual((await readFolder('untouched-empty-folder')).entries, [], 'Opening an empty folder must not write starter files or assistant sidecars');
-  storage = await readStorage(); assert.equal(storage.records.length, 2); const emptyRecord = storage.records.find(record => record.id !== fixture.id); assert.ok(emptyRecord);
-  await page.getByRole('button', { name: 'Save draft', exact: true }).click();
-  folder = await poll(() => readFolder('untouched-empty-folder'), value => value.metadata?.projectId === emptyRecord.id && Object.hasOwn(value.files, 'index.tpl'), 'explicit Save writes the in-memory starter');
-  assert.ok(folder.files['index.tpl'].length); assert.equal((await readStorage()).records.length, 2);
-  await page.reload(); await page.getByText('Folder: untouched-empty-folder', { exact: false }).first().waitFor(); assert.equal((await readStorage()).records.length, 2);
-  report.checks.push('empty folder remains unchanged until explicit Save; saved starter retains its ID after reload');
-  await page.getByLabel('Switch project', { exact: true }).selectOption(fixture.id); await page.getByText('Folder: continuity-folder', { exact: false }).first().waitFor();
-  await chooseFolder('race-transfer-folder'); await page.evaluate(() => { window.__writeHeld = false; window.__holdTransferWrite = true; }); await page.getByRole('button', { name: 'Save to folder', exact: true }).click(); await page.waitForFunction(() => window.__writeHeld === true);
-  await page.evaluate(() => new Promise((done, reject) => {
-    const request = indexedDB.open('trafficops-studio-library', 1); request.onerror = () => reject(request.error); request.onsuccess = () => { const db = request.result, tx = db.transaction('projects', 'readwrite'), store = tx.objectStore('projects'), get = store.get('folder-continuity-project'); get.onsuccess = () => { const record = get.result; record.revision++; record.contentRevision++; record.updatedAt = Date.now(); record.settings.title = 'Changed by another window during copy'; store.put(record); }; tx.oncomplete = () => { db.close(); done(); }; tx.onabort = () => { db.close(); reject(tx.error); }; };
-  }));
-  await page.evaluate(() => window.__releaseTransferWrite()); await page.getByRole('alert').filter({ hasText: 'changed in another window during transfer' }).waitFor();
-  storage = await readStorage(); assert.equal(storage.bindings.find(binding => binding.id === fixture.id).name, 'continuity-folder'); assert.equal(storage.records.find(record => record.id === fixture.id).settings.title, 'Changed by another window during copy'); assert.equal(storage.records.length, 2);
-  report.checks.push('concurrent device save during copying retains the newer cache and original binding, with a visible transfer conflict');
-  await page.getByRole('button', { name: 'Dismiss', exact: true }).click();
-  await page.getByRole('button', { name: 'Export', exact: true }).click(); await page.getByRole('menuitem', { name: /Editable project/ }).click();
-  const exportDialog = page.getByRole('dialog', { name: 'Export', exact: true }); await exportDialog.waitFor(); const downloadReady = page.waitForEvent('download'); await exportDialog.getByRole('button', { name: 'Download', exact: true }).click(); const download = await downloadReady, bytes = await readFile(await download.path()), imported = readZipProject(new Uint8Array(bytes));
-  assert.equal(imported.metadata.projectId, fixture.id); assert.equal(imported.conversations.projectId, fixture.id); assert.equal(imported.conversations.threads.length, 2);
-  await page.getByLabel('Import project ZIP', { exact: true }).setInputFiles({ name: 'same-project-source.zip', mimeType: 'application/zip', buffer: bytes });
-  const importDialog = page.getByRole('dialog', { name: 'Continue this project or create a copy?', exact: true }); await importDialog.waitFor(); await importDialog.getByText(/changed content values/).waitFor(); await importDialog.getByRole('button', { name: 'Continue project', exact: true }).click();
-  await page.getByText('Saved on this device', { exact: false }).first().waitFor();
-  storage = await readStorage(); assert.equal(storage.records.length, 2); assert.equal(storage.records.filter(record => record.id === fixture.id).length, 1); assert.equal(storage.bindings.some(binding => binding.id === fixture.id), false); assert.equal(storage.histories.find(document => document.projectId === fixture.id).threads.length, 2); assert.equal(storage.histories.find(document => document.projectId === fixture.id).threads[1].messages.length, 2);
-  await page.reload(); await page.getByRole('tab', { name: 'Content', exact: true }).click(); await page.getByLabel('Page title', { exact: false }).waitFor(); assert.equal(await page.getByLabel('Page title', { exact: false }).inputValue(), 'Folder content after reload'); assert.equal((await readStorage()).records.length, 2);
-  report.checks.push('source ZIP preserves identity/history; explicit same-ID Continue updates the device copy, removes the old writable binding and avoids duplicate messages/projects');
-  assert.equal(report.paidRequests, 0); assert.deepEqual(report.errors, []);
-  console.log(JSON.stringify(report, null, 2));
+  await page.locator('.file-sidebar').getByText('notes.txt', { exact: true }).waitFor();
+  await page.locator('.hosted-more > summary').click();
+  await page.getByRole('button', { name: 'Download project', exact: true }).click();
+  {
+    const exportDialog = page.getByRole('dialog', { name: 'Export', exact: true });
+    await exportDialog.getByRole('combobox', { name: 'Export destination', exact: true }).selectOption('source');
+    const downloading = page.waitForEvent('download');
+    await exportDialog.getByRole('button', { name: 'Download', exact: true }).click();
+    const archive = readZipProject(new Uint8Array(await readFile(await (await downloading).path())), { history: true });
+    assert.equal(archive.metadata.projectId, seeded.projectId);
+    assert.deepEqual([...archive.files['assets/pixel.png']], [0, 1, 255]);
+    assert.ok(archive.folders.includes('empty'), 'empty folders are kept');
+    assert.equal(archive.settings.title, 'Device content');
+    const threads = archive.conversationFiles?.threads || archive.conversations?.threads || [];
+    assert.deepEqual(threads.map(thread => thread.id).sort(), ['thread-alpha', 'thread-beta']);
+  }
+  assert.deepEqual(await listOpfs(page, `${seeded.folder}/assets`), ['pixel.png']);
+  assert.deepEqual(await listOpfs(page, `${seeded.folder}/empty`), [], 'the empty folder stays on disk');
+
+  // Every opened folder is listed after a reload: the original and its independent copy, the adopted and the seeded
+  // project.
+  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+  await page.reload();
+  await page.getByRole('button', { name: 'Open Second project', exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Open Smoke project', exact: true }).count(), 2);
+  await page.getByRole('button', { name: 'Open plain', exact: true }).waitFor();
+  // A listed folder that was deleted: opening it marks the card "Folder unavailable"; Remove from list forgets it and
+  // leaves the disk alone.
+  await removeFolder(page, 'plain');
+  await page.getByRole('button', { name: 'Open plain', exact: true }).click();
+  await page.getByText('Folder unavailable', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Reconnect plain', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Remove plain from list', exact: true }).click();
+  await until(async () => await page.getByRole('button', { name: 'Open plain', exact: true }).count() === 0, 'the card is removed');
+  await page.reload();
+  await page.getByRole('button', { name: 'Open Second project', exact: true }).waitFor();
+  assert.equal(await page.getByRole('button', { name: 'Open plain', exact: true }).count(), 0);
+  assert.deepEqual(errors, []);
+  await context.close();
+
+  // AI create, templates, copies, import and duplicate in the installed presentation (its toolbar holds the lifecycle
+  // actions), with a mocked provider.
+  {
+    const context = await browser.newContext({ viewport: { width: 1500, height: 1000 } }), provider = { requests: 0 }, confirms = [];
+    await installFolderPicker(context);
+    await context.addInitScript(() => Object.defineProperty(navigator, 'standalone', { configurable: true, value: true }));
+    await mockProvider(context, url, provider);
+    const app = page = await context.newPage();
+    app.on('pageerror', error => errors.push(error.message));
+    app.on('dialog', dialog => { confirms.push(dialog.message()); dialog.accept(); });
+    await app.goto(url);
+    const contentTab = () => app.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click();
+    const projects = async () => { await app.getByRole('button', { name: 'Projects', exact: true }).click(); await app.locator('.library-tools button:not([disabled])', { hasText: 'Import ZIP' }).waitFor(); };
+    await configureAi(app);
+
+    // AI create from the home brief with an image: the picker opens in the submit, the attachments are read after it,
+    // pendingAi is stored with the attachment blob, claimed exactly once, and the run starts.
+    await usePicker(app, 'ai-1');
+    const home = app.locator('.home-project-chat'), composer = home.locator('[data-testid="studio-chat-composer"]');
+    await composer.getByRole('textbox', { name: 'Message to assistant', exact: true }).fill('Build a calm smoke-test launch page.');
+    await composer.locator('input[type=file]').setInputFiles({ name: 'hero.png', mimeType: 'image/png', buffer: png });
+    await composer.locator('.studio-chip-attachment', { hasText: 'hero.png' }).waitFor();
+    await composer.getByRole('checkbox', { name: 'Use attached images on the page', exact: true }).check();
+    await composer.locator('button[type=submit]').click();
+    const chat = studioChat(app);
+    await chat.root.waitFor({ timeout: 20000 });
+    await chat.user.getByText('Build a calm smoke-test launch page.', { exact: true }).waitFor();
+    await chat.status('ready').waitFor({ timeout: 20000 });
+    assert.equal(provider.requests, 2, 'the kickoff run is one agent loop');
+    const aiMeta = await metaOf(app, 'picker/ai-1');
+    assert.equal(aiMeta.pendingAi, undefined, 'the brief is claimed');
+    assert.equal(aiMeta.name, 'Build a calm smoke-test launch page.');
+    assert.equal((await listOpfs(app, 'picker/ai-1/.trafficops/conversations/blobs')).length >= 1, true, 'the attachment is stored as a blob');
+    assert.equal((await listOpfs(app, 'picker/ai-1/.trafficops/conversations')).filter(name => name.endsWith('.json')).length, 1);
+    await chat.apply.click(); await chat.status('applied').waitFor();
+    await app.reload(); await chat.root.waitFor({ timeout: 20000 }); await chat.status('applied').waitFor();
+    await app.waitForTimeout(1000);
+    assert.equal(provider.requests, 2, 'reopening never restarts a claimed brief');
+
+    // Save as template: the dialog's submit opens the picker for the template's folder (D4).
+    await usePicker(app, 'tpl-1');
+    await app.locator('.studio-toolbar').getByRole('button', { name: 'Save as template', exact: true }).click();
+    const save = app.getByRole('dialog').filter({ has: app.getByRole('textbox', { name: 'Template name', exact: true }) });
+    await save.getByRole('textbox', { name: 'Template name', exact: true }).fill('Smoke template');
+    await save.getByRole('button', { name: 'Save as template', exact: true }).click();
+    await until(async () => (await readOpfs(app, 'picker/tpl-1/.trafficops/project.json')) !== null, 'the template is written');
+    const templateMeta = await metaOf(app, 'picker/tpl-1');
+    assert.equal(templateMeta.kind, 'template');
+    assert.match(await readOpfs(app, 'picker/tpl-1/index.tpl'), /Smoke AI launch/);
+    assert.equal(await listOpfs(app, 'picker/tpl-1/.trafficops/conversations'), null, 'a template carries no history');
+    assert.equal((await metaOf(app, 'picker/ai-1')).kind, 'landing', 'the source stays a landing');
+
+    // Export the AI project with its history, for the import checks below.
+    await app.locator('.studio-toolbar').getByRole('button', { name: 'Export', exact: true }).click();
+    await app.getByRole('menuitem', { name: /Editable project/ }).click();
+    const downloading = app.waitForEvent('download');
+    await app.getByRole('dialog', { name: 'Export' }).getByRole('button', { name: 'Download', exact: true }).click();
+    const archivePath = await (await downloading).path();
+
+    // A user template: its card click asks for access and reads it (D2); Create then picks the new folder.
+    await projects();
+    await app.getByRole('button', { name: 'Use template Smoke template', exact: true }).click();
+    const create = app.getByRole('dialog', { name: 'New project' });
+    await create.getByRole('textbox', { name: 'Project name', exact: true }).fill('From my template');
+    await usePicker(app, 'from-tpl');
+    await create.getByRole('button', { name: 'Create landing', exact: true }).click();
+    await editorReady(app);
+    const fromTemplate = await metaOf(app, 'picker/from-tpl');
+    assert.equal(fromTemplate.sourceTemplateId, templateMeta.projectId);
+    assert.equal(fromTemplate.kind, 'landing');
+    assert.match(await readOpfs(app, 'picker/from-tpl/index.tpl'), /Smoke AI launch/);
+    // The create dialog lists user templates as buttons; choosing one asks for access in that click and reads it (D2).
+    await app.getByRole('button', { name: 'New project', exact: true }).first().click();
+    const pick = app.getByRole('dialog', { name: 'New project' });
+    await pick.getByRole('button', { name: 'From template', exact: true }).click();
+    await pick.getByRole('group', { name: 'Starting template' }).getByRole('button', { name: /Smoke template/ }).click();
+    await pick.getByText('Creates an independent copy', { exact: false }).waitFor();
+    await pick.getByRole('textbox', { name: 'Project name', exact: true }).fill('Picked template');
+    await usePicker(app, 'from-tpl-2');
+    await pick.getByRole('button', { name: 'Create landing', exact: true }).click();
+    await until(async () => (await readOpfs(app, 'picker/from-tpl-2/.trafficops/project.json')) !== null, 'the project from the chosen template is written');
+    await pick.waitFor({ state: 'detached' }); await editorReady(app);
+    assert.equal((await metaOf(app, 'picker/from-tpl-2')).sourceTemplateId, templateMeta.projectId);
+    await openProject(app, 'From my template');
+
+    // Save a copy…: the folder disappears while open; the copy keeps the unsaved edit and opens.
+    await contentTab();
+    await copyFolder(app, 'from-tpl', 'from-tpl-backup', { remove: true });
+    await app.locator('#setting-title').fill('Rescued edit');
+    await app.getByRole('alert').filter({ hasText: 'Folder unavailable' }).waitFor({ timeout: 10000 });
+    await usePicker(app, 'rescued');
+    await app.getByRole('button', { name: 'Save a copy…', exact: true }).click();
+    await until(async () => (await readOpfs(app, 'picker/rescued/.trafficops/project.json')) !== null, 'the copy is written');
+    await editorReady(app); await contentTab();
+    assert.equal(await app.locator('#setting-title').inputValue(), 'Rescued edit');
+    const rescued = await metaOf(app, 'picker/rescued');
+    assert.equal(rescued.name, 'From my template (copy)');
+    assert.notEqual(rescued.projectId, fromTemplate.projectId);
+    assert.equal(JSON.parse(await readOpfs(app, 'picker/rescued/.trafficops/values.json')).title, 'Rescued edit');
+
+    // Import a ZIP whose projectId Studio knows: a copy under a new id, with the dialogue (D1). The dialog's button
+    // picks the folder (D8).
+    await projects();
+    await usePicker(app, 'imported-copy');
+    await app.locator('input[aria-label="Import project ZIP"]').setInputFiles(archivePath);
+    const importDialog = app.getByRole('dialog', { name: `Import ${aiMeta.name}` });
+    const picksBeforeImport = await app.evaluate(() => window.__pickerCalls || 0);
+    await importDialog.waitFor();
+    assert.equal(await app.evaluate(() => window.__pickerCalls || 0), picksBeforeImport, 'reading the archive opens no picker');
+    await importDialog.getByRole('button', { name: 'Choose folder…', exact: true }).click();
+    await chat.root.waitFor({ timeout: 20000 });
+    await chat.user.getByText('Build a calm smoke-test launch page.', { exact: true }).waitFor();
+    const importedCopy = await metaOf(app, 'picker/imported-copy');
+    assert.notEqual(importedCopy.projectId, aiMeta.projectId);
+    assert.equal(importedCopy.name, `${aiMeta.name} (copy)`);
+
+    // Delete (folder): only the list entry goes; the folder stays on disk. Re-importing then keeps the projectId.
+    await projects();
+    await app.getByRole('button', { name: `Delete ${aiMeta.name}`, exact: true }).click();
+    assert.match(confirms.at(-1), /The folder stays on your disk/);
+    await until(async () => await app.getByRole('button', { name: `Open ${aiMeta.name}`, exact: true }).count() === 0, 'the project leaves the list');
+    assert.notEqual(await readOpfs(app, 'picker/ai-1/.trafficops/project.json'), null);
+    await usePicker(app, 'imported-same');
+    await app.locator('input[aria-label="Import project ZIP"]').setInputFiles(archivePath);
+    await app.getByRole('dialog', { name: `Import ${aiMeta.name}` }).getByRole('button', { name: 'Choose folder…', exact: true }).click();
+    await chat.root.waitFor({ timeout: 20000 });
+    await chat.user.getByText('Build a calm smoke-test launch page.', { exact: true }).waitFor();
+    assert.equal((await metaOf(app, 'picker/imported-same')).projectId, aiMeta.projectId);
+
+    // Duplicate with granted access: one click picks the destination.
+    await projects();
+    await usePicker(app, 'dup-1');
+    await app.getByRole('button', { name: 'Duplicate Smoke template', exact: true }).click();
+    await app.getByRole('button', { name: 'Open Smoke template (copy)', exact: true }).waitFor();
+    const duplicated = await metaOf(app, 'picker/dup-1');
+    assert.equal(duplicated.kind, 'template');
+    assert.notEqual(duplicated.projectId, templateMeta.projectId);
+    // Duplicate without granted access (D8): the first click grants the source, "Choose destination…" picks.
+    await revokeAccess(app, { request: 'granted' });
+    await app.reload();
+    await app.getByText('Needs permission', { exact: true }).first().waitFor();
+    const picksBefore = await app.evaluate(() => window.__pickerCalls || 0);
+    await usePicker(app, 'dup-2');
+    await app.getByRole('button', { name: 'Duplicate From my template (copy)', exact: true }).click();
+    const destination = app.getByRole('dialog', { name: 'Duplicate From my template (copy)' });
+    await destination.waitFor();
+    assert.equal(await app.evaluate(() => window.__pickerCalls || 0), picksBefore, 'the granting click opens no picker');
+    await destination.getByRole('button', { name: 'Choose destination…', exact: true }).click();
+    await until(async () => (await readOpfs(app, 'picker/dup-2/.trafficops/project.json')) !== null, 'the second duplicate is written');
+    assert.equal((await metaOf(app, 'picker/dup-2')).name, 'From my template (copy) (copy)');
+    await context.close();
+  }
+  assert.deepEqual(errors, []);
+
+  // OPFS mode (no folder picker): projects are created under OPFS projects/ and the storage note warns about backups.
+  {
+    const opfsContext = await browser.newContext({ viewport: { width: 1500, height: 1000 } });
+    await opfsContext.addInitScript(() => { delete window.showDirectoryPicker; });
+    const opfsPage = page = await opfsContext.newPage();
+    opfsPage.on('pageerror', error => errors.push(error.message));
+    await opfsPage.goto(url);
+    await opfsPage.getByText('Stored in this browser — export a backup ZIP regularly', { exact: false }).first().waitFor();
+    assert.equal(await opfsPage.getByRole('button', { name: 'Open folder', exact: true }).count(), 0);
+    await opfsPage.getByRole('button', { name: 'New project', exact: true }).first().click();
+    const create = opfsPage.getByRole('dialog', { name: 'New project' });
+    await create.getByRole('button', { name: 'From scratch', exact: true }).click();
+    await create.getByRole('textbox', { name: 'Project name', exact: true }).fill('Browser project');
+    await create.getByRole('button', { name: 'Create landing', exact: true }).click();
+    await editorReady(opfsPage);
+    await opfsPage.getByText('Stored in this browser').first().waitFor();
+    const roots = await listOpfs(opfsPage, 'projects');
+    assert.equal(roots.length, 1);
+    assert.equal((await metaOf(opfsPage, `projects/${roots[0]}`)).name, 'Browser project');
+    // A seeded OPFS project is listed from projects/ without any recent entry.
+    await seedProjectFolder(opfsPage, { name: 'Seeded in browser', opfs: true, values: { title: 'From OPFS' } });
+    await openProject(opfsPage, 'Seeded in browser');
+    await opfsPage.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click();
+    assert.equal(await opfsPage.getByLabel('Page title', { exact: false }).inputValue(), 'From OPFS');
+    await opfsPage.reload();
+    await editorReady(opfsPage);
+    // Delete (OPFS): after confirming, the project's folder is removed from browser storage.
+    const asked = [];
+    let acceptDialogs = true;
+    opfsPage.on('dialog', dialog => { asked.push(dialog.message()); if (acceptDialogs) dialog.accept(); else dialog.dismiss(); });
+    await opfsPage.getByRole('button', { name: 'Projects', exact: true }).click();
+    await opfsPage.getByRole('button', { name: 'Delete Browser project', exact: true }).click();
+    await until(async () => (await listOpfs(opfsPage, 'projects')).length === 1, 'the OPFS root is deleted');
+    assert.match(asked[0], /from this browser\? This cannot be undone/);
+    await opfsPage.getByRole('button', { name: 'Open Seeded in browser', exact: true }).waitFor();
+    // A create that stops before writing removes the OPFS root it made. Here: the open project lost its folder, and
+    // the user refuses to leave its unsaved edits.
+    await openProject(opfsPage, 'Seeded in browser');
+    await opfsPage.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click();
+    await opfsPage.evaluate(async () => { const projects = await (await navigator.storage.getDirectory()).getDirectoryHandle('projects'); for await (const name of projects.keys()) await projects.removeEntry(name, { recursive: true }); });
+    await opfsPage.getByLabel('Page title', { exact: false }).fill('Unsaved');
+    await opfsPage.getByRole('alert').filter({ hasText: 'Folder unavailable' }).waitFor({ timeout: 10000 });
+    await opfsPage.getByRole('button', { name: 'New project', exact: true }).first().click();
+    const refused = opfsPage.getByRole('dialog', { name: 'New project' });
+    await refused.getByRole('button', { name: 'From scratch', exact: true }).click();
+    await refused.getByRole('textbox', { name: 'Project name', exact: true }).fill('Never written');
+    acceptDialogs = false;
+    await refused.getByRole('button', { name: 'Create landing', exact: true }).click();
+    await until(async () => asked.some(message => /Leave the project anyway/.test(message)), 'the leave question');
+    await until(async () => (await listOpfs(opfsPage, 'projects')).length === 0, 'the abandoned OPFS root is removed');
+    acceptDialogs = true;
+    await opfsContext.close();
+  }
+  // Neither folders nor OPFS: the update-your-browser screen.
+  {
+    const bareContext = await browser.newContext();
+    await bareContext.addInitScript(() => { delete window.showDirectoryPicker; Object.defineProperty(StorageManager.prototype, 'getDirectory', { value: undefined }); });
+    const barePage = page = await bareContext.newPage();
+    await barePage.goto(url);
+    await barePage.getByRole('heading', { name: "Studio can't save projects in this browser" }).waitFor();
+    await bareContext.close();
+  }
+  assert.deepEqual(errors, []);
+  console.log('PASS: project folders: create (empty / existing / non-empty / cancel), adopt, Make independent, seeded assets + history ZIP, AI brief claim, Save as template, user template, Save a copy, ZIP import (D1/D8), duplicate (D8), delete, OPFS mode, unsupported screen.');
 } catch (error) {
-  report.failure = error.message;
   if (page && !page.isClosed()) { await page.screenshot({ path: '/tmp/studio-project-folder-failure.png', fullPage: true }).catch(() => {}); console.error((await page.locator('body').innerText().catch(() => '')).slice(0, 5000)); }
   throw error;
-} finally { await browser?.close(); server.closeAllConnections(); await new Promise(done => server.close(done)); await writeFile('/tmp/studio-project-folder-report.json', JSON.stringify(report, null, 2)); }
+} finally {
+  await browser?.close();
+  server.closeAllConnections();
+  await new Promise(done => server.close(done));
+}

@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { join, extname, resolve } from 'node:path';
+import { installFolderPicker, usePicker } from './support/studio-folders.js';
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const { zipSync, strToU8, unzipSync } = require('fflate');
@@ -13,16 +14,19 @@ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 let browser;
 try {
  browser=await chromium.launch({headless:true,...(process.platform==='darwin'?{executablePath:'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'}:{})});
- const page=await browser.newPage({viewport:{width:1600,height:1100}}), errors=[];
+ const context=await browser.newContext({viewport:{width:1600,height:1100}}); await installFolderPicker(context);
+ const page=await context.newPage(), errors=[];
  let blockedProviderCalls=0;
  await page.route('https://openrouter.ai/**',route=>{blockedProviderCalls++;return route.abort();});
  page.on('pageerror',error=>errors.push(error.message));
  await page.goto(`http://127.0.0.1:${server.address().port}`);
- await page.getByRole('button', { name: 'New project', exact: true }).click();
+ await usePicker(page,'browser-test');
+ await page.getByRole('button', { name: 'New project', exact: true }).first().click();
+ await page.getByRole('dialog',{name:'New project'}).getByRole('button',{name:'From template',exact:true}).click();
  await page.getByRole('textbox', { name: 'Project name', exact: true }).fill('Browser test');
  await page.getByRole('button', { name: 'Create landing', exact: true }).click();
  await page.locator('.browser-frame iframe.is-visible').waitFor();
- assert.equal(await page.getByRole('tab',{name:'AI assistant',exact:true}).count(),0);
+ await page.getByRole('tablist',{name:'Authoring mode'}).getByRole('tab',{name:'Content',exact:true}).click();
  // Section tabs flag fields that need attention with a text badge, not a glyph.
  const identity=page.getByRole('tab',{name:/^Identity/});
  assert.equal((await identity.innerText()).includes('\u26a0'),false);
@@ -108,9 +112,11 @@ try {
  // rather than empty parameter controls. Both ZIP formats preserve its assets.
  await page.getByRole('button',{name:'Projects',exact:true}).click();
  const staticHtml='<!doctype html><html lang="pl"><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="styles.css"></head><body><h1>Statyczna strona GEO</h1><a href="#offer">Oferta</a><section id="offer">Przykład</section></body></html>';
+ await usePicker(page,'static-traffic-page');
  const importChooser=page.waitForEvent('filechooser');
  await page.getByRole('button',{name:'Import ZIP',exact:true}).click();
  await(await importChooser).setFiles({name:'Static-traffic-page.zip',mimeType:'application/zip',buffer:Buffer.from(zipSync({'index.html':strToU8(staticHtml),'styles.css':strToU8('body { margin: 0; padding: 24px; }')}))});
+ await page.getByRole('dialog',{name:'Import Static-traffic-page'}).getByRole('button',{name:'Import as landing',exact:true}).click();
  await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading',{name:'Statyczna strona GEO',exact:true}).waitFor();
  await page.getByRole('tab',{name:'Content',exact:true}).click();
  await page.getByText('This project has no editable fields.',{exact:true}).waitFor();
@@ -133,10 +139,12 @@ try {
  assert.match(new TextDecoder().decode(htmlFiles['index.html']),/Statyczna strona GEO/);assert.ok(htmlFiles['styles.css']);
  // Coarse pointers get 44px targets on raw daisy .btn-sm / .btn-square controls too.
  {
-  const touch=await browser.newContext({viewport:{width:900,height:1000},hasTouch:true,isMobile:true}), tp=await touch.newPage();
+  const touch=await browser.newContext({viewport:{width:900,height:1000},hasTouch:true,isMobile:true}); await installFolderPicker(touch); const tp=await touch.newPage();
   assert.equal(await tp.evaluate(()=>matchMedia('(pointer: coarse)').matches),true);
   await tp.goto(`http://127.0.0.1:${server.address().port}`);
-  await tp.getByRole('button',{name:'New project',exact:true}).click();
+  await tp.evaluate(()=>localStorage.setItem('test-folder-picker','touch-test'));
+  await tp.getByRole('button',{name:'New project',exact:true}).first().click();
+  await tp.getByRole('dialog',{name:'New project'}).getByRole('button',{name:'From template',exact:true}).click();
   await tp.getByRole('textbox',{name:'Project name',exact:true}).fill('Touch test');
   await tp.getByRole('button',{name:'Create landing',exact:true}).click();
   await tp.locator('.editor-shell').waitFor();
@@ -148,5 +156,5 @@ try {
  }
  assert.equal(blockedProviderCalls,0,'opening the AI assistant never starts a paid request');
  assert.deepEqual(errors,[]);
- console.log('PASS: browser overlay/focus, permanent PWA workspace and settings, mobile preview, static HTML import→Files/conversations without paid calls, editable backup and hosting ZIP assets.');
+ console.log('PASS: folder-first create; browser overlay/focus, permanent PWA workspace and settings, mobile preview, static HTML import→Files/conversations without paid calls, editable backup and hosting ZIP assets.');
 } catch(error) { const failed=browser?.contexts()[0]?.pages()[0]; await failed?.screenshot({path:'/tmp/studio-import-export-ui-error.png'}).catch(()=>{}); if(failed)console.error((await failed.locator('body').innerText()).slice(-3500));throw error; } finally {await browser?.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}
