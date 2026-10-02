@@ -186,6 +186,24 @@
 .studio-card-check { display: flex; align-items: center; gap: var(--ui-space-2); font-size: var(--ui-text-xs); }
 .studio-card-check input { accent-color: var(--ui-accent); }
 
+/* chat: message actions (Copy, Regenerate, Edit, branch picker). Hidden until the message is hovered or holds focus, so
+   Tab reaches them; always visible on the last message, with a branch picker, after Copy and on touch screens. */
+.studio-chat-message-actions { display: flex; align-items: center; gap: 2px; min-height: 32px; opacity: 0; transition: opacity var(--ui-motion-fast) var(--ui-ease); }
+.studio-chat-message:hover .studio-chat-message-actions, .studio-chat-message:focus-within .studio-chat-message-actions, .studio-chat-message-actions[data-last], .studio-chat-message-actions:has(.studio-chat-branch, [data-copied]) { opacity: 1; }
+@media (hover: none) { .studio-chat-message-actions { opacity: 1; } }
+.studio-chat-message-action { display: inline-grid; place-items: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: var(--ui-radius-md); background: transparent; color: var(--ui-muted); cursor: pointer; }
+.studio-chat-message-action:hover:not(:disabled) { color: var(--ui-text); background: var(--ui-surface-raised); }
+.studio-chat-message-action:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; }
+.studio-chat-message-action:disabled { cursor: default; opacity: .45; }
+.studio-chat-message-action[data-copied] { color: var(--ui-success); }
+.studio-chat-branch { display: inline-flex; align-items: center; }
+.studio-chat-branch-count { min-width: 2.5em; color: var(--ui-muted); font-size: var(--ui-text-xs); line-height: var(--ui-text-xs--line-height); font-variant-numeric: tabular-nums; text-align: center; }
+.studio-chat-edit { display: grid; gap: var(--ui-space-2); width: min(36rem, 100%); padding: var(--ui-space-2) var(--ui-space-3); border: 1px solid var(--ui-border-strong); border-radius: var(--ui-radius-lg); background: var(--ui-surface); }
+.studio-chat-edit-input { display: block; width: 100%; min-height: 2.5rem; padding: var(--ui-space-1) 0; border: 0; background: transparent; color: var(--ui-text); font: inherit; font-size: var(--ui-text-sm); line-height: var(--ui-text-sm--line-height); resize: none; }
+.studio-chat-edit-input:focus { outline: none; }
+.studio-chat-edit:focus-within { border-color: var(--ui-focus); }
+.studio-chat-edit-actions { display: flex; justify-content: flex-end; gap: var(--ui-space-2); }
+
 /* chat: agent step (StepCard) — one compact line, not a framed card */
 .studio-step { display: flex; align-items: baseline; gap: var(--ui-space-2); min-width: 0; color: var(--ui-text); font-size: var(--ui-text-xs); line-height: var(--ui-text-xs--line-height); }
 .studio-step-icon { flex: none; align-self: center; color: var(--ui-muted); }
@@ -306,7 +324,7 @@
 /* Hit targets (spec 5.1): at least 32 px, 44 px on touch screens. */
 @media (pointer: coarse) {
   .studio-chat-scope button, .studio-chat-run-stop, .studio-card-action, .studio-card-link, .studio-chat-composer-dismiss, .studio-chat-threads-archive, .studio-chat-threads-open { min-height: 44px; min-width: 44px; }
-  .studio-chat-scope .studio-chat-scope-remove, .studio-chat-header-button, .studio-chat-threads-more, .studio-chat-scroll-bottom { width: 44px; height: 44px; min-height: 44px; }
+  .studio-chat-scope .studio-chat-scope-remove, .studio-chat-header-button, .studio-chat-threads-more, .studio-chat-scroll-bottom, .studio-chat-message-action { width: 44px; height: 44px; min-height: 44px; }
   .studio-chip-main { min-height: 44px; min-width: 44px; margin-block: -12px; }
   .studio-chip-remove { width: 44px; height: 44px; margin: -12px -10px -12px -12px; }
 }

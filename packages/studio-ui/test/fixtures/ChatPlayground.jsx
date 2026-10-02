@@ -6,11 +6,13 @@ import { createFakeChatPort } from './FakeChatPort.js';
 // StudioChat on FakeChatPort for test/chat-browser.mjs. Deliberately without ToastProvider: StudioChat must not need it.
 // Test handles: window.fake (the port), window.threadId / window.setThreadId, window.setTheme(name), window.launch(launch),
 // window.actionCalls — texts passed to the header action, window.scopes — scopes reported by onScopeChange, window.standaloneSubmit — onSubmit of the standalone composer.
-// ?clarify=1 turns on capabilities.clarifyWhileRunning, ?discardStopped=1 — capabilities.discardStopped; ?scopes=project,file overrides capabilities.scopes.
+// ?clarify=1 turns on capabilities.clarifyWhileRunning, ?discardStopped=1 — capabilities.discardStopped; ?scopes=project,file overrides capabilities.scopes;
+// ?noBranching=1 removes regenerate, editMessage and switchBranch from the port.
 const port = createFakeChatPort();
 const query = new URLSearchParams(location.search);
 if (query.has('clarify')) port.capabilities = { ...port.capabilities, clarifyWhileRunning: true };
 if (query.has('discardStopped')) port.capabilities = { ...port.capabilities, discardStopped: true };
+if (query.has('noBranching')) { delete port.regenerate; delete port.editMessage; delete port.switchBranch; }
 if (query.get('scopes')) port.capabilities = { ...port.capabilities, scopes: query.get('scopes').split(',') };
 window.fake = port;
 window.actionCalls = [];

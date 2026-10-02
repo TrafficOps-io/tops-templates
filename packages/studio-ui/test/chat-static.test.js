@@ -77,11 +77,24 @@ test('StudioChat and RunActions carry their test hooks', () => {
   assert.ok(actions.includes('canDiscardRun(port, run.status, hasDrafts)'), 'Discard follows canDiscardRun');
   assert.ok(read('Messages.jsx').includes('hasDraftCards(state.message.content)'), 'AssistantMessage passes hasDrafts');
   assert.ok(/onScopeChange\?\.\(next\)/.test(chat) && chat.includes('onScopeChange={changeScope}') && chat.includes('changeScope(launch.scope'), 'StudioChat reports scope changes, launches included');
-  for (const id of ['studio-chat-apply', 'studio-chat-discard', 'studio-chat-keep-draft', 'studio-chat-continue']) assert.ok(actions.includes(`data-testid="${id}"`), id);
+  for (const id of ['studio-chat-apply', 'studio-chat-discard', 'studio-chat-keep-draft', 'studio-chat-continue', 'studio-chat-retry']) assert.ok(actions.includes(`data-testid="${id}"`), id);
+  assert.ok(actions.includes('canRetryRun(port, run.status)'), 'Retry follows canRetryRun');
+});
+
+test('message actions: assistant-ui action bar hidden while running, edit composer, custom branch picker', () => {
+  const source = read('MessageActions.jsx');
+  const used = imports(source, '@assistant-ui/react');
+  for (const name of ['ActionBarPrimitive', 'ComposerPrimitive', 'useAuiState']) assert.ok(used.includes(name), name);
+  assert.ok(!used.includes('BranchPickerPrimitive'), 'the external store holds a linear path: the branch picker is ours');
+  for (const token of ['hideWhenRunning', 'ActionBarPrimitive.Copy', 'ActionBarPrimitive.Reload', 'ActionBarPrimitive.Edit', 'ComposerPrimitive.Input', 'ComposerPrimitive.Cancel', 'ComposerPrimitive.Send', 'port.switchBranch(chat.threadId', 'canSwitchBranch(', 'canEdit(', 'canRegenerate(']) assert.ok(source.includes(token), token);
+  const messages = read('Messages.jsx');
+  for (const token of ['<UserActions />', '<AssistantActions />', '<EditComposer />', 'state.composer.isEditing']) assert.ok(messages.includes(token), token);
+  const runtime = read('useChatRuntime.js');
+  for (const token of ['onEdit', 'onReload', 'canEdit(port)', 'canRegenerate(port)', 'resolveReloadTarget(', 'resolveEdit(']) assert.ok(runtime.includes(token), token);
 });
 
 test('the package exposes exactly the documented data-testid hooks', () => {
-  const expected = ['studio-chat', 'studio-chat-apply', 'studio-chat-card', 'studio-chat-composer', 'studio-chat-continue', 'studio-chat-discard', 'studio-chat-feed', 'studio-chat-keep-draft', 'studio-chat-threads'];
+  const expected = ['studio-chat', 'studio-chat-apply', 'studio-chat-card', 'studio-chat-composer', 'studio-chat-continue', 'studio-chat-discard', 'studio-chat-feed', 'studio-chat-keep-draft', 'studio-chat-retry', 'studio-chat-threads'];
   const found = new Set();
   for (const { source } of sourceFiles(new URL('../src/', import.meta.url))) {
     walk(ast(source), node => {

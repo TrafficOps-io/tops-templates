@@ -26,6 +26,7 @@ const css = ['../../studio-tokens/tokens.css', '../styles.css'].map(file => read
 const html = `<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;font-family:system-ui,sans-serif}${themeCss}\n${css}</style></head><body><div id="root"></div><script src="/chat.js"></script></body></html>`;
 const server = createServer((request, response) => {
   if (request.url === '/chat.js') { response.writeHead(200, { 'Content-Type': 'text/javascript' }); response.end(script); }
+  else if (request.url === '/favicon.ico') { response.writeHead(204); response.end(); }
   else if (request.url.split('?')[0] === '/') { response.writeHead(200, { 'Content-Type': 'text/html' }); response.end(html); }
   else { response.writeHead(404); response.end(); }
 });
@@ -344,6 +345,144 @@ try {
   assert.deepEqual(blocked, [], 'no external requests');
   assert.deepEqual(errors, [], 'no page errors');
   await page.close();
+
+  // Branches, Regenerate, Edit, Retry and step cards (FakeChatPort keeps a tree).
+  {
+    const context = await browser.newContext({ viewport: { width: 1100, height: 900 }, permissions: ['clipboard-read', 'clipboard-write'] });
+    const branching = await context.newPage();
+    const pageErrors = [];
+    branching.on('pageerror', error => pageErrors.push(error.message));
+    branching.on('console', message => { if (message.type() === 'error') pageErrors.push(`${message.text()} ${message.location()?.url ?? ''}`); });
+    await branching.goto(origin);
+    const root = branching.getByTestId('studio-chat'), list = branching.getByTestId('studio-chat-feed'), field = root.getByTestId('studio-chat-composer').getByRole('combobox');
+    const calls = name => branching.evaluate(target => window.fake.calls.filter(([call]) => call === target), name);
+    const lastAssistant = () => list.locator('[data-role="assistant"]').last();
+    // The actions fade (transition): poll until the computed opacity settles.
+    const opacity = async locator => { await locator.evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished))); return locator.evaluate(element => Number(getComputedStyle(element).opacity)); };
+    await field.click(); await field.fill('Branch request'); await branching.keyboard.press('Enter');
+    await list.locator('[data-run-status="running"]').waitFor();
+    const thread = await branching.evaluate(() => window.threadId);
+    assert.equal(await field.inputValue(), '', 'fill + Enter in one batch still clears the composer');
+    for (const name of ['Regenerate response', 'Edit message', 'Copy']) assert.equal(await list.getByRole('button', { name, exact: true }).count(), 0, `${name} is hidden while running`);
+    // Step cards: one compact line each, not framed cards and not drafts.
+    await branching.evaluate(() => {
+      const { fake } = window;
+      fake.emitCard({ type: 'step', label: 'Read scene 2', status: 'done' });
+      fake.emitCard({ type: 'step', label: 'Storyboard', status: 'running', agent: 'storyboard' });
+      fake.emitCard({ type: 'step', label: 'edit_track', status: 'error', detail: 'durationMs must be > 0 (fixing)' });
+      fake.emitText('First answer');
+    });
+    await list.locator('[data-card="step"]').nth(2).waitFor();
+    assert.equal(await list.locator('[data-card="step"]').count(), 3);
+    assert.equal(await list.locator('[data-card="step"] .studio-card-header').count(), 0, 'steps are not framed cards');
+    assert.ok((await list.locator('[data-card="step"][data-status="error"]').textContent()).includes('durationMs must be > 0'), 'error detail');
+    assert.ok((await list.locator('[data-card="step"][data-status="running"]').textContent()).includes('storyboard'), 'subagent label');
+    assert.equal(await list.locator('[data-card="step"][data-status="running"] .studio-step-icon').evaluate(element => getComputedStyle(element).animationName), 'studio-spin', 'running step spins');
+    if (screenshots) await branching.screenshot({ path: `${screenshots}/chat-steps-dark.png` });
+    await branching.evaluate(() => window.fake.finish('completed'));
+    await list.locator('[data-run-status="completed"]').waitFor();
+    assert.equal(await root.getByTestId('studio-chat-retry').count(), 0, 'no Retry for a completed run');
+
+    // Actions: the user message shows them on hover and focus, the last message always.
+    const user = list.locator('[data-role="user"]').first(), editButton = user.getByRole('button', { name: 'Edit message' });
+    await branching.mouse.move(1, 1);
+    await editButton.waitFor({ state: 'attached' });
+    assert.equal(await opacity(user.locator('.studio-chat-message-actions')), 0, 'hidden until hover or focus');
+    await editButton.focus();
+    assert.equal(await opacity(user.locator('.studio-chat-message-actions')), 1, 'focus shows the actions');
+    assert.equal(await opacity(lastAssistant().locator('.studio-chat-message-actions')), 1, 'the last message shows its actions');
+    await branching.keyboard.press('Shift+Tab');
+    assert.equal(await lastAssistant().getByRole('group', { name: 'Versions' }).count(), 0, 'no branch picker for a single version');
+    for (const name of ['Copy', 'Regenerate response']) await assertTarget(lastAssistant().getByRole('button', { name, exact: true }), name);
+
+    // Copy writes the message text.
+    await lastAssistant().getByRole('button', { name: 'Copy', exact: true }).click();
+    await lastAssistant().locator('[data-copied]').waitFor();
+    assert.equal(await branching.evaluate(() => navigator.clipboard.readText()), 'First answer');
+
+    // Regenerate → a sibling answer; ‹ 2/2 › switches between the versions.
+    const first = await lastAssistant().getAttribute('data-run-id');
+    await lastAssistant().getByRole('button', { name: 'Regenerate response' }).click();
+    await branching.waitForFunction(() => window.fake.calls.some(([name]) => name === 'regenerate'));
+    assert.deepEqual((await calls('regenerate')).at(-1), ['regenerate', thread, first]);
+    await list.locator('[data-role="assistant"][data-run-status="running"]').waitFor();
+    assert.equal(await list.getByRole('group', { name: 'Versions' }).count(), 0, 'branch picker hidden while running');
+    await branching.evaluate(() => { window.fake.emitText('Second answer'); window.fake.finish('completed'); });
+    const picker = lastAssistant().getByRole('group', { name: 'Versions' });
+    await picker.waitFor();
+    assert.equal((await picker.textContent()).includes('2/2'), true);
+    assert.equal(await picker.getByRole('button', { name: 'Next version' }).isDisabled(), true, 'no next at the last version');
+    await assertTarget(picker.getByRole('button', { name: 'Previous version' }), 'previous version');
+    await picker.getByRole('button', { name: 'Previous version' }).click();
+    await list.locator(`[data-run-id="${first}"]`).waitFor();
+    assert.deepEqual((await calls('switchBranch')).at(-1), ['switchBranch', thread, first]);
+    assert.ok((await lastAssistant().textContent()).includes('First answer'), 'the first version is shown');
+    assert.ok((await lastAssistant().getByRole('group', { name: 'Versions' }).textContent()).includes('1/2'));
+
+    // Edit: Escape cancels, Enter saves the new text as a sibling of the user message.
+    await user.getByRole('button', { name: 'Edit message' }).click();
+    const editor = list.getByRole('textbox', { name: 'Edit message' });
+    await editor.waitFor();
+    assert.equal(await editor.inputValue(), 'Branch request');
+    assert.equal(await editor.evaluate(element => element === document.activeElement), true, 'the edit composer takes focus');
+    await branching.keyboard.press('Escape');
+    await list.locator('[data-role="user"]', { hasText: 'Branch request' }).getByRole('button', { name: 'Edit message' }).waitFor({ state: 'attached' });
+    assert.equal((await calls('editMessage')).length, 0, 'Escape does not edit');
+    await list.locator('[data-role="user"]').first().getByRole('button', { name: 'Edit message' }).click();
+    await editor.fill('Edited request');
+    await list.getByRole('button', { name: 'Save' }).waitFor();
+    await branching.keyboard.press('Enter');
+    await branching.waitForFunction(() => window.fake.calls.some(([name]) => name === 'editMessage'));
+    const [, editThread, editedId, editInput] = (await calls('editMessage')).at(-1);
+    assert.equal(editThread, thread); assert.deepEqual(editInput, { text: 'Edited request' });
+    assert.notEqual(editedId, undefined);
+    await list.locator('[data-role="user"]', { hasText: 'Edited request' }).waitFor();
+    await list.locator('[data-role="assistant"][data-run-status="running"]').waitFor();
+    await branching.evaluate(() => window.fake.finish('completed'));
+    await list.locator('[data-role="user"]').first().getByRole('group', { name: 'Versions' }).waitFor();
+    assert.ok((await list.locator('[data-role="user"]').first().getByRole('group', { name: 'Versions' }).textContent()).includes('2/2'), 'the edit is the second version of the question');
+
+    // Retry under a failed run regenerates it; the action bar does not repeat it as Regenerate.
+    await field.click(); await field.fill('Will fail'); await branching.keyboard.press('Enter');
+    await list.locator('[data-run-status="running"]').waitFor();
+    await branching.evaluate(() => { window.fake.emitText('Partial'); window.fake.finish('failed', { message: 'Provider overloaded' }); });
+    await lastAssistant().and(branching.locator('[data-run-status="failed"]')).waitFor();
+    const failedRun = await lastAssistant().getAttribute('data-run-id');
+    assert.equal(await lastAssistant().getByRole('button', { name: 'Regenerate response' }).count(), 0, 'no second regenerate button next to Retry');
+    await assertTarget(lastAssistant().getByTestId('studio-chat-retry'), 'retry');
+    await lastAssistant().getByTestId('studio-chat-retry').click();
+    await lastAssistant().and(branching.locator('[data-run-status="running"]')).waitFor();
+    assert.deepEqual((await calls('regenerate')).at(-1), ['regenerate', thread, failedRun]);
+
+    // A rejected regenerate is the "The action failed" notice.
+    await branching.evaluate(() => { window.fake.finish('completed'); window.fake.rejectBranching = true; });
+    await lastAssistant().and(branching.locator('[data-run-status="completed"]')).waitFor();
+    await lastAssistant().getByRole('button', { name: 'Regenerate response' }).click();
+    const rejected = branching.getByRole('alert').filter({ hasText: 'Regenerate rejected by the port' });
+    await rejected.waitFor();
+    assert.ok((await rejected.textContent()).includes('The action failed'));
+    await rejected.getByRole('button', { name: 'Dismiss' }).click();
+    if (screenshots) await branching.screenshot({ path: `${screenshots}/chat-branches-dark.png`, fullPage: true });
+    await branching.evaluate(() => window.setTheme('studio-light'));
+    if (screenshots) await branching.screenshot({ path: `${screenshots}/chat-branches-light.png`, fullPage: true });
+    assert.deepEqual(pageErrors, [], 'no page errors in the branching scenario');
+    await context.close();
+  }
+
+  // A port without regenerate, editMessage and switchBranch: no Regenerate, Edit, branch picker or Retry; Copy stays.
+  {
+    const plain = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+    await plain.goto(`${origin}/?noBranching=1`);
+    const list = plain.getByTestId('studio-chat-feed'), field = plain.getByTestId('studio-chat-composer').getByRole('combobox');
+    await field.click(); await field.fill('Plain request'); await plain.keyboard.press('Enter');
+    await list.locator('[data-run-status="running"]').waitFor();
+    await plain.evaluate(() => { window.fake.emitText('Plain answer'); window.fake.finish('failed', { message: 'Timed out' }); });
+    await list.locator('[data-run-status="failed"]').waitFor();
+    await list.getByRole('button', { name: 'Copy', exact: true }).first().waitFor({ state: 'attached' });
+    for (const name of ['Regenerate response', 'Edit message', 'Previous version']) assert.equal(await list.getByRole('button', { name }).count(), 0, `${name} without the port method`);
+    assert.equal(await plain.getByTestId('studio-chat-retry').count(), 0, 'no Retry without port.regenerate');
+    await plain.close();
+  }
 
   // capabilities.discardStopped: a failed run that left draft cards offers Discard; a failed run without cards does not.
   {

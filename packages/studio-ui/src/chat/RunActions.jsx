@@ -1,9 +1,10 @@
 import { createContext, useContext, useState } from 'react';
-import { Check, Eye, RotateCw, Undo2 } from 'lucide-react';
+import { Check, Eye, RotateCcw, RotateCw, Undo2 } from 'lucide-react';
 import { useStudioText } from '../i18n/StudioUiProvider.jsx';
 import Button from '../primitives/Button.jsx';
 import InlineNotice from '../primitives/InlineNotice.jsx';
-import { canDiscardRun } from './chat-model.js';
+import { canDiscardRun, canRetryRun } from './chat-model.js';
+import { ChatThreadContext } from './MessageActions.jsx';
 
 // StudioChat provides { text, clear() } of its composer: Continue generation sends the draft as the continuation prompt.
 export const ChatDraftContext = createContext(null);
@@ -16,10 +17,12 @@ const CONTINUE = new Set(['failed', 'interrupted', 'cancelled']);
 // failed/interrupted/cancelled run whose message has draft cards (hasDrafts: diff/values/image/file) when the port declares
 // capabilities.discardStopped, see canDiscardRun. Keep draft (failed/interrupted,
 // capabilities.keepDraft + port.keepDraft) and Continue generation (failed/interrupted/cancelled + port.continueRun)
-// appear only when the port offers them; Continue passes the composer text as the prompt and clears the composer. Errors are inline notices, never toasts.
+// appear only when the port offers them; Continue passes the composer text as the prompt and clears the composer.
+// Retry (failed/interrupted/cancelled + port.regenerate, see canRetryRun) regenerates the answer as a new branch of the
+// thread from ChatThreadContext. Errors are inline notices, never toasts.
 export default function RunActions({ port, run, hasDrafts = false }) {
   const t = useStudioText(), [busy, setBusy] = useState(''), [error, setError] = useState('');
-  const draft = useContext(ChatDraftContext);
+  const draft = useContext(ChatDraftContext), thread = useContext(ChatThreadContext);
   const capabilities = port.capabilities ?? {};
   const act = (name, call) => async () => {
     setBusy(name); setError('');
@@ -29,8 +32,10 @@ export default function RunActions({ port, run, hasDrafts = false }) {
   const keepDraft = KEEP_DRAFT.has(run.status) && capabilities.keepDraft && typeof port.keepDraft === 'function';
   const continueRun = CONTINUE.has(run.status) && typeof port.continueRun === 'function';
   const discard = canDiscardRun(port, run.status, hasDrafts);
-  if (!ready && !discard && !keepDraft && !continueRun && run.status !== 'applied') return null;
+  const retry = canRetryRun(port, run.status) && Boolean(thread?.threadId);
+  if (!ready && !discard && !keepDraft && !continueRun && !retry && run.status !== 'applied') return null;
   return <div className="studio-chat-run-actions">
+    {retry && <Button variant="primary" size="sm" icon={RotateCcw} loading={busy === 'retry'} disabled={Boolean(busy)} data-testid="studio-chat-retry" onClick={act('retry', () => port.regenerate(thread.threadId, run.id))}>{t('Retry')}</Button>}
     {ready && <>
       <Button variant="primary" size="sm" icon={Check} loading={busy === 'apply'} disabled={Boolean(busy)} data-testid="studio-chat-apply" onClick={act('apply', () => port.apply(run.id))}>{t('Apply')}</Button>
       {capabilities.previewDraft && typeof port.previewDraft === 'function' && <Button size="sm" icon={Eye} loading={busy === 'preview'} disabled={Boolean(busy)} onClick={act('preview', () => port.previewDraft(run.id))}>{t('Preview draft')}</Button>}

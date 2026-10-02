@@ -9,6 +9,7 @@ import { useChatRuntime } from './useChatRuntime.js';
 import { sendToPort } from './chat-model.js';
 import { ChatDraftContext } from './RunActions.jsx';
 import { ChatComposerContext } from './Composer.jsx';
+import { ChatThreadContext } from './MessageActions.jsx';
 import Composer from './Composer.jsx';
 import { AssistantMessage, UserMessage } from './Messages.jsx';
 import ThreadList from './ThreadList.jsx';
@@ -47,7 +48,8 @@ export default function StudioChat({ port, threadId = '', onThreadChange, onScop
     setMentions(current => (current.length ? current : input.mentions));
     setAttachments(current => (current.length ? current : input.attachments));
   };
-  const runtime = useChatRuntime(port, threadId, { scope, mentions, attachments, generateImages, onSent: clear, onThreadCreated: onThreadChange, onRestore: restore, onError: sendFailed });
+  const runtime = useChatRuntime(port, threadId, { scope, mentions, attachments, generateImages, onSent: clear, onThreadCreated: onThreadChange, onRestore: restore, onError: sendFailed, onActionError: actionFailed });
+  const thread = { port, threadId, onError: actionFailed };
 
   // The composer sends here instead of composer.send(): the input is cleared at once and restored if the port rejects it,
   // a thread created for a rejected send is removed (sendToPort), and with capabilities.clarifyWhileRunning a message
@@ -71,12 +73,12 @@ export default function StudioChat({ port, threadId = '', onThreadChange, onScop
         <section className="studio-chat-main" aria-label={t('Project assistant')}>
           <ChatHeader port={port} threadId={threadId} onThreadChange={onThreadChange} onCreate={createThread} actions={actions} composerText={text} onError={actionFailed} />
           <ThreadPrimitive.Root className="studio-chat-thread">
-            <ChatDraftContext.Provider value={draft}>
+            <ChatDraftContext.Provider value={draft}><ChatThreadContext.Provider value={thread}>
             <ThreadPrimitive.Viewport className="studio-chat-feed" data-testid="studio-chat-feed">
               <AuiIf condition={state => state.thread.isEmpty}>{emptyState || <EmptyState icon={Sparkles} title={t('What shall we create?')} description={t('Describe an idea or a change. Mention sections, scenes and files with @.')} />}</AuiIf>
               <ThreadPrimitive.Messages>{({ message }) => message.role === 'user' ? <UserMessage port={port} /> : <AssistantMessage port={port} />}</ThreadPrimitive.Messages>
             </ThreadPrimitive.Viewport>
-            </ChatDraftContext.Provider>
+            </ChatThreadContext.Provider></ChatDraftContext.Provider>
             <div className="studio-chat-bottom">
               <ThreadPrimitive.ScrollToBottom className="studio-chat-scroll-bottom" aria-label={t('Scroll to the latest message')} title={t('Scroll to the latest message')}><ArrowDown size={16} aria-hidden="true" /></ThreadPrimitive.ScrollToBottom>
               {notice && <InlineNotice tone="danger" title={notice.title} actions={<Button variant="ghost" size="sm" onClick={() => setNotice(null)}>{t('Dismiss')}</Button>}>{notice.message}</InlineNotice>}

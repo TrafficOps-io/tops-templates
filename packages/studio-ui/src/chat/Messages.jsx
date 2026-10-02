@@ -8,6 +8,7 @@ import Markdown from './Markdown.jsx';
 import RunStatus from './RunStatus.jsx';
 import RunActions from './RunActions.jsx';
 import { renderCard } from './cards/index.js';
+import { AssistantActions, EditComposer, UserActions } from './MessageActions.jsx';
 import { canHandleCardAction, handleCardAction, hasDraftCards } from './chat-model.js';
 
 export { handleCardAction };
@@ -16,9 +17,12 @@ export { handleCardAction };
 const useCustom = () => useAuiState(state => state.message.metadata?.custom) ?? {};
 
 // data-role is set by hand: assistant-ui does not expose it (spike protocol).
+// While the user edits the message (ActionBarPrimitive.Edit), its edit composer replaces the bubble.
 export function UserMessage({ port }) {
   const { mentions, attachments } = useCustom();
+  const editing = useAuiState(state => state.composer.isEditing);
   const open = typeof port.openTarget === 'function' ? target => port.openTarget(target) : undefined;
+  if (editing) return <MessagePrimitive.Root data-role="user" data-editing="true" className="studio-chat-message studio-chat-message-user"><EditComposer /></MessagePrimitive.Root>;
   return <MessagePrimitive.Root data-role="user" className="studio-chat-message studio-chat-message-user">
     <div className="studio-chat-bubble">
       <MessagePrimitive.Parts>{({ part }) => part.type === 'text' ? <p className="studio-chat-user-text">{part.text}</p> : <></>}</MessagePrimitive.Parts>
@@ -27,6 +31,7 @@ export function UserMessage({ port }) {
       {mentions?.map(target => <MentionChip key={`${target.kind}:${target.id}`} target={target} onOpen={open} />)}
       {attachments?.map(attachment => <AttachmentChip key={attachment.id} attachment={attachment} />)}
     </div>}
+    <UserActions />
   </MessagePrimitive.Root>;
 }
 
@@ -51,6 +56,7 @@ export function AssistantMessage({ port }) {
     }}</MessagePrimitive.Parts>
     {error && <InlineNotice tone="danger" title={t('The action failed')} actions={<Button variant="ghost" size="sm" onClick={() => setError(null)}>{t('Dismiss')}</Button>}>{error.message || t('Something went wrong.')}</InlineNotice>}
     {run && <RunActions port={port} run={run} hasDrafts={hasDrafts} />}
+    <AssistantActions />
   </MessagePrimitive.Root>;
 }
 
