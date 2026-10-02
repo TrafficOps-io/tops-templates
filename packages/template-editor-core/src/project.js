@@ -18,8 +18,11 @@ const MiB = 1024 * 1024;
 export const CONVERSATION_LIMITS = Object.freeze({ threads: 100, runs: 100, messages: 500, total: 512 * MiB, encoded: 192 * MiB, nodes: 2000000, depth: 64, threadEncoded: 16 * MiB, blob: 24 * MiB });
 const BYTES_TAG = '$trafficopsBytes';
 
+// A lone surrogate becomes U+FFFD in UTF-8, so two ill-formed ids could share a file name.
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+const wellFormed = value => value.isWellFormed ? value.isWellFormed() : !LONE_SURROGATE.test(value);
 function identifier(value, label) {
-  if (typeof value !== 'string' || !value.trim() || value.length > 160 || /[\x00-\x1f\x7f]/.test(value)) throw new Error(`Invalid ${label}.`);
+  if (typeof value !== 'string' || !value.trim() || value.length > 160 || /[\x00-\x1f\x7f]/.test(value) || !wellFormed(value)) throw new Error(`Invalid ${label}.`);
   return value;
 }
 
@@ -218,7 +221,9 @@ export function inspectZip(bytes, { history = false } = {}) {
   const start = view.getUint32(end + 16, true);
   const directorySize = view.getUint32(end + 12, true);
   if (view.getUint16(end + 4, true) || view.getUint16(end + 6, true) || count !== view.getUint16(end + 8, true) || count === 65535 || start === 0xffffffff || start + directorySize !== end) throw new Error('Split archives and ZIP64 archives are unsupported.');
-  if (!count || count > LIMITS.count + 4 + (history ? CONVERSATION_LIMITS.threads + HISTORY_BLOBS + 2 : 0)) throw new Error(`A ZIP must contain 1–${LIMITS.count} entries.`);
+  const userEntries = `A ZIP may contain at most ${LIMITS.count} files and folders outside .trafficops/.`;
+  if (!count) throw new Error('This ZIP is empty.');
+  if (count > LIMITS.count + 4 + (history ? CONVERSATION_LIMITS.threads + HISTORY_BLOBS + 2 : 0)) throw new Error(userEntries);
   let at = start, total = 0, historyTotal = 0;
   const entries = new Map(), counts = { user: 0, sidecar: 0, thread: 0, blob: 0, historyFolder: 0 };
   for (let index = 0; index < count; index++) {
@@ -232,7 +237,7 @@ export function inspectZip(bytes, { history = false } = {}) {
     const directory = path.endsWith('/'), kind = entryKind(path, directory, history);
     if (entries.has(path)) throw new Error(`Duplicate ZIP entry: ${path}`);
     if (++counts[kind] > (kind === 'user' ? LIMITS.count : kind === 'thread' ? CONVERSATION_LIMITS.threads : kind === 'blob' ? HISTORY_BLOBS : Infinity)) {
-      throw new Error(kind === 'user' ? `A ZIP must contain 1–${LIMITS.count} entries.` : kind === 'thread' ? `A project ZIP holds at most ${CONVERSATION_LIMITS.threads} dialogues.` : `A project ZIP holds at most ${HISTORY_BLOBS} blobs.`);
+      throw new Error(kind === 'user' ? userEntries : kind === 'thread' ? `A project ZIP holds at most ${CONVERSATION_LIMITS.threads} dialogues.` : `A project ZIP holds at most ${HISTORY_BLOBS} blobs.`);
     }
     if ((flags & 1) || ![0, 8].includes(method)) throw new Error(`Encrypted or unsupported ZIP entry: ${path}`);
     if (((view.getUint32(at + 38, true) >>> 16) & 0xf000) === 0xa000) throw new Error(`ZIP symlinks are unsupported: ${path}`);
@@ -259,7 +264,8 @@ export function readZip(bytes, options) {
 }
 
 /** history: also read `.trafficops/conversations/**` as `conversationFiles: { threads, blobs }` (validated split dialogue
- *  files and their blobs by sha; join them with conversationDocumentFromFiles, which verifies blob hashes). */
+ *  files and the blobs they reference, by sha; unreferenced blobs are dropped. Join them with
+ *  conversationDocumentFromFiles, which verifies blob hashes). */
 export function readZipProject(bytes, { history = false } = {}) {
   const entries = inspectZip(bytes, { history });
   const unzipped = unzipSync(bytes);
@@ -285,8 +291,13 @@ export function readZipProject(bytes, { history = false } = {}) {
   const hasHistory = [...entries.values()].some(info => ['thread', 'blob', 'historyFolder'].includes(info.kind));
   if (hasHistory && !metadata) throw new Error('Portable history requires project identity.');
   if (hasHistory && conversations) throw new Error('This ZIP contains two project histories.');
-  for (const thread of threads) for (const sha of blobReferences(thread)) if (!blobs.has(sha)) throw new Error('A conversation attachment is missing from the ZIP.');
-  const portable = { ...(metadata ? { metadata } : {}), ...(conversations ? { conversations } : {}), ...(hasHistory ? { conversationFiles: { threads, blobs } } : {}) };
+  // Only referenced blobs are returned; an unreferenced blob in the archive is dropped.
+  const referenced = new Map();
+  for (const thread of threads) for (const sha of blobReferences(thread)) {
+    if (!blobs.has(sha)) throw new Error('A conversation attachment is missing from the ZIP.');
+    referenced.set(sha, blobs.get(sha));
+  }
+  const portable = { ...(metadata ? { metadata } : {}), ...(conversations ? { conversations } : {}), ...(hasHistory ? { conversationFiles: { threads, blobs: referenced } } : {}) };
   validateProject(files);
   let folders = [...entries].filter(([, info]) => info.directory && info.kind === 'user').map(([path]) => path.slice(0, -1));
   // A downloaded GitHub/project archive often has a single enclosing folder.

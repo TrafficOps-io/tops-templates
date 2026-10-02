@@ -11,8 +11,11 @@ const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', { fatal: t
 const put = (target, key, value) => Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Uint8Array);
 
+// A lone surrogate becomes U+FFFD in UTF-8, so two ill-formed ids could share a file name.
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+const wellFormed = value => value.isWellFormed ? value.isWellFormed() : !LONE_SURROGATE.test(value);
 function identifier(value, label) {
-  if (typeof value !== 'string' || !value.trim() || value.length > 160 || /[\x00-\x1f\x7f]/.test(value)) throw new Error(`Invalid ${label}.`);
+  if (typeof value !== 'string' || !value.trim() || value.length > 160 || /[\x00-\x1f\x7f]/.test(value) || !wellFormed(value)) throw new Error(`Invalid ${label}.`);
   return value;
 }
 
@@ -49,6 +52,7 @@ const READABLE_ID = /^[a-z0-9_-]{1,200}$/;
 /** A dialogue's file name in `.trafficops/conversations/`, shared by folders and editable ZIPs: lowercase-safe ids stay
  *  readable, anything else is `~<sha256 of the UTF-8 id>.json`, so names never collide on case-insensitive file systems. */
 export function conversationThreadFileName(id) {
+  if (typeof id !== 'string' || !wellFormed(id)) throw new Error('Invalid dialogue ID.');
   return READABLE_ID.test(id) ? `${id}.json` : `~${sha256HexSync(encoder.encode(id))}.json`;
 }
 export function toBase64(bytes) {

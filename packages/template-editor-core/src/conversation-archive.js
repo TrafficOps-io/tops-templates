@@ -1,4 +1,4 @@
-import { ValidationError } from './errors.js';
+import { EditorError, ValidationError } from './errors.js';
 import { blobReferences, documentOf, joinThread, sha256Hex, splitThread, threadsOf, validateThreadFile } from './conversation-format.js';
 import { validateConversationDocument } from './project.js';
 
@@ -27,14 +27,16 @@ export async function conversationDocumentFromFiles({ threads = [], blobs = new 
     })());
     return verified.get(sha);
   };
-  const joined = [];
-  for (const file of threads) {
-    const thread = validateThreadFile(file);
-    if (ids.has(thread.id)) throw new ValidationError('Duplicate dialogue ID in project history.');
-    ids.add(thread.id);
-    for (const sha of blobReferences(thread)) await getBlob(sha);
-    const { revision: _revision, ...rest } = await joinThread(thread, getBlob);
-    joined.push(rest);
-  }
-  return validateConversationDocument(documentOf(projectId, joined, 0), projectId);
+  try {
+    const joined = [];
+    for (const file of threads) {
+      const thread = validateThreadFile(file);
+      if (ids.has(thread.id)) throw new ValidationError('Duplicate dialogue ID in project history.');
+      ids.add(thread.id);
+      for (const sha of blobReferences(thread)) await getBlob(sha);
+      const { revision: _revision, ...rest } = await joinThread(thread, getBlob);
+      joined.push(rest);
+    }
+    return validateConversationDocument(documentOf(projectId, joined, 0), projectId);
+  } catch (error) { throw error instanceof EditorError ? error : new ValidationError(error.message, { cause: error }); }
 }

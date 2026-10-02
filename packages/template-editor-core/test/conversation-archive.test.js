@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { strToU8, unzipSync, zipSync } from 'fflate';
-import { CONVERSATION_LIMITS, LIMITS, createZip, inspectZip, readZip, readZipProject } from '../src/project.js';
-import { conversationThreadFileName, sha256Hex, splitThread } from '../src/conversation-format.js';
+import { CONVERSATION_LIMITS, LIMITS, createZip, inspectZip, readZip, readZipProject, validateConversationDocument, validatePortableMetadata } from '../src/project.js';
+import { conversationThreadFileName, sha256Hex, splitThread, validateThreadFile } from '../src/conversation-format.js';
 import { conversationDocumentFromFiles, conversationFilesFromDocument } from '../src/conversation-archive.js';
 
 const DIR = '.trafficops/conversations';
@@ -152,4 +152,38 @@ test('the legacy conversations.json entry still reads, with and without history'
     assert.deepEqual(imported.conversations, legacy);
     assert.equal(imported.conversationFiles, undefined);
   }
+});
+
+test('ids must be well-formed UTF-16: lone surrogates would collide once encoded as UTF-8', () => {
+  for (const id of ['a\uD800', '\uDC00b', 'x\uDC00\uD800y']) {
+    assert.throws(() => validateThreadFile(thread(id)), /Invalid dialogue ID/, JSON.stringify(id));
+    assert.throws(() => validateConversationDocument({ schema: 1, projectId: 'p', revision: 0, threads: [{ id }], runs: [] }), /Invalid history threads ID/);
+    assert.throws(() => validateThreadFile(thread('t', { messages: [{ id }] })), /Invalid message ID/);
+    assert.throws(() => validatePortableMetadata({ ...metadata, projectId: id }), /Invalid portable project ID/);
+    assert.throws(() => conversationThreadFileName(id), /Invalid dialogue ID/);
+  }
+  for (const id of ['💬 chat', 'ÄÖü', '\uD83D\uDE00']) {
+    assert.equal(validateThreadFile(thread(id)).id, id);
+    assert.equal(validateConversationDocument({ schema: 1, projectId: id, revision: 0, threads: [{ id }], runs: [] }).projectId, id);
+  }
+});
+
+test('readZipProject drops blobs that no dialogue references', async () => {
+  const split = await splitThread(thread('a', { runs: [{ id: 'r1', threadId: 'a', base: { files: { 'a.bin': new Uint8Array([1, 2, 3]) } } }] }));
+  const [[sha, blob]] = split.blobs, orphan = 'd'.repeat(64);
+  const imported = readZipProject(raw({ [`${DIR}/a.json`]: json(split.thread), [`${DIR}/blobs/${sha}`]: blob, [`${DIR}/blobs/${orphan}`]: new Uint8Array([7]) }), { history: true });
+  assert.deepEqual([...imported.conversationFiles.blobs.keys()], [sha]);
+});
+
+test('conversationDocumentFromFiles reports damaged files as validation errors with their message', async () => {
+  const bad = { ...thread('a'), runs: [{ id: 'r', threadId: 'b' }] };
+  await assert.rejects(conversationDocumentFromFiles({ threads: [bad], blobs: new Map() }, 'project-1'), error => error.code === 'validation' && error.message === 'A conversation run belongs to another dialogue.');
+  const broken = thread('a', { messages: [{ id: 'm', data: { $trafficopsBlob: 'b'.repeat(64), encoding: 'bytes', size: 2 } }] });
+  await assert.rejects(conversationDocumentFromFiles({ threads: [broken], blobs: new Map([['b'.repeat(64), new Uint8Array([1])]]) }, 'project-1'), error => error.code === 'validation');
+});
+
+test('the entry-count error states the user-entry limit', () => {
+  const user = Object.fromEntries(Array.from({ length: LIMITS.count + 1 }, (_, index) => [`f${index}.txt`, strToU8('x')]));
+  assert.throws(() => readZipProject(zipSync(user)), new RegExp(`at most ${LIMITS.count} files and folders outside \\.trafficops`));
+  assert.throws(() => readZipProject(zipSync({ ...user, ...Object.fromEntries(Array.from({ length: 10 }, (_, index) => [`g${index}.txt`, strToU8('x')])) })), new RegExp(`at most ${LIMITS.count} files and folders`));
 });

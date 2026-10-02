@@ -1,14 +1,13 @@
-import { BLOB_TAG, CONVERSATION_LIMITS, ConflictError, ValidationError, blobReferences, sha256Hex, validateThreadFile } from '@trafficops/template-editor-core';
+import { BLOB_TAG, CONVERSATION_LIMITS, ConflictError, ValidationError, blobReferences, conversationThreadFileName as nameOf, sha256Hex, validateThreadFile } from '@trafficops/template-editor-core';
 import { withLock } from './locks.js';
 import { fileAt, listDirectory, readFile, readJson, removePath, writeFile } from './write.js';
 
 const DIR = '.trafficops/conversations', BLOBS = `${DIR}/blobs`, TOMBSTONES = '.trafficops/conversation-tombstones.json', META = '.trafficops/project.json';
-const SHA256 = /^[a-f0-9]{64}$/, READABLE = /^[a-z0-9_-]{1,200}$/, MISSING = 'A conversation attachment is missing.';
-const encoder = new TextEncoder(), decode = bytes => new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+const SHA256 = /^[a-f0-9]{64}$/, MISSING = 'A conversation attachment is missing.';
+const decode = bytes => new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-// Lowercase-safe ids keep a readable name; anything else (case, reserved characters, length) is hashed, so names never
-// collide on case-insensitive file systems and stay valid on every platform.
-const nameOf = async id => READABLE.test(id) ? `${id}.json` : `~${await sha256Hex(encoder.encode(id))}.json`;
+// File names come from core's conversationThreadFileName (shared with editable ZIPs): lowercase-safe ids stay
+// readable, anything else is hashed, so names never collide on case-insensitive file systems.
 const json = value => JSON.stringify(value, null, 2) + '\n';
 const damagedEntry = id => ({ schema: 1, id, revision: -1, damaged: true, messages: [], runs: [] });
 
@@ -24,7 +23,7 @@ async function readThreadFile(root, name) {
   if (!bytes?.byteLength) return null;
   try {
     const file = validateThreadFile(JSON.parse(decode(bytes)));
-    if (await nameOf(file.id) !== name) throw new Error('The dialogue file name does not match its ID.');
+    if (nameOf(file.id) !== name) throw new Error('The dialogue file name does not match its ID.');
     return { file };
   } catch { return { damaged: true }; }
 }
@@ -69,7 +68,7 @@ export function createDirectoryConversationStore(root, { projectId, graceMs = 10
   };
   const post = message => { try { channelOf()?.postMessage(message); } catch { /* The change is committed; peers refresh on their next read. */ } };
   const threadNames = async () => (await listDirectory(root, DIR)).filter(entry => entry.kind === 'file' && entry.name.endsWith('.json')).map(entry => entry.name);
-  const current = async id => (await readThreadFile(root, await nameOf(id))) ?? { file: null };
+  const current = async id => (await readThreadFile(root, nameOf(id))) ?? { file: null };
 
   return {
     async listThreads() {
@@ -93,7 +92,7 @@ export function createDirectoryConversationStore(root, { projectId, graceMs = 10
         }
         const tombstones = await readTombstones();
         const revision = Math.max(existing.file?.revision ?? 0, tombstones.get(file.id) ?? 0) + 1;
-        await writeFile(root, `${DIR}/${await nameOf(file.id)}`, json({ ...file, revision }));
+        await writeFile(root, `${DIR}/${nameOf(file.id)}`, json({ ...file, revision }));
         // The write is committed; a stale tombstone only ever raises a later revision.
         if (tombstones.delete(file.id)) { try { await writeTombstones(tombstones); } catch (error) { report(error); } }
         post({ threadId: file.id, revision });
@@ -111,7 +110,7 @@ export function createDirectoryConversationStore(root, { projectId, graceMs = 10
         const tombstones = await readTombstones();
         tombstones.set(id, Math.max(revision, tombstones.get(id) ?? 0));
         await writeTombstones(tombstones);
-        await removePath(root, `${DIR}/${await nameOf(id)}`);
+        await removePath(root, `${DIR}/${nameOf(id)}`);
         post({ threadId: id, revision });
       });
     },

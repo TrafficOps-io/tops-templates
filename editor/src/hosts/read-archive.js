@@ -4,6 +4,8 @@ import { AbortError, ValidationError, readZipProject, throwIfAborted } from '@tr
 export const archiveReadTimeout = length => Math.max(15000, length / (2 * 1024 * 1024) * 1000);
 
 /** history: Studio's editable-project import (512 MiB, `.trafficops/conversations/**`); see readZipProject.
+ *  With a worker, `bytes` is transferred (detached): copy it first if you still need it. A view over part of a larger
+ *  buffer is copied instead, so unrelated data is never detached.
  *  @param {Uint8Array} bytes @param {{ history?: boolean, signal?: AbortSignal }} [options] */
 export async function readArchive(bytes, { history = false, signal } = {}) {
   throwIfAborted(signal);
@@ -19,6 +21,7 @@ export async function readArchive(bytes, { history = false, signal } = {}) {
     worker.onerror = event => finish(new ValidationError(event.message || 'Could not read the archive.'));
     signal?.addEventListener('abort', abort, { once: true });
     timer = setTimeout(() => finish(new ValidationError('The archive took too long to read.')), archiveReadTimeout(bytes.length));
-    worker.postMessage({ bytes, history });
+    const input = bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength ? bytes : bytes.slice();
+    worker.postMessage({ bytes: input, history }, [input.buffer]);
   });
 }
