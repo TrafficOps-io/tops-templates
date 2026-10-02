@@ -9,6 +9,6 @@ export default function FolderChoiceDialog({ choice, onChoose }) {
   return <dialog ref={dialog} className="modal" aria-labelledby={titleId} onCancel={event => { event.preventDefault(); onChoose('cancel'); }}><div className="modal-box">
     <div className="dialog-heading"><div><span className="section-kicker">PROJECT FOLDER</span><h2 id={titleId}>{choice.title}</h2></div><button type="button" className="btn btn-ghost btn-sm btn-square" aria-label="Close folder choice" onClick={() => onChoose('cancel')}><X size={18} /></button></div>
     <p>{choice.message}</p>
-    <div className="modal-action"><button type="button" className="btn btn-ghost" onClick={() => onChoose('cancel')}>Cancel</button>{choice.actions.map(action => <button type="button" key={action.id} className={`btn ${action.primary ? 'btn-primary' : 'btn-outline'}`} onClick={() => onChoose(action.id)}>{action.pick && <FolderOpen size={15} />}{action.label}</button>)}</div>
+    <div className="modal-action"><button type="button" className="btn btn-ghost" onClick={() => onChoose('cancel')}>Cancel</button>{choice.actions.map(action => <button type="button" key={action.id} className={`btn ${action.primary ? 'btn-primary' : 'btn-outline'}`} onClick={() => onChoose(action.id)}>{(action.pick || action.root) && <FolderOpen size={15} />}{action.label}</button>)}</div>
   </div></dialog>;
 }

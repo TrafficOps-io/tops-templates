@@ -6,6 +6,7 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { join, extname, resolve } from 'node:path';
+import { studioChat } from './support/studio-chat.js';
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = resolve(process.argv[2] || 'editor/dist');
@@ -22,6 +23,9 @@ await new Promise(done => server.listen(0, '127.0.0.1', done));
 // The picker throws SecurityError without transient user activation, like Chromium. Folder names come from
 // localStorage `test-folder-picker` ('!abort' cancels); folders live under OPFS picker/, never listed as OPFS projects.
 const installPicker = () => {
+  // `test-access` = 'prompt': listed folders report no granted access (as after a browser restart).
+  // Init scripts also run in sandboxed preview frames, which have no storage.
+  try { if (localStorage.getItem('test-access') === 'prompt') FileSystemHandle.prototype.queryPermission = async () => 'prompt'; } catch { return; }
   window.showDirectoryPicker = async () => {
     if (!navigator.userActivation.isActive) throw new DOMException('Must be handling a user gesture to show a file picker.', 'SecurityError');
     window.__pickerCalls = (window.__pickerCalls || 0) + 1;
@@ -56,6 +60,28 @@ const copyFolder = (page, from, to, { remove = false } = {}) => page.evaluate(as
   await copy(await parent.getDirectoryHandle(last), await picker.getDirectoryHandle(to, { create: true }));
   if (remove) await parent.removeEntry(last, { recursive: true });
 }, { from, to, remove });
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4n+DwHwAGoAKfr+/eKAAAAABJRU5ErkJggg==', 'base64');
+const generated = '@template "Smoke AI"\n@section content "Content"\n@param title String = "Smoke AI launch" label="Title"\n@endsection\n@layout\n<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{title}}</title></head><body><h1>{{title}}</h1></body></html>\n@endlayout\n';
+// Synthetic OpenRouter: one agent loop (write index.tpl, then validate). No paid requests.
+async function mockProvider(context, origin, counter) {
+  let step = 0;
+  await context.route('**/*', async route => {
+    const url = route.request().url();
+    if (url.startsWith(origin + '/') || url.startsWith('data:') || url.startsWith(`blob:${origin}/`)) return route.continue();
+    if (!url.startsWith('https://openrouter.ai/api/v1/')) return route.abort();
+    counter.requests++;
+    if (!url.endsWith('/chat/completions')) return route.fulfill({ json: { data: [] } });
+    const call = ++step % 2 === 1 ? ['set_file', { path: 'index.tpl', content: generated }] : ['validate_draft', {}];
+    const value = { id: `smoke-${counter.requests}`, model: 'test/smoke', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: `call-${counter.requests}`, type: 'function', function: { name: call[0], arguments: JSON.stringify(call[1]) } }] }, finish_reason: 'tool_calls' }] };
+    return route.fulfill({ contentType: 'text/event-stream', body: `data: ${JSON.stringify(value)}\n\ndata: [DONE]\n\n` });
+  });
+}
+const configureAi = page => page.evaluate(async () => {
+  const db = await new Promise((done, reject) => { const request = indexedDB.open('trafficops-template-studio-ai', 1); request.onupgradeneeded = () => request.result.createObjectStore('settings', { keyPath: 'id' }); request.onsuccess = () => done(request.result); request.onerror = () => reject(request.error); });
+  await new Promise((done, reject) => { const tx = db.transaction('settings', 'readwrite'); tx.objectStore('settings').put({ id: 'openrouter', apiKey: 'mock-no-paid-requests', model: 'test/smoke', imageModel: '' }); tx.oncomplete = done; tx.onerror = () => reject(tx.error); }); db.close();
+  window.dispatchEvent(new Event('trafficops-ai-settings'));
+});
+const metaOf = async (page, folder) => JSON.parse(await readOpfs(page, `${folder}/.trafficops/project.json`));
 async function until(check, message, timeout = 10000) {
   for (const started = Date.now(); !(await check());) { if (Date.now() - started > timeout) throw new Error(`Timed out: ${message}`); await new Promise(done => setTimeout(done, 100)); }
 }
@@ -202,6 +228,142 @@ try {
   await page.getByRole('button', { name: 'Open Second project', exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: 'Open plain', exact: true }).count(), 0);
 
+
+  // Task 9b flows, in the installed-app presentation with a mocked provider.
+  {
+    const context = await browser.newContext({ viewport: { width: 1500, height: 1000 } }), provider = { requests: 0 }, confirms = [];
+    await context.addInitScript(installPicker);
+    await context.addInitScript(() => Object.defineProperty(navigator, 'standalone', { configurable: true, value: true }));
+    await mockProvider(context, url, provider);
+    const app = await context.newPage();
+    app.on('pageerror', error => errors.push(error.message));
+    app.on('dialog', dialog => { confirms.push(dialog.message()); dialog.accept(); });
+    await app.goto(url);
+    const ready = async () => { await app.locator('.browser-frame iframe.is-visible').waitFor({ timeout: 20000 }); };
+    const contentTab = () => app.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click();
+    const projects = async () => { await app.getByRole('button', { name: 'Projects', exact: true }).click(); await app.locator('.library-tools button:not([disabled])', { hasText: 'Import ZIP' }).waitFor(); };
+    await configureAi(app);
+
+    // AI create from the home brief with an image: the picker opens in the submit, the attachments are read after it,
+    // pendingAi is stored with the attachment blob, claimed exactly once, and the run starts.
+    await usePicker(app, 'ai-1');
+    const home = app.locator('.home-project-chat'), composer = home.locator('[data-testid="studio-chat-composer"]');
+    await composer.getByRole('textbox', { name: 'Message to assistant', exact: true }).fill('Build a calm smoke-test launch page.');
+    await composer.locator('input[type=file]').setInputFiles({ name: 'hero.png', mimeType: 'image/png', buffer: png });
+    await composer.locator('.studio-chip-attachment', { hasText: 'hero.png' }).waitFor();
+    await composer.getByRole('checkbox', { name: 'Use attached images on the page', exact: true }).check();
+    await composer.locator('button[type=submit]').click();
+    const chat = studioChat(app);
+    await chat.root.waitFor({ timeout: 20000 });
+    await chat.user.getByText('Build a calm smoke-test launch page.', { exact: true }).waitFor();
+    await chat.status('ready').waitFor({ timeout: 20000 });
+    assert.equal(provider.requests, 2, 'the kickoff run is one agent loop');
+    const aiMeta = await metaOf(app, 'picker/ai-1');
+    assert.equal(aiMeta.pendingAi, undefined, 'the brief is claimed');
+    assert.equal(aiMeta.name, 'Build a calm smoke-test launch page.');
+    assert.equal((await listOpfs(app, 'picker/ai-1/.trafficops/conversations/blobs')).length >= 1, true, 'the attachment is stored as a blob');
+    assert.equal((await listOpfs(app, 'picker/ai-1/.trafficops/conversations')).filter(name => name.endsWith('.json')).length, 1);
+    await chat.apply.click(); await chat.status('applied').waitFor();
+    await app.reload(); await chat.root.waitFor({ timeout: 20000 }); await chat.status('applied').waitFor();
+    await app.waitForTimeout(1000);
+    assert.equal(provider.requests, 2, 'reopening never restarts a claimed brief');
+
+    // Save as template: the dialog's submit opens the picker for the template's folder (D4).
+    await usePicker(app, 'tpl-1');
+    await app.locator('.studio-toolbar').getByRole('button', { name: 'Save as template', exact: true }).click();
+    const save = app.getByRole('dialog').filter({ has: app.getByRole('textbox', { name: 'Template name', exact: true }) });
+    await save.getByRole('textbox', { name: 'Template name', exact: true }).fill('Smoke template');
+    await save.getByRole('button', { name: 'Save as template', exact: true }).click();
+    await until(async () => (await readOpfs(app, 'picker/tpl-1/.trafficops/project.json')) !== null, 'the template is written');
+    const templateMeta = await metaOf(app, 'picker/tpl-1');
+    assert.equal(templateMeta.kind, 'template');
+    assert.match(await readOpfs(app, 'picker/tpl-1/index.tpl'), /Smoke AI launch/);
+    assert.equal(await listOpfs(app, 'picker/tpl-1/.trafficops/conversations'), null, 'a template carries no history');
+
+    // Export the AI project with its history, for the import checks below.
+    await app.locator('.studio-toolbar').getByRole('button', { name: 'Export', exact: true }).click();
+    await app.getByRole('menuitem', { name: /Editable project/ }).click();
+    const downloading = app.waitForEvent('download');
+    await app.getByRole('dialog', { name: 'Export' }).getByRole('button', { name: 'Download', exact: true }).click();
+    const archivePath = await (await downloading).path();
+
+    // A user template: its card click asks for access and reads it (D2); Create then picks the new folder.
+    await projects();
+    await app.getByRole('button', { name: 'Use template Smoke template', exact: true }).click();
+    const create = app.getByRole('dialog', { name: 'New project' });
+    await create.getByRole('textbox', { name: 'Project name', exact: true }).fill('From my template');
+    await usePicker(app, 'from-tpl');
+    await create.getByRole('button', { name: 'Create landing', exact: true }).click();
+    await ready();
+    const fromTemplate = await metaOf(app, 'picker/from-tpl');
+    assert.equal(fromTemplate.sourceTemplateId, templateMeta.projectId);
+    assert.equal(fromTemplate.kind, 'landing');
+    assert.match(await readOpfs(app, 'picker/from-tpl/index.tpl'), /Smoke AI launch/);
+
+    // Save a copy…: the folder disappears while open; the copy keeps the unsaved edit and opens.
+    await contentTab();
+    await copyFolder(app, 'from-tpl', 'from-tpl-backup', { remove: true });
+    await app.locator('#setting-title').fill('Rescued edit');
+    await app.getByRole('alert').filter({ hasText: 'Folder unavailable' }).waitFor({ timeout: 10000 });
+    await usePicker(app, 'rescued');
+    await app.getByRole('button', { name: 'Save a copy…', exact: true }).click();
+    await until(async () => (await readOpfs(app, 'picker/rescued/.trafficops/project.json')) !== null, 'the copy is written');
+    await ready(); await contentTab();
+    assert.equal(await app.locator('#setting-title').inputValue(), 'Rescued edit');
+    const rescued = await metaOf(app, 'picker/rescued');
+    assert.equal(rescued.name, 'From my template (copy)');
+    assert.notEqual(rescued.projectId, fromTemplate.projectId);
+    assert.equal(JSON.parse(await readOpfs(app, 'picker/rescued/.trafficops/values.json')).title, 'Rescued edit');
+
+    // Import a ZIP whose projectId Studio knows: a copy under a new id, with the dialogue (D1). The dialog's button
+    // picks the folder (D8).
+    await projects();
+    await usePicker(app, 'imported-copy');
+    await app.locator('input[aria-label="Import project ZIP"]').setInputFiles(archivePath);
+    const importDialog = app.getByRole('dialog', { name: `Import ${aiMeta.name}` });
+    await importDialog.getByRole('button', { name: 'Choose folder…', exact: true }).click();
+    await chat.root.waitFor({ timeout: 20000 });
+    await chat.user.getByText('Build a calm smoke-test launch page.', { exact: true }).waitFor();
+    const importedCopy = await metaOf(app, 'picker/imported-copy');
+    assert.notEqual(importedCopy.projectId, aiMeta.projectId);
+    assert.equal(importedCopy.name, `${aiMeta.name} (copy)`);
+
+    // Delete (folder): only the list entry goes; the folder stays on disk. Re-importing then keeps the projectId.
+    await projects();
+    await app.getByRole('button', { name: `Delete ${aiMeta.name}`, exact: true }).click();
+    assert.match(confirms.at(-1), /The folder stays on your disk/);
+    await until(async () => await app.getByRole('button', { name: `Open ${aiMeta.name}`, exact: true }).count() === 0, 'the project leaves the list');
+    assert.notEqual(await readOpfs(app, 'picker/ai-1/.trafficops/project.json'), null);
+    await usePicker(app, 'imported-same');
+    await app.locator('input[aria-label="Import project ZIP"]').setInputFiles(archivePath);
+    await app.getByRole('dialog', { name: `Import ${aiMeta.name}` }).getByRole('button', { name: 'Choose folder…', exact: true }).click();
+    await chat.root.waitFor({ timeout: 20000 });
+    await chat.user.getByText('Build a calm smoke-test launch page.', { exact: true }).waitFor();
+    assert.equal((await metaOf(app, 'picker/imported-same')).projectId, aiMeta.projectId);
+
+    // Duplicate with granted access: one click picks the destination.
+    await projects();
+    await usePicker(app, 'dup-1');
+    await app.getByRole('button', { name: 'Duplicate Smoke template', exact: true }).click();
+    await app.getByRole('button', { name: 'Open Smoke template (copy)', exact: true }).waitFor();
+    const duplicated = await metaOf(app, 'picker/dup-1');
+    assert.equal(duplicated.kind, 'template');
+    assert.notEqual(duplicated.projectId, templateMeta.projectId);
+    // Duplicate without granted access (D8): the first click grants the source, "Choose destination…" picks.
+    await app.evaluate(() => localStorage.setItem('test-access', 'prompt'));
+    await app.reload();
+    await app.getByText('Needs permission', { exact: true }).first().waitFor();
+    const picksBefore = await app.evaluate(() => window.__pickerCalls || 0);
+    await usePicker(app, 'dup-2');
+    await app.getByRole('button', { name: 'Duplicate From my template (copy)', exact: true }).click();
+    const destination = app.getByRole('dialog', { name: 'Duplicate From my template (copy)' });
+    assert.equal(await app.evaluate(() => window.__pickerCalls || 0), picksBefore, 'the granting click opens no picker');
+    await destination.getByRole('button', { name: 'Choose destination…', exact: true }).click();
+    await until(async () => (await readOpfs(app, 'picker/dup-2/.trafficops/project.json')) !== null, 'the second duplicate is written');
+    assert.equal((await metaOf(app, 'picker/dup-2')).name, 'From my template (copy) (copy)');
+    await context.close();
+  }
+
   assert.deepEqual(errors, []);
 
   // OPFS mode (no folder picker): projects are created under OPFS projects/ and the storage note warns about backups.
@@ -225,6 +387,13 @@ try {
     assert.equal(JSON.parse(await readOpfs(opfsPage, `projects/${roots[0]}/.trafficops/project.json`)).name, 'Browser project');
     await opfsPage.reload();
     await opfsPage.locator('.browser-frame iframe.is-visible').waitFor({ timeout: 20000 });
+    // Delete (OPFS): after confirming, the project's folder is removed from browser storage.
+    const asked = [];
+    opfsPage.on('dialog', dialog => { asked.push(dialog.message()); dialog.accept(); });
+    await opfsPage.getByRole('button', { name: 'Projects', exact: true }).click();
+    await opfsPage.getByRole('button', { name: 'Delete Browser project', exact: true }).click();
+    await until(async () => (await listOpfs(opfsPage, 'projects')).length === 0, 'the OPFS root is deleted');
+    assert.match(asked[0], /from this browser\? This cannot be undone/);
     await opfsContext.close();
   }
   // Neither folders nor OPFS: the update-your-browser screen.

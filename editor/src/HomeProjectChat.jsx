@@ -72,7 +72,8 @@ export default function HomeProjectChat({ busy, aiSettings, onCreate }) {
     try {
       // Keep an unspecified image choice unresolved so a model connected in the
       // editor can still become the default for this project's initial brief.
-      await onCreate({ mode: 'ai', kind, name: '', prompt: text.trim(), attachments: await briefAttachments(files, onPage), generateImages: imageChoice });
+      // The raw files go up: the App opens the folder picker in this submit (D8) and reads them afterwards.
+      await onCreate({ mode: 'ai', kind, name: '', prompt: text.trim(), attachmentFiles: files, useOnPage: onPage, generateImages: imageChoice });
     } catch (cause) { setError(cause.message); return false; }
     finally { submitting.current = false; setSending(false); }
   }
