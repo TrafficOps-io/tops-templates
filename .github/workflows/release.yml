@@ -38,7 +38,13 @@ jobs:
           path: release
       - run: npm ci
       - name: Publish JavaScript packages
-        run: npm publish --workspace=@trafficops/template-language --workspace=@trafficops/template-editor-monaco --workspace=@trafficops/template-editor-core --workspace=@trafficops/studio-tokens --workspace=@trafficops/studio-ui --workspace=@trafficops/template-editor-shell --workspace=@trafficops/cli --access public --provenance
+        run: |
+          for dir in studio-tokens studio-ui; do
+            name=$(node -p "require('./packages/$dir/package.json').name")
+            v=$(node -p "require('./packages/$dir/package.json').version")
+            npm view "$name@$v" version >/dev/null 2>&1 && echo "skip $name@$v" || npm publish --workspace=$name --access public --provenance
+          done
+          npm publish --workspace=@trafficops/template-language --workspace=@trafficops/template-editor-monaco --workspace=@trafficops/template-editor-core --workspace=@trafficops/template-editor-shell --workspace=@trafficops/cli --access public --provenance
       - name: Attach downloadable packages
         run: gh release create "$GITHUB_REF_NAME" release/dist/*.tgz release/vscode-extension/dist/*.vsix release/*.zip --verify-tag --generate-notes
         env:
