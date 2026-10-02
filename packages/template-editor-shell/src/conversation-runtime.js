@@ -517,7 +517,7 @@ export function createConversationSession(initialHost, { workflows = defaultWork
   }
   function assertRoom(next, thread) {
     if (thread.messages.length >= 499) throw new Error('This dialog has reached its message limit. Start a new dialog.');
-    if (next.runs.length >= 100) throw new Error('The project has reached its AI run limit. Export a backup before removing old results.');
+    if (next.runs.filter(run => run.threadId === thread.id).length >= 100) throw new Error('This dialog has reached its AI run limit. Start a new dialog.');
   }
 
   const session = {
@@ -614,7 +614,7 @@ export function createConversationSession(initialHost, { workflows = defaultWork
         thread.messages.push({ id: messageId, role: 'user', parentId, prompt, parts: [{ type: 'text', text: prompt }, ...references.map(({ path, hash, kind, id, page, label }) => kind === 'section' ? { type: 'section', path, hash, kind, id, page, label } : { type: 'file', path, hash, kind }), ...checked.map(item => ({ type: 'attachment', attachmentId: item.id }))], attachments: clone(checked), mentions: references, createdAt: now(), status: busy ? 'queued-clarification' : 'saved', ...(busy ? { runId: busy.id } : { runId: id }) });
         thread.updatedAt = now(); thread.archived = false;
         if (busy) { if (checked.length || references.length) throw new Error('Wait for this run to finish before adding new references. You can send a text clarification now.'); if ((busy.clarifications || []).length >= 8) throw new Error('The clarification limit for this run has been reached. Wait for it to finish.'); busy.clarifications ||= []; busy.clarifications.push({ id: messageId, text: prompt }); return; }
-        if (next.runs.length >= 100) throw new Error('The project has reached its AI run limit. Export a backup before removing old results.');
+        if (next.runs.filter(run => run.threadId === threadId).length >= 100) throw new Error('This dialog has reached its AI run limit. Start a new dialog.');
         thread.activeLeafId = messageId;
         // The draft a follow-up continues is the nearest run of ITS branch: a sibling branch's draft never leaks in.
         const previous = continuation ? next.runs.find(run => run.id === continuation) : nearestRun(tree, parentId);

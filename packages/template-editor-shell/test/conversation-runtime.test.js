@@ -521,3 +521,13 @@ test('run updatedAt strictly increases whenever a run changes, even with a froze
     if (JSON.stringify(previous) !== JSON.stringify(current)) assert.ok(after > before, `save ${index}: updatedAt ${after} must exceed ${before}`);
   }
 });
+
+test('the run limit applies per dialog, not per project', async t => {
+  const runs = Array.from({ length: 100 }, (_, index) => ({ id: `run-${index}`, threadId: 'full', messageId: 'message', state: 'ready', createdAt: 1, updatedAt: 1 }));
+  const local = fixture('run-limit', { schema: 1, projectId: 'run-limit', revision: 0, threads: [{ id: 'full', title: 'Full', archived: false, messages: [{ id: 'message', role: 'user', prompt: 'Earlier' }] }], runs }), wait = deferred();
+  const session = createConversationSession(local.host, { locks: null, sessionId: 'owner', workflows: basicWorkflows(() => wait.promise) });
+  t.after(() => { wait.resolve(); session.dispose(); }); await session.ready;
+  await assert.rejects(session.submit({ threadId: 'full', prompt: 'One more', snapshot: state() }), /AI run limit/);
+  const threadId = await session.submit({ prompt: 'New dialog', snapshot: state() });
+  assert.equal(session.getSnapshot().runs.filter(run => run.threadId === threadId).length, 1);
+});
