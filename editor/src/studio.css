@@ -246,3 +246,11 @@ h1 { font-size: clamp(2.25rem, 4.5vw, 4.4rem); line-height: 1.02; letter-spacing
 .library-install-note { margin-top: 1.5rem; padding: .9rem 1rem; border: 1px solid var(--ui-border); border-radius: .6rem; color: var(--ui-muted); font-size: .8rem; line-height: 1.6; background: var(--ui-surface); }
 @media (max-width: 640px) { .creation-shortcuts.manual-only { grid-template-columns: 1fr; } }
 .theme-toggle { display: inline-flex; gap: var(--ui-space-1); } .theme-toggle [aria-checked="true"] { color: var(--ui-accent); }
+.library-thumbnail-placeholder { position: absolute; inset: 0; display: grid; place-items: center; color: var(--ui-muted); background: color-mix(in srgb, var(--ui-border) 35%, var(--ui-surface)); }
+.library-unavailable { display: flex; flex-direction: column; gap: .35rem; margin: .5rem 0; padding: .6rem .75rem; border: 1px solid color-mix(in srgb, var(--color-warning) 32%, var(--ui-border)); border-radius: var(--radius-field); background: color-mix(in srgb, var(--color-warning) 8%, var(--ui-surface)); font-size: .75rem; }
+.library-unavailable span { color: var(--ui-muted); }
+.unsupported-browser { max-width: 36rem; margin: 4rem auto; padding: 2rem; border: 1px solid var(--ui-border); border-radius: .75rem; background: var(--ui-surface); }
+.unsupported-browser h2 { font-size: 1.5rem; letter-spacing: -.03em; font-weight: 500; margin: .4rem 0 .75rem; }
+.unsupported-browser p { color: var(--ui-muted); line-height: 1.6; font-size: .9rem; }
+.unsupported-browser ul { margin: 1rem 0 0 1.1rem; list-style: disc; font-size: .85rem; line-height: 1.8; }
+.folder-unavailable { display: flex; align-items: center; gap: .5rem; color: var(--color-error); font-size: .8rem; }

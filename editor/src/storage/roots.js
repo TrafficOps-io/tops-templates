@@ -9,11 +9,15 @@ const persisted = new WeakMap();
 const env = () => ({ showDirectoryPicker: globalThis.showDirectoryPicker, storage: globalThis.navigator?.storage });
 const storageOf = options => Object.hasOwn(options, 'storage') ? options.storage : env().storage;
 const pickerOf = options => Object.hasOwn(options, 'showDirectoryPicker') ? options.showDirectoryPicker : env().showDirectoryPicker;
+const fileHandleOf = options => Object.hasOwn(options, 'fileHandle') ? options.fileHandle : globalThis.FileSystemFileHandle;
 
 /** 'folder' when the folder picker exists (Chromium), 'opfs' when the origin private file system opens, else
- *  'unsupported' (Firefox private mode rejects getDirectory) (D9). */
+ *  'unsupported' (Firefox private mode rejects getDirectory) (D9). A browser whose file handles cannot write from the
+ *  main thread (Safari 15.2–18: no createWritable) is unsupported too. */
 export async function storageMode(options = {}) {
   if (typeof pickerOf(options) === 'function') return 'folder';
+  const fileHandle = fileHandleOf(options);
+  if (fileHandle && !('createWritable' in fileHandle.prototype)) return 'unsupported';
   const storage = storageOf(options);
   if (typeof storage?.getDirectory !== 'function') return 'unsupported';
   try { await storage.getDirectory(); return 'opfs'; } catch { return 'unsupported'; }
@@ -39,13 +43,14 @@ export async function classifyFolder(handle) {
   return { status: 'empty' };
 }
 
-const slugOf = name => String(name ?? '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 60).replace(/-+$/, '') || 'project';
+/** The folder name createSubfolder starts from (before -2, -3, … for taken names). */
+export const folderSlug = name => String(name ?? '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 60).replace(/-+$/, '') || 'project';
 
 /** A new folder named after `name` (slug); taken names, compared case-insensitively, get -2, -3, … */
 export async function createSubfolder(parent, name) {
   const taken = new Set();
   for await (const entry of parent.keys()) taken.add(entry.toLowerCase());
-  const slug = slugOf(name);
+  const slug = folderSlug(name);
   let candidate = slug;
   for (let index = 2; taken.has(candidate); index++) candidate = `${slug}-${index}`;
   return parent.getDirectoryHandle(candidate, { create: true });

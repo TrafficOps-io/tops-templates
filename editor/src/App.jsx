@@ -2,96 +2,91 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowDownToLine, FolderOpen, HelpCircle, KeyRound, LayoutGrid, Plus, ShieldCheck, WifiOff } from 'lucide-react';
 import EditorShell from '@trafficops/template-editor-shell';
 import { getConversationSession, getConversationActivity, subscribeConversationActivity, releaseConversationSession } from '@trafficops/template-editor-shell/conversation-runtime';
-import { createStudioHost } from './hosts/StudioHost.js';
-import { createLibraryHost } from './hosts/LibraryHost.js';
+import { createFolderHost } from './hosts/FolderHost.js';
 import { createStudioAiPort } from './hosts/StudioAiPort.js';
 import { installedDisplayMode, watchDisplayMode } from './app-mode.js';
-import { loadWorkspace, saveWorkspace } from './workspace-storage.js';
-import { chooseProjectDirectory, ensureProjectPermission, forgetDirectoryProject, listDirectoryProjects, projectSnapshotEqual, readDirectoryProject, readProjectMetadata, readProjectSettings, rememberDirectoryProject, supportsDirectoryProjects, updateProjectLocation } from './directory-projects.js';
-import { LIMITS, projectFolders, ConflictError } from '@trafficops/template-editor-core';
-import { readPortableDirectory, saveProjectToDirectory, portableProjectRecord } from './portable-project.js';
-import { cloneConversationDocument, createConversationPort, deleteConversationDocument } from './studio-conversations.js';
-import { mergePortableHistory, sameProjectSnapshot } from './project-transfer.js';
-import ProjectImportDialog from './ProjectImportDialog.jsx';
-import { cloneStudioProject, createStudioProject, deleteStudioProject, getActiveStudioProjectId, getStudioProject, listStudioProjects, saveStudioProject, setActiveStudioProjectId } from './studio-library.js';
-import { readArchive } from './hosts/read-archive.js';
+import { classifyFolder, createOpfsRoot, createSubfolder, folderSlug, persistStorage, pickFolder, requestAccess, storageMode } from './storage/roots.js';
+import { forgetRecent, rememberRecent } from './storage/recent.js';
+import { adoptFolder, createProjectInRoot, listKnownProjects, makeIndependent } from './storage/project-root.js';
+import { LAST_PROJECT_KEY, accessLost, duplicateDecision, openFolderDecision, pendingEditsApply, reconnectDecision, reopenCandidate, rootDecision, rootReachable, storageLabels } from './storage/flows.js';
 import { starterProject } from './starter.js';
 import { getPwaState, subscribePwa } from './pwa.js';
 import StudioLibrary, { CreateProjectDialog } from './StudioLibrary.jsx';
-import { AiSettingsDialog, ProjectsDialog, TourDialog } from './StudioDialogs.jsx';
+import { AiSettingsDialog, TourDialog } from './StudioDialogs.jsx';
+import FolderChoiceDialog from './FolderChoiceDialog.jsx';
+import UnsupportedBrowser from './UnsupportedBrowser.jsx';
 import ThemeToggle from './ThemeToggle.jsx';
 import { StudioUiProvider } from '@trafficops/studio-ui/i18n';
 import { Skeleton } from '@trafficops/studio-ui/primitives';
 
+const NEEDS_ACCESS = 'Studio needs permission to use this folder. Reconnect it, or remove it from the list.';
+const MISSING = 'The folder was moved, renamed or deleted. Reconnect it, or remove it from the list.';
+const LOST = 'Studio can no longer reach this project folder. Editing is paused; reconnect the folder to resume saving.';
+const cancelled = () => new DOMException('The operation was cancelled.', 'AbortError');
+const projectName = value => String(value || '').replace(/[\x00-\x1f\x7f]/g, ' ').trim().slice(0, 120) || 'Untitled project';
+const without = (items, key) => { if (!Object.hasOwn(items, key)) return items; const { [key]: _removed, ...rest } = items; return rest; };
+const lastProject = {
+  get() { try { return localStorage.getItem(LAST_PROJECT_KEY); } catch { return null; } },
+  set(projectId) { try { if (projectId) localStorage.setItem(LAST_PROJECT_KEY, projectId); else localStorage.removeItem(LAST_PROJECT_KEY); } catch { /* Storage blocked: no auto-reopen. */ } },
+};
+
 export default function App() {
   const [installedMode, setInstalledMode] = useState(installedDisplayMode);
-  const [host, setHost] = useState(null), [epoch, setEpoch] = useState(0), [recovered, setRecovered] = useState(null);
-  const [library, setLibrary] = useState([]), [current, setCurrent] = useState(null), [ready, setReady] = useState(false);
-  const [projects, setProjects] = useState([]), [attached, setAttached] = useState(null), [reconnect, setReconnect] = useState(null);
-  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
-  const [help, setHelp] = useState(false), [projectsOpen, setProjectsOpen] = useState(false), [creating, setCreating] = useState(null);
-  const [busy, setBusy] = useState(false), [error, setError] = useState(''), [view, setView] = useState(null);
-  const [importChoice, setImportChoice] = useState(null), [activity, setActivity] = useState([]);
+  const [mode, setMode] = useState(null), [host, setHost] = useState(null), [epoch, setEpoch] = useState(0);
+  const [known, setKnown] = useState([]), [current, setCurrent] = useState(null), [ready, setReady] = useState(false);
+  const [unavailable, setUnavailable] = useState({}), [lost, setLost] = useState(null), [folderChoice, setFolderChoice] = useState(null);
+  const [aiSettingsOpen, setAiSettingsOpen] = useState(false), [help, setHelp] = useState(false), [creating, setCreating] = useState(null);
+  const [busy, setBusy] = useState(false), [error, setError] = useState(''), [view, setView] = useState(null), [activity, setActivity] = useState([]);
   const [installPrompt, setInstallPrompt] = useState(null), [pwa, setPwa] = useState(getPwaState), [online, setOnline] = useState(navigator.onLine);
   const update = pwa.update;
-  const snapshot = useRef(null), recoveryTimer = useRef(null), recoveryQueue = useRef(Promise.resolve()), restore = useRef(null), archive = useRef(null);
-  const session = useRef(0), currentRef = useRef(null), busyRef = useRef(false);
-  const ai = useRef(null);
-  const hosts = useRef(new Map());
-  function studioAi() {
-    if (!installedDisplayMode()) return undefined;
-    return ai.current ||= createStudioAiPort({ isEnabled: installedDisplayMode });
+  const snapshot = useRef(null), currentRef = useRef(null), busyRef = useRef(false), lostRef = useRef(null), modeRef = useRef(null), boot = useRef(null);
+  const ai = useRef(null), hosts = useRef(new Map());
+  // D7: the AI port is always available; installedDisplayMode() only drives install and window chrome.
+  function studioAi() { return ai.current ||= createStudioAiPort(); }
+  const blocked = busy || Boolean(view?.busy);
+  const blockedReason = blocked ? 'Wait for the current save to finish.' : '';
+
+  // Hosts stay registered per projectId so a background AI run keeps its session; a reopened project rebinds it.
+  function mount(next, entry = null) {
+    snapshot.current = null; setView(null); lostRef.current = null; setLost(null);
+    currentRef.current = entry; setHost(next); setCurrent(entry); setEpoch(value => value + 1);
+    lastProject.set(entry?.projectId);
+    if (next?.conversations) {
+      const id = next.conversations.projectId, previous = hosts.current.get(id);
+      hosts.current.set(id, next); getConversationSession(next).updateHost(next);
+      if (previous && previous !== next) previous.dispose?.();
+    }
   }
-  async function clearRecovery() {
-    // A browser tab must not erase an installed app's separate folder recovery.
-    if (installedDisplayMode() && (attached || recovered)) await saveWorkspace(null);
-  }
-  const legacyAi = !host?.conversations && Boolean(view?.aiBusy || view?.aiDraft);
-  const connectionBlocked = busy || Boolean(view?.busy) || legacyAi;
-  const blocked = connectionBlocked;
-  const blockedReason = legacyAi ? 'Finish the current AI operation before changing projects.' : connectionBlocked ? 'Wait for the current save to finish.' : '';
-  function refreshSaved(record) {
-    setLibrary(items => [record, ...items.filter(item => item.id !== record.id)].sort((a, b) => b.updatedAt - a.updatedAt));
-    if (currentRef.current?.id === record.id) { currentRef.current = record; setCurrent(record); }
-  }
-  function mount(next, { record = null, project = null, recovery = null } = {}) {
-    session.current++; clearTimeout(recoveryTimer.current); snapshot.current = null; setView(null);
-    currentRef.current = record; setHost(next); setCurrent(record); setAttached(project); setRecovered(recovery); setReconnect(null); setEpoch(value => value + 1);
-    if (next?.conversations) { hosts.current.set(next.conversations.projectId, next); getConversationSession(next).updateHost(next); }
-  }
-  function connectLibrary(record, autoStart = false) {
-    mount(createLibraryHost({ record, ai: studioAi(), autoStart: autoStart && installedDisplayMode(), onSaved: refreshSaved }), { record });
-  }
-  function recoveryWriter(projectId) {
-    return state => {
-      clearTimeout(recoveryTimer.current);
-      const saved = { files: state.files, folders: state.folders, overrides: state.translations[state.locale], sourceBaseline: state.files, name: state.name, projectId, dirty: false, detached: true };
-      const task = recoveryQueue.current.catch(() => {}).then(() => saveWorkspace(saved));
-      recoveryQueue.current = task;
-      return task;
+  // A folder that disappears or loses permission pauses the editor (read-only, no autosave) until it is reconnected.
+  // A deleted folder can first look like missing metadata (a conflict), so other failures probe the root; a lost
+  // folder is reported as such, not as a conflict.
+  function watchAccess(next, projectId, root) {
+    const guard = operation => async (...args) => {
+      try { return await operation(...args); } catch (cause) {
+        if (cause?.name === 'AbortError' || cause?.code === 'abort') throw cause;
+        if (!accessLost(cause) && await rootReachable(root).catch(() => true)) throw cause;
+        folderLost(projectId);
+        throw new Error(LOST, { cause });
+      }
     };
+    return { ...next, project: { ...next.project, open: guard(next.project.open), save: guard(next.project.save) } };
   }
-  function folderHost(project, record, recovery = null) {
-    const options = recovery ? { initial: { name: recovery.name, files: recovery.files, folders: recovery.folders || [], settings: recovery.overrides || {} }, recovery: recoveryWriter(project.id) } : { directory: project.handle };
-    const next = createStudioHost({ ...options, projectId: project.id, kind: record?.kind || project.kind || 'landing', name: record?.name || project.name, createdAt: record?.createdAt, appliedAiRuns: record?.appliedAiRuns, ai: studioAi(), isDirectoryEnabled: installedDisplayMode, recovery: recoveryWriter(project.id) });
-    const originalSave = next.project.save;
-    let cacheRevision = record?.revision ?? null;
-    next.project.save = async (...args) => {
-      const cached = await getStudioProject(project.id);
-      if ((cached?.revision ?? null) !== cacheRevision) throw new ConflictError('This project changed in another window. Review the device and folder copies before saving.');
-      const state = await originalSave(...args);
-      const candidate = createStudioProject({ ...cached, kind: cached?.kind || record?.kind || 'landing', name: state.name, files: state.files, folders: state.folders, settings: state.translations[state.locale], appliedAiRuns: state.appliedAiRuns || [] }, { id: project.id, now: cached?.createdAt || Date.now() });
-      try { const saved = await saveStudioProject(candidate, { expectedRevision: cacheRevision }); cacheRevision = saved.revision; refreshSaved(saved); }
-      catch (cause) { setError(`Files are saved to the folder, but the device cache could not be updated: ${cause.message}`); }
-      return state;
-    };
-    return next;
+  function folderLost(projectId) {
+    if (currentRef.current?.projectId !== projectId || lostRef.current) return;
+    lostRef.current = { projectId }; setLost(lostRef.current);
   }
-  function connectFolder(project, recovery = null, knownRecord = null) {
-    if (!installedDisplayMode()) throw new Error('Project folders are available only in the installed Studio app.');
-    const record = knownRecord || library.find(item => item.id === project.id) || currentRef.current;
-    mount(folderHost(project, record, recovery), { record: record?.id === project.id ? record : null, project: recovery ? null : project, recovery });
-    if (recovery) setReconnect(project);
+  async function refreshKnown() {
+    try { setKnown(await listKnownProjects()); } catch (cause) { setError(`Could not list your projects: ${cause.message}`); }
+  }
+  function markUnavailable(projectId, message) { setUnavailable(items => ({ ...items, [projectId]: message })); }
+  // Opens a project root; folder roots are remembered (and their lastOpenedAt refreshed) in the recent registry.
+  async function enter(root, meta, source) {
+    const entry = { projectId: meta.projectId, name: meta.name, kind: meta.kind, source, handle: root };
+    if (source === 'folder') await rememberRecent({ projectId: entry.projectId, name: entry.name, kind: entry.kind, handle: root });
+    const next = watchAccess(await createFolderHost({ root, meta, ai: studioAi() }), entry.projectId, root);
+    setUnavailable(items => without(items, entry.projectId));
+    mount(next, entry); setCreating(null);
+    await refreshKnown();
   }
   useEffect(() => watchDisplayMode(setInstalledMode), []);
   useEffect(() => subscribePwa(setPwa), []);
@@ -101,53 +96,24 @@ export default function App() {
   }, []);
   useEffect(() => {
     let alive = true;
-    if (!restore.current) restore.current = (async () => {
-      const [records, activeId, directories, workspace] = await Promise.all([listStudioProjects(), getActiveStudioProjectId(), installedDisplayMode() ? listDirectoryProjects() : [], loadWorkspace()]);
-      // Keep old single-workspace installations: migrate ZIP sessions exactly once.
-      if (!activeId && workspace?.files && !workspace.projectId) {
-        const migrated = await saveStudioProject(createStudioProject({ kind: 'landing', name: workspace.name || 'Recovered project', files: workspace.files, folders: workspace.folders || [], settings: workspace.overrides || {} }), { expectedRevision: null });
-        await setActiveStudioProjectId(migrated.id); await saveWorkspace(null);
-        return { records: [migrated, ...records], active: migrated, directories };
-      }
-      return { records, active: records.find(item => item.id === activeId), directories, workspace };
+    boot.current ||= (async () => {
+      const storage = await storageMode();
+      return { storage, projects: storage === 'unsupported' ? [] : await listKnownProjects() };
     })();
-    restore.current.then(async ({ records, active, directories, workspace }) => {
+    boot.current.then(async ({ storage, projects }) => {
       if (!alive) return;
-      setLibrary(records); setProjects(directories);
-      if (active) {
-        const project = directories.find(item => item.id === active.id);
-        if (project) {
-          try {
-            const recovery = await loadWorkspace(active.id);
-            if (await ensureProjectPermission(project.handle, { request: false })) {
-              const disk = await readPortableDirectory(project.handle);
-              const needsRecovery = (recovery?.dirty || recovery?.detached) && !sameProjectSnapshot({ files: recovery.files, folders: recovery.folders, settings: recovery.overrides }, disk);
-              if (alive) connectFolder(project, needsRecovery ? recovery : null, active);
-            } else if (alive) { connectLibrary(active); setReconnect(project); }
-          } catch (cause) { if (alive) { connectLibrary(active); setReconnect(project); setError(`Your device copy is open. Reconnect the folder to resume saving there: ${cause.message}`); } }
-        } else connectLibrary(active);
-      }
-      else if (installedDisplayMode() && workspace?.projectId && workspace.files) {
-        const project = directories.find(item => item.id === workspace.projectId);
-        const recoverFolder = () => {
-          const record = records.find(item => item.id === workspace.projectId);
-          mount(project ? folderHost(project, record, workspace) : createStudioHost({ projectId: workspace.projectId, initial: { name: workspace.name, files: workspace.files, folders: workspace.folders || [], settings: workspace.overrides || {} }, ai: studioAi(), recovery: recoveryWriter(workspace.projectId) }), { record, recovery: workspace });
-          if (project) setReconnect(project);
-        };
+      modeRef.current = storage; setMode(storage); setKnown(projects);
+      // Reopen the last project only without a prompt: a permission request needs a click.
+      const entry = reopenCandidate(projects, lastProject.get());
+      if (entry) {
         try {
-          if (project && await ensureProjectPermission(project.handle, { request: false })) {
-            const disk = await readDirectoryProject(project.handle), settings = await readProjectSettings(project.handle);
-            if (!alive) return;
-            const same = projectSnapshotEqual({ files: workspace.files, folders: projectFolders(workspace.files, workspace.folders || []) }, { files: disk.files, folders: projectFolders(disk.files, disk.folders) }) && JSON.stringify(workspace.overrides || {}) === JSON.stringify(settings);
-            connectFolder(project, (workspace.dirty || workspace.detached) && !same ? workspace : null, records.find(item => item.id === workspace.projectId));
-          } else if (alive) recoverFolder();
-        } catch (cause) {
+          const check = reconnectDecision(entry.projectId, await classifyFolder(entry.handle));
           if (!alive) return;
-          recoverFolder(); setError(`Could not read the folder. Your recovery copy is open: ${cause.message}`);
-        }
+          if (check.ok) await enter(entry.handle, check.meta, entry.source); else markUnavailable(entry.projectId, check.message);
+        } catch (cause) { if (alive) { if (accessLost(cause)) markUnavailable(entry.projectId, MISSING); else setError(`Could not reopen ${entry.name}: ${cause.message}`); } }
       }
       if (alive) setReady(true);
-    }).catch(cause => { if (alive) { setError(`Could not open device storage: ${cause.message}`); setReady(true); } });
+    }).catch(cause => { if (alive) { setError(`Could not open Studio storage: ${cause.message}`); setReady(true); } });
     return () => { alive = false; };
   }, []);
   useEffect(() => {
@@ -157,179 +123,173 @@ export default function App() {
     window.addEventListener('online', network); window.addEventListener('offline', network);
     return () => { window.removeEventListener('beforeinstallprompt', install); window.removeEventListener('online', network); window.removeEventListener('offline', network); };
   }, []);
-  useEffect(() => () => clearTimeout(recoveryTimer.current), []);
   useEffect(() => {
     const warn = event => { if (getConversationActivity().length || snapshot.current?.dirty) { event.preventDefault(); event.returnValue = ''; } };
     window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn);
   }, []);
-  function rememberSnapshot(value) {
-    snapshot.current = value; setView(value);
-    if (currentRef.current && !attached || !installedDisplayMode()) return; // LibraryHost commits its own versioned autosaves.
-    clearTimeout(recoveryTimer.current);
-    const version = session.current;
-    const saved = { files: value.state.files, folders: value.state.folders, overrides: value.state.translations[value.state.locale], sourceBaseline: value.baseline, name: value.state.name, projectId: attached?.id || reconnect?.id || recovered?.projectId || null, dirty: value.dirty, detached: Boolean(recovered) };
-    recoveryTimer.current = setTimeout(() => {
-      recoveryQueue.current = recoveryQueue.current.catch(() => {}).then(() => saveWorkspace(saved)).catch(cause => { if (session.current === version) setError(`Device recovery could not be saved: ${cause.message}`); });
-    }, 250);
-  }
+  function rememberSnapshot(value) { snapshot.current = value; setView(value); }
+  // Saves the open editor before another project replaces it. An unreachable folder cannot be saved: ask first.
   async function preserveCurrent() {
     const value = snapshot.current;
-    if (!host?.conversations && (value?.aiBusy || value?.aiDraft)) throw new Error('Finish or discard the current operation before leaving this project.');
-    clearTimeout(recoveryTimer.current); await recoveryQueue.current;
-    if (!value) return;
-    if (currentRef.current || attached) {
-      if (value.dirty) await value.flush();
-    } else {
-      // A recovered folder copy remains independent until explicitly reconnected.
-      const id = value.state.projectId || recovered?.projectId || crypto.randomUUID();
-      const existing = await getStudioProject(id);
-      const saved = await saveStudioProject(createStudioProject({ ...existing, kind: existing?.kind || 'landing', name: value.state.name || 'Recovered project', files: value.state.files, folders: value.state.folders, settings: value.state.translations[value.state.locale] }, { id }), { expectedRevision: existing?.revision ?? null });
-      refreshSaved(saved);
+    if (!value?.dirty) return;
+    if (lostRef.current) {
+      if (!window.confirm('This project folder is unavailable, so your latest edits are not saved. Leave the project anyway?')) throw cancelled();
+      return;
     }
+    await value.flush();
   }
-  async function perform(operation) {
+  // run: one App operation at a time; errors propagate (dialogs show them). perform: errors show in the App notice.
+  async function run(operation) {
     if (busyRef.current) return;
     busyRef.current = true; setBusy(true); setError('');
-    try { return await operation(); } catch (cause) { if (cause.name !== 'AbortError') setError(cause.message); } finally { busyRef.current = false; setBusy(false); }
+    try { return await operation(); } finally { busyRef.current = false; setBusy(false); }
   }
-  async function openProject(record) {
-    const directory = installedDisplayMode() && projects.find(item => item.id === record.id);
-    if (directory) return loadProject(directory);
-    await perform(async () => { await preserveCurrent(); const saved = await getStudioProject(record.id); if (!saved) throw new Error('This project was removed in another window.'); await setActiveStudioProjectId(saved.id); await clearRecovery(); connectLibrary(saved); });
+  function perform(operation) {
+    return run(operation).catch(cause => { if (cause?.name !== 'AbortError') setError(cause?.message || String(cause)); });
   }
-  async function showLibrary() {
-    await perform(async () => { await preserveCurrent(); await setActiveStudioProjectId(null); await clearRecovery(); mount(null); setLibrary(await listStudioProjects()); });
+
+  // FolderChoiceDialog: ask() resolves { id, picking } once the user chooses. An action marked `pick` opens the folder
+  // picker synchronously in that click (D8) and hands the pending pick back.
+  function ask(choice) { return new Promise(resolve => setFolderChoice({ ...choice, resolve })); }
+  function chooseFolderAction(id) {
+    const choice = folderChoice;
+    if (!choice) return;
+    const action = choice.actions.find(item => item.id === id);
+    setFolderChoice(null);
+    choice.resolve({ id: action ? id : 'cancel', picking: action?.pick ? pickFolder() : null });
   }
-  async function saveConflictCopy() {
-    await perform(async () => {
-      const value = snapshot.current;
-      if (!value || value.busy || (!host?.conversations && (value.aiBusy || value.aiDraft))) throw new Error('Finish the current save before copying this project.');
-      const record = createStudioProject({ kind: currentRef.current?.kind || 'landing', name: `${value.state.name.slice(0, 108)} (recovered)`, files: value.state.files, folders: value.state.folders, settings: value.state.translations[value.state.locale] });
-      const saved = await saveStudioProject(record, { expectedRevision: null });
-      refreshSaved(saved); await setActiveStudioProjectId(saved.id); await clearRecovery(); connectLibrary(saved);
-    });
+  // D8: call synchronously at the start of a click flow; the picker is its first prompt. Resolves { root } for a new
+  // project, { open, classification } when the user chose to open the project the folder already holds, or null.
+  function chooseRoot(kind, name) {
+    if (modeRef.current === 'opfs') return createOpfsRoot(crypto.randomUUID()).then(root => ({ root }));
+    return settleRoot(pickFolder(), kind, name);
   }
-  async function createProject({ kind, mode, name, prompt, source, attachments = [], generateImages }) {
+  async function settleRoot(picking, kind, name) {
+    const subject = kind === 'template' ? 'template' : 'project';
+    for (;;) {
+      const handle = await picking;
+      if (!handle) return null;
+      const classification = await classifyFolder(handle), decision = rootDecision(classification);
+      if (decision.action === 'use') return { root: handle };
+      const another = { id: 'another', label: 'Choose another…', pick: true };
+      const answer = await ask(decision.action === 'offer-subfolder'
+        ? { title: `“${handle.name}” already has files`, message: `Studio keeps each ${subject} in its own folder. Create the subfolder “${folderSlug(name)}” inside “${handle.name}”, or choose another folder.`, actions: [another, { id: 'subfolder', label: `Create subfolder ${folderSlug(name)}`, primary: true }] }
+        : decision.action === 'offer-open'
+          ? { title: `“${handle.name}” already holds a project`, message: `This folder holds the Studio project “${decision.meta.name}”. Open it, or choose another folder for the new ${subject}.`, actions: [another, { id: 'open', label: `Open ${decision.meta.name}`, primary: true }] }
+          : { title: 'This folder holds a damaged project', message: `${decision.error} Choose another folder for the new ${subject}.`, actions: [{ ...another, primary: true }] });
+      if (answer.id === 'another') { picking = answer.picking; continue; }
+      if (answer.id === 'subfolder') return { root: await createSubfolder(handle, name) };
+      if (answer.id === 'open') return { open: handle, classification };
+      return null;
+    }
+  }
+  /** A new, empty project root (a picked folder or an OPFS root), or null when cancelled. Same D8 rule as chooseRoot. */
+  function createRoot(kind, name) { return chooseRoot(kind, name).then(result => result?.root ?? null); }
+
+  // Creation from the dialog and the home prompt. Validation is synchronous; chooseRoot opens the picker before any
+  // await. User templates and attachment ordering (D2, D8) arrive in Task 9b.
+  function createProject({ kind = 'landing', mode: creation, name, prompt = '', source, attachments = [], generateImages }) {
     if (busyRef.current) return;
-    if (mode === 'ai' && !installedDisplayMode()) throw new Error('AI is available only in the installed Studio app.');
-    if (!name && mode === 'ai') name = prompt.trim().split('\n')[0].replace(/[\x00-\x1f\x7f]/g, ' ').trim().slice(0, 80) || 'New AI project';
+    if (!name && creation === 'ai') name = prompt.trim().split('\n')[0].replace(/[\x00-\x1f\x7f]/g, ' ').trim().slice(0, 80) || 'New AI project';
     if (!name) throw new Error('Give your project a name.');
-    if (mode === 'ai' && !prompt) throw new Error('Describe what you want to create.');
-    if (mode === 'template' && !source) throw new Error('Choose a starting template.');
-    busyRef.current = true; setBusy(true);
-    try {
-      if (mode === 'template' && !source.builtin) { source = await getStudioProject(source.id); if (!source || source.kind !== 'template') throw new Error('This template is no longer available. Choose another starting point.'); }
+    if (creation === 'ai' && !prompt) throw new Error('Describe what you want to create.');
+    if (creation === 'template' && !source) throw new Error('Choose a starting template.');
+    if (creation === 'template' && !source.builtin) throw new Error('Open your template from the library to start from it.');
+    const rooting = chooseRoot(kind, name);
+    return run(async () => {
+      const chosen = await rooting;
+      if (!chosen) return;
+      if (chosen.open) { await openRoot(chosen.open, chosen.classification); return; }
       await preserveCurrent();
-      const candidate = mode === 'template' ? cloneStudioProject(source, { kind, name }) : createStudioProject({ kind, name, files: starterProject(true), folders: [], settings: {}, ...(mode === 'ai' ? { aiPrompt: prompt, aiStarted: false, aiAttachments: attachments, aiGenerateImages: generateImages } : {}) });
-      const saved = await saveStudioProject(candidate, { expectedRevision: null }); refreshSaved(saved);
-      await setActiveStudioProjectId(saved.id); await clearRecovery();
-      connectLibrary(saved, mode === 'ai'); setCreating(null);
-      navigator.storage?.persist?.().catch(() => {});
-    } finally { busyRef.current = false; setBusy(false); }
+      const template = creation === 'template' ? source : null;
+      const meta = await createProjectInRoot(chosen.root, { kind, name, files: template ? template.files : starterProject(true), folders: template?.folders || [], values: template?.settings,
+        ...(creation === 'ai' ? { brief: { id: crypto.randomUUID(), prompt, mode: 'create', generateImages: generateImages === true, attachments } } : {}) });
+      if (modeRef.current === 'opfs') persistStorage();
+      await enter(chosen.root, meta, modeRef.current === 'opfs' ? 'opfs' : 'folder');
+    }).catch(cause => { if (cause?.name !== 'AbortError') throw cause; });
   }
-  async function importProject(file) {
-    if (!file) return;
-    await perform(async () => {
-      if (file.size > LIMITS.archive) throw new Error('ZIP archives must be 20 MiB or smaller.');
-      const imported = await readArchive(new Uint8Array(await file.arrayBuffer()));
+  // A picked folder: a project opens (copies made outside Studio are offered "Make independent"), other files are
+  // adopted in place, an empty folder gets a blank project.
+  async function openRoot(handle, classification) {
+    const decision = openFolderDecision(classification || await classifyFolder(handle));
+    if (decision.action === 'damaged') throw new Error(`This folder holds a damaged Studio project: ${decision.error}`);
+    await preserveCurrent();
+    if (decision.action === 'adopt') return enter(handle, await adoptFolder(handle, { name: projectName(handle.name) }), 'folder');
+    if (decision.action === 'blank') return enter(handle, await createProjectInRoot(handle, { name: projectName(handle.name), files: starterProject(true) }), 'folder');
+    const original = (await listKnownProjects()).find(entry => entry.projectId === decision.meta.projectId);
+    if ((await duplicateDecision(original, handle)).action === 'make-independent') {
+      const answer = await ask({ title: `This folder is a copy of ${original.name}`, message: `“${handle.name}” has the same project identity as “${original.name}”, which Studio already knows. To open it, make it independent: it gets its own identity and its own copy of the dialogue history. The original stays unchanged.`, actions: [{ id: 'independent', label: 'Make independent', primary: true }] });
+      if (answer.id !== 'independent') return;
+      return enter(handle, await makeIndependent(handle), 'folder');
+    }
+    return enter(handle, decision.meta, 'folder');
+  }
+  function openFolder() {
+    if (busyRef.current) return;
+    const picking = pickFolder();
+    return perform(async () => { const handle = await picking; if (handle) await openRoot(handle); });
+  }
+  // A library card: the permission prompt opens in this click (D8).
+  function openKnown(entry) {
+    if (busyRef.current || !entry) return;
+    const asking = requestAccess(entry.handle);
+    return perform(async () => {
+      if (await asking.catch(() => 'denied') !== 'granted') { markUnavailable(entry.projectId, NEEDS_ACCESS); return; }
+      let classification;
+      try { classification = await classifyFolder(entry.handle); } catch (cause) { if (!accessLost(cause)) throw cause; markUnavailable(entry.projectId, MISSING); return; }
+      const check = reconnectDecision(entry.projectId, classification);
+      if (!check.ok) { markUnavailable(entry.projectId, check.message); return; }
       await preserveCurrent();
-      const existing = imported.metadata ? await getStudioProject(imported.metadata.projectId) : null;
-      if (existing) setImportChoice({ imported, existing, fileName: file.name });
-      else await installImported(imported, { name: imported.metadata?.name || file.name.replace(/\.zip$/i, '').slice(0, 120) || 'Imported project' });
+      await enter(entry.handle, check.meta, entry.source);
     });
   }
-  async function installImported(imported, { copy = false, name, kind, existing, directory } = {}) {
-    if (directory && !copy && !sameProjectSnapshot(imported, await readPortableDirectory(directory.handle))) throw new Error('The folder changed while you reviewed it. Open the folder again to review the latest files.');
-    if (directory && !Object.keys(imported.files).length) imported = { ...imported, files: starterProject(true) };
-    const portable = portableProjectRecord(imported, { copy, name: copy && existing ? `${existing.name.slice(0, 108)} (copy)` : name, kind });
-    let previous = await getStudioProject(portable.record.id);
-    if (existing && !copy && previous?.revision !== existing.revision) throw new Error('This project changed while you reviewed the import. Open it and import the ZIP again.');
-    const conversationPort = createConversationPort({ projectId: portable.record.id, kind: portable.record.kind, name: portable.record.name });
-    if (portable.conversations) {
-      const local = await conversationPort.load();
-      await conversationPort.save(mergePortableHistory(local, portable.conversations), { expectedRevision: local.revision });
-    }
-    const saved = await saveStudioProject(portable.record, { expectedRevision: previous?.revision ?? null });
-    refreshSaved(saved); await setActiveStudioProjectId(saved.id); await clearRecovery();
-    if (directory && !copy) {
-      const remembered = await rememberDirectoryProject(directory.handle, projects, { projectId: saved.id });
-      setProjects(items => [remembered, ...items.filter(item => item.id !== remembered.id)]);
-      connectFolder(remembered, null, saved);
-    } else {
-      // Continuing a ZIP explicitly selects device storage. The old folder remains
-      // on disk; removing its binding prevents a second writable location.
-      if (!copy && projects.some(item => item.id === saved.id)) { await forgetDirectoryProject(saved.id); setProjects(items => items.filter(item => item.id !== saved.id)); }
-      connectLibrary(saved);
-    }
-    setProjectsOpen(false); setImportChoice(null);
-  }
-  async function acceptImport(action, kind) {
-    const choice = importChoice;
-    await perform(async () => {
+  // "Folder unavailable" card: pick the folder again; it must hold the same projectId.
+  function reconnect(entry) {
+    if (busyRef.current) return;
+    const picking = pickFolder();
+    return perform(async () => {
+      const handle = await picking;
+      if (!handle) return;
+      const check = reconnectDecision(entry.projectId, await classifyFolder(handle));
+      if (!check.ok) throw new Error(check.message);
       await preserveCurrent();
-      if (choice.transfer) return completeFolderTransfer(choice.record, choice.directory.handle, choice.disk);
-      await installImported(choice.imported, { copy: action === 'copy', existing: choice.existing, directory: choice.directory, kind });
+      await enter(handle, check.meta, 'folder');
     });
   }
-  async function loadProject(project) {
-    await perform(async () => {
-      if (!installedDisplayMode()) throw new Error('Project folders are available only in the installed Studio app.');
-      const permission = await ensureProjectPermission(project.handle);
-      await preserveCurrent();
-      let imported;
-      try {
-        if (!permission) throw new Error(`Studio needs read and write access to ${project.name}.`);
-        imported = await readPortableDirectory(project.handle);
-      } catch (cause) {
-        const cached = await getStudioProject(project.id);
-        if (!cached) throw cause;
-        await setActiveStudioProjectId(cached.id); connectLibrary(cached); setReconnect(project); setProjectsOpen(false);
-        setError(`Your device copy is open. Reconnect the folder to resume saving there: ${cause.message}`); return;
+  // The open project lost its folder. Unsaved edits are written to the reconnected folder when its files still match
+  // what the editor last saved; otherwise the user decides whether to discard them.
+  function reconnectCurrent() {
+    const entry = currentRef.current;
+    if (busyRef.current || !entry) return;
+    const picking = entry.source === 'folder' ? pickFolder() : Promise.resolve(entry.handle);
+    return perform(async () => {
+      const handle = await picking;
+      if (!handle) return;
+      const check = reconnectDecision(entry.projectId, await classifyFolder(handle));
+      if (!check.ok) throw new Error(check.message);
+      if (entry.source === 'folder') await rememberRecent({ projectId: entry.projectId, name: check.meta.name, kind: check.meta.kind, handle });
+      const next = watchAccess(await createFolderHost({ root: handle, meta: check.meta, ai: studioAi() }), entry.projectId, handle);
+      const pending = snapshot.current?.dirty ? snapshot.current : null;
+      if (pending) {
+        const opened = await next.project.open();
+        if (pendingEditsApply(pending.baseline, opened.files)) await next.project.save({ ...pending.state, revision: opened.revision });
+        else if (!window.confirm('The folder changed while it was unavailable. Open the folder version and discard your unsaved edits? Cancel keeps them here so you can export a ZIP first.')) { next.dispose?.(); return; }
       }
-      const id = imported.metadata?.projectId || project.id;
-      const existing = await getStudioProject(id);
-      const binding = projects.find(item => item.id === id);
-      const sameBinding = binding && await binding.handle.isSameEntry(project.handle).catch(() => false);
-      const recovery = await loadWorkspace(id);
-      if (existing && ((!sameBinding && binding) || !sameProjectSnapshot(existing, imported) || recovery?.dirty)) {
-        setImportChoice({ imported: { ...imported, metadata: imported.metadata || { schema: 1, projectId: id, kind: existing.kind, name: existing.name, contentRevision: 0, metadataRevision: 0 } }, existing, directory: project, fileName: project.name });
-        return;
-      }
-      if (existing) {
-        const remembered = await rememberDirectoryProject(project.handle, [project, ...projects], { projectId: id });
-        await setActiveStudioProjectId(id); connectFolder(remembered, null, existing); setProjects(items => [remembered, ...items.filter(item => item.id !== id)]); setProjectsOpen(false);
-      } else await installImported({ ...imported, metadata: imported.metadata || { schema: 1, projectId: id, kind: 'landing', name: project.name, contentRevision: 0, metadataRevision: 0 } }, { directory: project });
+      mount(next, { ...entry, name: check.meta.name, kind: check.meta.kind, handle });
+      await refreshKnown();
     });
   }
-  async function addProject() {
-    if (blocked || !installedDisplayMode()) return;
-    try {
-      const handle = await chooseProjectDirectory(), metadata = await readProjectMetadata(handle);
-      let known;
-      for (const project of projects) if (await project.handle.isSameEntry(handle).catch(() => false)) { known = project; break; }
-      await loadProject({ ...known, id: metadata?.projectId || known?.id || crypto.randomUUID(), name: handle.name, handle });
-    }
-    catch (cause) { if (cause.name !== 'AbortError') setError(cause.message); }
-  }
-  async function duplicateProject(record) {
-    await perform(async () => {
-      const latest = await getStudioProject(record.id);
-      if (!latest) throw new Error('This project no longer exists.');
-      const saved = await saveStudioProject(cloneStudioProject(latest, { name: `${latest.name.slice(0, 108)} (copy)` }), { expectedRevision: null });
-      const sourcePort = createConversationPort({ projectId: latest.id }), destination = createConversationPort({ projectId: saved.id });
-      const document = cloneConversationDocument(await sourcePort.load(), saved.id);
-      if (document.threads.length) await destination.save(document, { expectedRevision: 0 });
-      refreshSaved(saved);
+  function removeFromList(entry) {
+    return perform(async () => {
+      releaseConversationSession(entry.projectId); hosts.current.get(entry.projectId)?.dispose?.(); hosts.current.delete(entry.projectId);
+      await forgetRecent(entry.projectId);
+      setUnavailable(items => without(items, entry.projectId));
+      if (lastProject.get() === entry.projectId) lastProject.set(null);
+      await refreshKnown();
     });
   }
-  async function deleteProject(record) {
-    const running = getConversationActivity().filter(run => run.projectId === record.id);
-    if (!window.confirm(`Remove “${record.name}” and its dialogue history from this device?${running.length ? ' Its active AI runs will stop.' : ''} Connected folder files remain on your computer.`)) return;
-    await perform(async () => {
-      releaseConversationSession(record.id); hosts.current.delete(record.id);
-      await deleteConversationDocument(record.id); await deleteStudioProject(record.id); await forgetDirectoryProject(record.id);
-      setProjects(items => items.filter(item => item.id !== record.id)); setLibrary(items => items.filter(item => item.id !== record.id));
-    });
+  function showLibrary() {
+    return perform(async () => { await preserveCurrent(); mount(null); await refreshKnown(); });
   }
   async function updateStudio() {
     if (getConversationActivity().length && !window.confirm('Updating Studio interrupts active AI runs. Saved messages and drafts stay available; continuing generation requires another request. Update now?')) return;
@@ -342,55 +302,28 @@ export default function App() {
       await update(true);
     });
   }
-  async function saveToFolder() {
-    if (blocked || !installedDisplayMode()) return;
-    // The picker must open in the click's user activation, before asynchronous saves.
-    let handle;
-    try { handle = await chooseProjectDirectory(); } catch (cause) { if (cause.name !== 'AbortError') setError(cause.message); return; }
-    await perform(async () => {
-      await preserveCurrent();
-      const record = currentRef.current || await getStudioProject(snapshot.current?.state.projectId);
-      if (!record) throw new Error('Save the project on this device before connecting a folder.');
-      const disk = await readPortableDirectory(handle);
-      if (disk.metadata && disk.metadata.projectId !== record.id) throw new Error('This folder belongs to another project. Choose an empty folder for this project.');
-      if ((Object.keys(disk.files).length || disk.folders.length || Object.keys(disk.settings).length) && !sameProjectSnapshot(disk, record)) {
-        setImportChoice({ transfer: true, record, disk, directory: { handle }, existing: { ...disk, name: handle.name }, imported: record, fileName: handle.name }); return;
-      }
-      await completeFolderTransfer(record, handle);
-    });
-  }
-  async function completeFolderTransfer(record, handle, expectedSnapshot) {
-    const latest = await getStudioProject(record.id);
-    if (!latest || latest.revision !== record.revision) throw new Error('The project changed during folder selection. Save to a folder again with the latest files.');
-    const port = host?.conversations?.projectId === record.id ? host.conversations : createConversationPort({ projectId: record.id });
-    const document = await port.load();
-    await saveProjectToDirectory({ record, handle, conversations: document, expectedSnapshot });
-    const afterCopy = await getStudioProject(record.id);
-    if (!afterCopy || afterCopy.revision !== record.revision) throw new ConflictError('The device project changed in another window during transfer. The copied folder is retained; review both copies before reconnecting.');
-    const remembered = await rememberDirectoryProject(handle, projects, { projectId: record.id });
-    setProjects(items => [remembered, ...items.filter(item => item.id !== record.id)]);
-    await setActiveStudioProjectId(record.id); connectFolder(remembered, null, record); setProjectsOpen(false); setImportChoice(null);
-    // Any checkpoint produced during the copy is mirrored by the newly bound port.
-    await getConversationSession(hosts.current.get(record.id)).ready;
-    await hosts.current.get(record.id).conversations.load();
-  }
-  const statusNotice = <>{installedMode && <button type="button" className="btn btn-ghost btn-sm" disabled={connectionBlocked} title={connectionBlocked ? blockedReason : 'OpenRouter'} onClick={() => setAiSettingsOpen(true)}><KeyRound size={15} /><span className="studio-navigation-label">OpenRouter</span></button>}{view?.conflict && <button className="btn btn-outline btn-sm" disabled={blocked} onClick={saveConflictCopy}>Save as new project</button>}{pwa.error && <span className="studio-app-error" role="status">{pwa.error.operation === 'register' ? 'Offline setup failed' : 'Update check failed'}: {pwa.error.message}</span>}{!online && <span className="studio-network" role="status"><WifiOff size={14} />Offline · local editing available</span>}{update && <button className="btn btn-primary btn-sm" disabled={blocked} title={blocked ? blockedReason : undefined} onClick={updateStudio}>Update Studio</button>}{error && <span className="studio-app-error" role="alert">{error}<button className="text-link" onClick={() => setError('')}>Dismiss</button></span>}</>;
+
+  const labels = current ? storageLabels(current.source, current.handle?.name || current.name) : { summary: '', help: '' };
+  const cards = known.map(entry => ({ ...entry, id: entry.projectId, updatedAt: entry.lastOpenedAt, unavailable: unavailable[entry.projectId] || (entry.access === 'denied' ? NEEDS_ACCESS : '') }));
+  const lostAlert = lost && <span className="folder-unavailable" role="alert" title={LOST}>Folder unavailable<button type="button" className="btn btn-outline btn-sm" disabled={busy} onClick={reconnectCurrent}><FolderOpen size={14} />Reconnect</button></span>;
+  const statusNotice = <><button type="button" className="btn btn-ghost btn-sm" disabled={blocked} title={blocked ? blockedReason : 'OpenRouter'} onClick={() => setAiSettingsOpen(true)}><KeyRound size={15} /><span className="studio-navigation-label">OpenRouter</span></button>{pwa.error && <span className="studio-app-error" role="status">{pwa.error.operation === 'register' ? 'Offline setup failed' : 'Update check failed'}: {pwa.error.message}</span>}{!online && <span className="studio-network" role="status"><WifiOff size={14} />Offline · local editing available</span>}{update && <button className="btn btn-primary btn-sm" disabled={blocked} title={blocked ? blockedReason : undefined} onClick={updateStudio}>Update Studio</button>}{error && <span className="studio-app-error" role="alert">{error}<button className="text-link" onClick={() => setError('')}>Dismiss</button></span>}</>;
   const helpButton = <button type="button" className="btn btn-ghost btn-sm btn-square" aria-label="Open quick start guide" title="Quick start and documentation" onClick={() => setHelp(true)}><HelpCircle size={16} /></button>;
-  const navigation = <div className="studio-navigation"><button className="btn btn-ghost btn-sm" disabled={blocked} title={blocked ? blockedReason : 'Projects'} onClick={showLibrary}><LayoutGrid size={16} /><span className="studio-navigation-label">Projects</span></button><button className="btn btn-ghost btn-sm" disabled={blocked} title={blocked ? blockedReason : 'New project'} onClick={() => setCreating({})}><Plus size={16} /><span className="studio-navigation-label">New project</span></button>{current && library.length > 1 && <select className="select select-sm" aria-label="Switch project" disabled={blocked} value={current.id} onChange={event => openProject(library.find(record => record.id === event.target.value))}>{library.map(record => <option key={record.id} value={record.id}>{record.name}{activity.some(run => run.projectId === record.id) ? ' · AI working' : ''}</option>)}</select>}{installedMode && attached && <button type="button" className="btn btn-ghost btn-sm" disabled={blocked} onClick={() => setProjectsOpen(true)}><FolderOpen size={15} />Save location</button>}{statusNotice}{installedMode && helpButton}<ThemeToggle /></div>;
+  const navigation = <div className="studio-navigation"><button className="btn btn-ghost btn-sm" disabled={blocked} title={blocked ? blockedReason : 'Projects'} onClick={showLibrary}><LayoutGrid size={16} /><span className="studio-navigation-label">Projects</span></button><button className="btn btn-ghost btn-sm" disabled={blocked} title={blocked ? blockedReason : 'New project'} onClick={() => setCreating({})}><Plus size={16} /><span className="studio-navigation-label">New project</span></button>{current && known.length > 1 && <select className="select select-sm" aria-label="Switch project" disabled={blocked} value={current.projectId} onChange={event => openKnown(known.find(entry => entry.projectId === event.target.value))}>{known.map(entry => <option key={entry.projectId} value={entry.projectId}>{entry.name}{activity.some(run => run.projectId === entry.projectId) ? ' · AI working' : ''}</option>)}</select>}{lostAlert}{statusNotice}{installedMode && helpButton}<ThemeToggle /></div>;
+  const content = !ready ? <div className="library-grid" role="status" aria-label="Opening your workspace…">{[0, 1, 2, 3, 4, 5].map(index => <Skeleton key={index} shape="card" height={260} />)}</div>
+    : mode === 'unsupported' ? <UnsupportedBrowser />
+    : host ? <StudioUiProvider language={host.language} messages={host.messages}><EditorShell key={epoch} host={host} aiAllowed onSnapshot={rememberSnapshot} presentation={installedMode ? 'app' : 'embedded'} previewExpandButton={false} externalModalOpen={aiSettingsOpen || help || Boolean(creating) || Boolean(folderChoice)} onNewProject={() => setCreating({})} newProjectCreatesCopy externalBusy={busy || Boolean(lost)} storageSummary={labels.summary} storageHelp={labels.help} projectSwitcher={navigation} /></StudioUiProvider>
+    : <StudioLibrary aiEnabled aiSettings={studioAi().settings} onCreateWithAi={createProject} activity={activity} projects={cards} busy={busy} storageMode={mode} onCreate={options => setCreating(options || {})} onOpen={openKnown} onFolder={mode === 'folder' ? openFolder : undefined} onReconnect={reconnect} onRemove={removeFromList} />;
   return <div className={`studio-root studio editor-root ${installedMode ? 'installed-app' : ''} ${host && installedMode ? 'is-editor' : ''}`}>
     {!(host && installedMode) && <header className="topbar"><div className="topbar-inner"><a className="brand" href="https://trafficops.io/" target="_blank" rel="noreferrer" aria-label="TrafficOps website"><img src="/favicon.svg" alt="" /><span className="brand-wordmark">Traffic<span>Ops</span></span></a><span className="brand-divider" /><span className="product-name">Landing Studio</span><div className="topbar-right"><span className="privacy"><ShieldCheck size={15} />Local by design</span>{installPrompt && <button className="btn btn-ghost btn-sm" onClick={() => perform(async () => { await installPrompt.prompt(); setInstallPrompt(null); })}><ArrowDownToLine size={15} />Install Studio</button>}<button className="btn btn-ghost btn-sm" aria-label="Open quick start guide" onClick={() => setHelp(true)}><HelpCircle size={16} />Quick start</button>{!host && <ThemeToggle />}<a className="docs-link" href="https://trafficops-io.github.io/tops-templates/" target="_blank" rel="noreferrer">Docs ↗</a></div></div></header>}
     <main className="workspace">
-      {!host && <div className="studio-notices">{statusNotice}</div>}
-      {host && !installedMode && <div className="studio-project-bar">{navigation}<span>{current?.kind === 'template' ? 'Reusable template' : current ? 'Landing page' : 'Folder workspace'}</span>{installedMode && <button className="btn btn-ghost btn-sm" disabled={blocked} onClick={() => setProjectsOpen(true)}><FolderOpen size={15} />Folders</button>}</div>}
-      {installedMode && reconnect && <div className="reconnect-banner"><span>Your device copy is open. Reconnect its folder to review changes and resume saving there.</span><button className="btn btn-sm" disabled={blocked} onClick={() => loadProject(reconnect)}>Reconnect folder</button></div>}
-      {!ready ? <div className="library-grid" role="status" aria-label="Opening your workspace…">{[0, 1, 2, 3, 4, 5].map(index => <Skeleton key={index} shape="card" height={260} />)}</div> : host ? <StudioUiProvider language={host.language} messages={host.messages}><EditorShell key={epoch} host={host} aiAllowed={installedMode} onSnapshot={rememberSnapshot} recovered={recovered} presentation={installedMode ? 'app' : 'embedded'} previewExpandButton={false} externalModalOpen={aiSettingsOpen || help || projectsOpen || Boolean(creating) || Boolean(importChoice)} onNewProject={() => setCreating({})} onImportProject={importProject} newProjectCreatesCopy externalBusy={busy} onManageProjects={installedMode ? () => setProjectsOpen(true) : undefined} onSaveToFolder={installedMode && supportsDirectoryProjects() ? saveToFolder : undefined} storageSummary={attached ? `Folder: ${attached.displayPath || attached.name}` : ''} storageHelp={attached ? 'Files and dialogue history save to this folder. Your device keeps a recovery copy.' : 'Autosaved on this device. Save to a folder to continue this same project on your computer.'} projectSwitcher={navigation} /></StudioUiProvider> : <StudioLibrary aiEnabled={installedMode} aiSettings={installedMode ? studioAi()?.settings : undefined} onCreateWithAi={createProject} activity={activity} directories={projects} projects={library} busy={busy} onCreate={options => setCreating(options || {})} onOpen={openProject} onDuplicate={duplicateProject} onDelete={deleteProject} onImport={() => archive.current.click()} onFolder={installedMode && supportsDirectoryProjects() ? addProject : undefined} />}
+      {!host && mode !== 'unsupported' && <div className="studio-notices">{statusNotice}</div>}
+      {host && !installedMode && <div className="studio-project-bar">{navigation}<span title={labels.help}>{current?.kind === 'template' ? 'Reusable template' : 'Landing page'} · {labels.summary}</span></div>}
+      {content}
     </main>
     <footer className="site-footer"><span>BUILT FOR THE WAY YOU CREATE.</span><span>Open source, by <a href="https://github.com/trafficops-io" target="_blank" rel="noreferrer">trafficops.io ↗</a></span></footer>
-    <input ref={archive} type="file" accept=".zip,application/zip" aria-label="Import project ZIP" hidden onChange={event => { importProject(event.target.files[0]); event.target.value = ''; }} />
-    {importChoice && <ProjectImportDialog choice={importChoice} busy={busy} onChoose={acceptImport} onClose={() => setImportChoice(null)} />}
-    {creating && <CreateProjectDialog aiEnabled={installedMode} aiSettings={installedMode ? studioAi()?.settings : undefined} initial={creating} templates={library.filter(item => item.kind === 'template')} busy={busy} onCreate={createProject} onClose={() => setCreating(null)} />}
-    {installedMode && aiSettingsOpen && <AiSettingsDialog ai={studioAi()} onClose={() => setAiSettingsOpen(false)} />}
-    {help && <TourDialog installedMode={installedMode} onClose={() => setHelp(false)} />}
-    {installedMode && projectsOpen && <ProjectsDialog projects={projects} currentId={attached?.id} supported={supportsDirectoryProjects()} busy={blocked} onAdd={addProject} onOpen={loadProject} onReload={loadProject} onForget={project => perform(async () => { await forgetDirectoryProject(project.id); setProjects(items => items.filter(item => item.id !== project.id)); })} onLocation={(project, value) => perform(async () => { await updateProjectLocation(project, value); setProjects(await listDirectoryProjects()); })} onClose={() => setProjectsOpen(false)} />}
+    {creating && <CreateProjectDialog aiEnabled aiSettings={studioAi().settings} initial={creating} templates={[]} busy={busy} onCreate={createProject} onClose={() => setCreating(null)} />}
+    {folderChoice && <FolderChoiceDialog choice={folderChoice} onChoose={chooseFolderAction} />}
+    {aiSettingsOpen && <AiSettingsDialog ai={studioAi()} onClose={() => setAiSettingsOpen(false)} />}
+    {help && <TourDialog onClose={() => setHelp(false)} />}
   </div>;
 }

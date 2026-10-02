@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { classifyFolder, createOpfsRoot, createSubfolder, deleteOpfsRoot, listOpfsRoots, opfsProjectsRoot, persistStorage, pickFolder, queryAccess, requestAccess, storageMode } from '../src/storage/roots.js';
+import { classifyFolder, createOpfsRoot, folderSlug, createSubfolder, deleteOpfsRoot, listOpfsRoots, opfsProjectsRoot, persistStorage, pickFolder, queryAccess, requestAccess, storageMode } from '../src/storage/roots.js';
 import { createProjectMeta } from '../src/storage/project-meta.js';
 import { MemoryDirectoryHandle } from './support/fs-access.js';
 
@@ -55,6 +55,14 @@ test('storageMode probes the folder picker, then OPFS; a rejecting getDirectory 
   assert.equal(await storageMode({ showDirectoryPicker: undefined, storage: { getDirectory: async () => { throw new DOMException('private mode', 'SecurityError'); } } }), 'unsupported');
   assert.equal(await storageMode({ showDirectoryPicker: undefined, storage: {} }), 'unsupported');
   assert.equal(await storageMode({ showDirectoryPicker: undefined, storage: undefined }), 'unsupported');
+  // Safari 15.2–18 opens OPFS but cannot write from the main thread: no createWritable on file handles.
+  assert.equal(await storageMode({ showDirectoryPicker: undefined, storage: opfs(), fileHandle: class { getFile() {} } }), 'unsupported');
+  assert.equal(await storageMode({ showDirectoryPicker: undefined, storage: opfs(), fileHandle: class { createWritable() {} } }), 'opfs');
+});
+
+test('folderSlug names the subfolder createSubfolder starts from', () => {
+  assert.equal(folderSlug('My Launch Page!'), 'my-launch-page');
+  assert.equal(folderSlug('  '), 'project');
 });
 
 test('pickFolder opens the picker synchronously in readwrite mode; cancelling returns null', async () => {
