@@ -381,6 +381,16 @@ Both run on the joined document before the threads are written to the new root.
 2. **Studio storage:** `storage/*`, the directory store, folder-first create/open flows, and removal of the IndexedDB library and the mode gates.
 3. **Embed:** the HTTP store, the `conversationsEnabled` gate, and an embed release.
 
+## Notes for phase 2 (from phase 1 reviews)
+
+- **Thread ids become file names.** `{threadId}.json` must encode ids, for example with `encodeURIComponent`. Ids created by the runtime are UUIDs or `initial-*-<len>-<hash>`.
+- **Monotonic revisions across delete and recreate.** The adapter reuses a joined thread when its revision is unchanged. The directory store must therefore never restart a dialogue's revision at 1 after a delete followed by a recreate with the same id; one way is to keep a revision tombstone. The memory store restarts revisions in that case. Deterministic initial-request ids make this reachable, though it is rare.
+- **The directory store's `watch` must pass the contract with a real `openPeer`.** A `BroadcastChannel` never hears its own posts.
+- **GC in the directory store must not run while thread files are unreadable.** If a file cannot be parsed, its references are unknown, so GC must skip that pass instead of deleting the blobs that file may reference.
+- **GC has no follow-up timer.** A deletion that happens inside the 5-minute window is collected on the next qualifying save or load.
+- **Renaming a dialogue that is streaming in another window** can lose all 4 attempts. These are real per-dialogue conflicts, and the error goes to the caller. Consider retrying the rename after the run's next checkpoint.
+- **Dead guards remain.** `recoveredConflict` checks in `conversation-runtime.js`, `useEditorProject.js` and `chat-cards.js`, and the unused "AI recovery" strings in `studio-translations.json`, can be removed together with Studio's `ai.recovery` wiring.
+
 ## Follow-ups (separate specs)
 
 1. **PWApps:** implement the HTTP contract (storage, `createdBy`, visibility, blob GC), run the contract suite, and upgrade the embed.
