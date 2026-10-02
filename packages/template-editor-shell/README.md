@@ -45,24 +45,24 @@ The text and image connections come only from `host.ai`; settings expose writes
 only when their owner is `user`. `host` ownership offers status, connection testing
 and the supplied team settings URL.
 
-When AI is available, **Files → Edit file with AI** edits the selected source or
-PNG/JPEG/WebP asset in a separate dialog. `FileAiPanel` acquires a connection
-through the same AI port and validates with the host analyzer. Its writer can
-only replace the selected path; reference attachments cannot add project assets.
-The reviewed result retains raw saved field values, other files, and raster
-path/format. Applying merges that one file into the current project and follows
-the normal host save policy. Prompts can attach bounded images, PDF or UTF-8
-text documents through `PromptAttachments`. Both components and the pure
-`file-ai-workflow` / `file-ai-attachments` helpers are exported for custom hosts.
+When AI is available, **Files → Edit file with AI** opens the shared chat with
+the File scope set to the selected source or PNG/JPEG/WebP asset: editing one
+file is the File scope of the common conversation, not a separate dialog. The run
+acquires a connection through the same AI port and validates with the host
+analyzer; its writer can only replace the scoped path, and reference attachments
+cannot add project assets. Applying merges that one file into the current project
+and follows the normal host save policy. Prompts attach bounded images, PDF or
+UTF-8 text documents through `StudioComposer` from `@trafficops/studio-ui/chat`;
+the pure `file-ai-workflow` / `file-ai-attachments` helpers stay exported for
+custom hosts.
 
-`PromptImages` and `PromptAttachments` accept an optional `promptRef` pointing
-to the prompt textarea. Images pasted there with Ctrl+V or ⌘V use the same
-reference validation and busy state as file uploads; text paste stays native.
-Both widgets also accept image paste when their attachment controls have focus.
+`StudioComposer` accepts images pasted into the prompt with Ctrl+V or ⌘V and
+applies the same attachment limits and busy state as file uploads; text paste
+stays native.
 
 ## Persistent conversations
 
-Hosts may supply `host.conversations` independently of `ProjectState.history`. `conversation-runtime` owns execution outside React: two run slots per app window, addressed stop/finish, frozen input and language, versioned checkpoints, owner leases and Web Locks, and explicit continuation after reload. `ConversationPanel` uses one composer for project, content, discussion, file and block scopes. Views can unsubscribe or switch projects without cancelling execution. Preview selection includes a searchable multi-select list for the current iframe page. The composer accepts file and section mentions together; section identities come from the matching preview snapshot, retain source fragments and instance values, and never change the conversation scope. Outdated references fail before a provider connection.
+Hosts may supply `host.conversations` independently of `ProjectState.history`. `conversation-runtime` owns execution outside React: two run slots per app window, addressed stop/finish, frozen input and language, versioned checkpoints, owner leases and Web Locks, and explicit continuation after reload. `StudioChat` (from `@trafficops/studio-ui/chat`, fed by `chat-port`) uses one composer for project, content, discussion, file and block scopes. Views can unsubscribe or switch projects without cancelling execution. Preview selection includes a searchable multi-select list for the current iframe page. The composer accepts file and section mentions together; section identities come from the matching preview snapshot, retain source fragments and instance values, and never change the conversation scope. Outdated references fail before a provider connection.
 
 `useEditorProject.applyConversationDraft` performs conservative three-way file/value merging, requires explicit review of stale context, validates/renders the final candidate and commits applied-run IDs with canonical content. Draft preview has its own analysis and never enters source editing or autosave. `presentation="app"` renders a permanent workspace; embedded presentation and hosts without the optional port keep their existing behavior. App integrations can provide `onSaveToFolder`, `storageSummary` and `onImportProject` to coordinate portable identity instead of replacing source in place.
 
