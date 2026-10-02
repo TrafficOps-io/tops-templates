@@ -33,6 +33,17 @@ test('third host conforms without inheriting safe HTML or server lifecycle assum
   assert.equal(host.capabilities.inlinePreview, true); assert.equal((await host.analyzer.analyze(state)).previewAvailable, false);
   await assert.rejects(host.analyzer.render(state, { locale: 'en' }), e => e.code === 'policy');
 });
+test('AI-enabled StudioHost and HttpHost conform with a conversations port; dropping it is rejected', async () => {
+  const ai = () => createStudioAiPort({ storage: { load: async () => ({ apiKey: '', model: '', imageModel: '' }), save: async value => value, remove: async () => {} } });
+  const studio = () => createStudioHost({ directory: new MemoryDirectoryHandle('Local', { 'index.tpl': source }), ai: ai() });
+  const http = () => createHttpHost({ endpoint: 'https://app.test/project', aiEndpoint: 'https://app.test/ai', csrf: 'csrf', fetchImpl: httpServer({ aiEnabled: true }).fetchImpl });
+  for (const factory of [studio, http]) {
+    const sample = await factory();
+    assert.equal(sample.capabilities.ai, true); assert.equal(typeof sample.conversations.load, 'function'); await sample.dispose?.();
+    assert.ok((await runHostConformance(factory, { knownIds })).checks.includes('concurrency'));
+    await assert.rejects(runHostConformance(async () => { const { conversations, ...rest } = await factory(); return rest; }, { knownIds }), /conversations port/);
+  }
+});
 test('conformance rejects null optional ports rather than treating them as absent', async () => {
   await assert.rejects(runHostConformance(() => ({ ...thirdHost(), ai: null }), { knownIds }), /ai port/);
 });

@@ -35,6 +35,8 @@ Run `runHostConformance(factory, { knownIds, faults })` against a **fresh dispos
 test workspace**: the kit saves files, attempts a stale revision, round trips ZIPs,
 and cancels operations. Optional `faults` inject transport/permission/validation
 failures through the real adapter. Do not run it against a user's live project.
+A host that declares the `ai` capability must also provide a `conversations`
+port with `load` and `save`; the kit rejects AI hosts without it.
 
 The editor tests run it against Studio's directory adapter, HttpHost's protocol
 mock, and a third host. The third host changes their shared safe dialect, numeric
