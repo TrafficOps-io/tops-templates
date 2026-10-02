@@ -30,6 +30,20 @@ try {
  await identity.getByText(/\d+ issues/).waitFor();
  await page.locator('#setting-brand').fill('STUDIO / 01');
  await page.waitForFunction(()=>![...document.querySelectorAll('[role=tab]')].some(tab=>/\d+ issues/.test(tab.textContent)));
+ // Section tabs follow the WAI-ARIA tabs keyboard pattern: arrows move selection and focus, Home/End jump to the ends.
+ {
+  const tabs=page.getByRole('tablist',{name:'Sections',exact:true}).getByRole('tab'), count=await tabs.count();
+  assert.ok(count>=2,'a landing has several sections, got '+count);
+  const state=()=>page.evaluate(()=>{const list=document.querySelector('[role=tablist][aria-label=Sections]'),all=[...list.querySelectorAll('[role=tab]')];return{selected:all.findIndex(tab=>tab.getAttribute('aria-selected')==='true'),focused:all.indexOf(document.activeElement)};});
+  await tabs.first().click(); await tabs.first().focus();
+  assert.deepEqual(await state(),{selected:0,focused:0});
+  await page.keyboard.press('ArrowRight'); assert.deepEqual(await state(),{selected:1,focused:1});
+  await page.keyboard.press('ArrowRight'); assert.deepEqual(await state(),{selected:0,focused:0},'ArrowRight wraps from the last section');
+  await page.keyboard.press('End'); assert.deepEqual(await state(),{selected:count-1,focused:count-1});
+  await page.keyboard.press('Home'); assert.deepEqual(await state(),{selected:0,focused:0});
+  await page.keyboard.press('ArrowLeft'); assert.deepEqual(await state(),{selected:count-1,focused:count-1},'ArrowLeft wraps from the first section');
+  await page.keyboard.press('Home');
+ }
  // Icon and toolbar buttons keep a 32px target even in the dense desktop layout.
  const shortButtons=await page.locator('.preview-panel .btn, .file-sidebar .btn, .studio-toolbar .btn').evaluateAll(nodes=>nodes.filter(node=>node.getBoundingClientRect().height>0&&node.getBoundingClientRect().height<32).map(node=>node.className));
  assert.deepEqual(shortButtons,[]);
@@ -105,6 +119,21 @@ try {
  const htmlDownload=page.waitForEvent('download');await page.getByRole('button',{name:'Download',exact:true}).click();
  const htmlFiles=unzipSync(new Uint8Array(await readFile(await(await htmlDownload).path())));
  assert.match(new TextDecoder().decode(htmlFiles['index.html']),/Statyczna strona GEO/);assert.ok(htmlFiles['styles.css']);
+ // Coarse pointers get 44px targets on raw daisy .btn-sm / .btn-square controls too.
+ {
+  const touch=await browser.newContext({viewport:{width:900,height:1000},hasTouch:true,isMobile:true}), tp=await touch.newPage();
+  assert.equal(await tp.evaluate(()=>matchMedia('(pointer: coarse)').matches),true);
+  await tp.goto(`http://127.0.0.1:${server.address().port}`);
+  await tp.getByRole('button',{name:'New project',exact:true}).click();
+  await tp.getByRole('textbox',{name:'Project name',exact:true}).fill('Touch test');
+  await tp.getByRole('button',{name:'Create landing',exact:true}).click();
+  await tp.locator('.editor-shell').waitFor();
+  await tp.getByRole('button',{name:'Projects',exact:true}).first().click();
+  const duplicate=tp.getByRole('button',{name:'Duplicate Touch test',exact:true}); await duplicate.waitFor();
+  const small=await duplicate.boundingBox(); assert.ok(small.width>=44&&small.height>=44,`icon button is ${small.width}x${small.height}`);
+  const labelled=await tp.locator('.library .btn-sm:not(.btn-square)').first().boundingBox(); assert.ok(labelled.height>=44,`text button is ${labelled.height}px tall`);
+  await touch.close();
+ }
  assert.equal(blockedProviderCalls,0,'opening the AI assistant never starts a paid request');
  assert.deepEqual(errors,[]);
  console.log('PASS: browser overlay/focus, permanent PWA workspace and settings, mobile preview, static HTML import→Files/conversations without paid calls, editable backup and hosting ZIP assets.');

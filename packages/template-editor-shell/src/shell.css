@@ -542,3 +542,6 @@ fieldset:disabled { opacity: .65; }
 .studio-chat-loading > div > .studio-skeleton-line { margin-bottom: auto; }
 @container studio-chat-loading (width < 560px) { .studio-chat-loading > .studio-skeleton { display: none; } }
 @media (max-width: 640px) { .editor-shell.is-app.conversations-active > .author-panel:has(:is(.studio-chat, .studio-chat-loading)) { min-height: 36rem; height: max(36rem, calc(100dvh - 5rem)); } }
+
+/* Raw daisy .btn-sm / .btn-square controls meet the 44px touch target; .studio-root wraps both Studio and the embedded editor. */
+@media (pointer: coarse) { .studio-root .btn-sm { min-height: 44px; }.studio-root .btn-sm.btn-square { min-width: 44px; } }
