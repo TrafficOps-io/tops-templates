@@ -233,35 +233,80 @@ test('single-file image mentions do not duplicate the immutable primary image or
   assert.ok(session.getSnapshot().runs[0].result.readSet.some(reference => reference.path === 'logo.png'));
 });
 
-test('completed checkpoints commit before the next provider fetch', async t => {
-  const local = fixture('durable-next-call'), checkpointGate = deferred(); let checkpointPending = false, providerCalls = 0;
+test('provider requests never wait for checkpoint writes, checkpoints coalesce and the final result is durable', async t => {
+  const local = fixture('background-checkpoints'), checkpointGate = deferred(); let held = false, providerCalls = 0;
   const save = local.host.conversations.save;
-  local.host.conversations.save = async (...args) => { if (args[0].runs[0]?.checkpoint && !checkpointPending) { checkpointPending = true; await checkpointGate.promise; } return save(...args); };
-  local.host.ai.begin = async () => ({ apiKey: 'test', model: 'test/model', fetchImpl: async () => {
-    providerCalls++; assert.equal(local.read().runs[0].checkpoint.files['style.css'], 'blue'); return Response.json({ ok: true });
-  } });
+  local.host.conversations.save = async (...args) => { if (args[0].runs[0]?.checkpoint && !held) { held = true; await checkpointGate.promise; } return save(...args); };
+  local.host.ai.begin = async () => ({ apiKey: 'test', model: 'test/model', fetchImpl: async () => { providerCalls++; return Response.json({ ok: true }); } });
   const session = createConversationSession(local.host, { locks: null, sessionId: 'owner', workflows: basicWorkflows(async options => {
-    const files = { ...options.files, 'style.css': 'blue' };
-    options.onProgress({ type: 'file-set', files, values: options.values });
-    await options.fetchImpl('https://provider.invalid/test');
-    return { files, values: options.values, valid: true };
+    for (const colour of ['blue', 'green', 'purple']) {
+      options.onProgress({ type: 'file-set', files: { ...options.files, 'style.css': colour }, values: options.values });
+      await until(() => held);
+      // The first checkpoint write is still pending: the next request starts anyway.
+      await options.fetchImpl('https://provider.invalid/test');
+    }
+    assert.equal(providerCalls, 3); checkpointGate.resolve();
+    return { files: { ...options.files, 'style.css': 'purple' }, values: options.values, valid: true };
   }) }); t.after(() => session.dispose()); await session.ready;
-  await session.submit({ prompt: 'Edit stylesheet', snapshot: state() }); await until(() => checkpointPending);
-  assert.equal(providerCalls, 0); checkpointGate.resolve(); await until(() => session.getSnapshot().runs[0]?.state === 'ready');
-  assert.equal(providerCalls, 1);
+  await session.submit({ prompt: 'Edit stylesheet', snapshot: state() });
+  await until(() => session.getSnapshot().runs[0]?.state === 'ready');
+  const checkpoints = local.saved.map(doc => doc.runs[0]?.checkpoint?.files['style.css']).filter(Boolean);
+  assert.equal(checkpoints.includes('green'), false, 'checkpoints that arrive during a write coalesce: the latest wins');
+  assert.equal(local.read().runs[0].result.files['style.css'], 'purple');
+  assert.equal(local.read().runs[0].metrics.providerCalls, 3);
 });
 
-test('failed checkpoint storage aborts the next paid provider fetch', async t => {
+test('failed checkpoint storage aborts the run and refuses later provider requests', async t => {
   const local = fixture('failed-checkpoint'); let providerCalls = 0, failed = false;
   const save = local.host.conversations.save;
   local.host.conversations.save = async (...args) => { if (args[0].runs[0]?.checkpoint && !failed) { failed = true; throw new Error('Checkpoint storage is unavailable.'); } return save(...args); };
   local.host.ai.begin = async () => ({ apiKey: 'test', model: 'test/model', fetchImpl: async () => { providerCalls++; return Response.json({ ok: true }); } });
   const session = createConversationSession(local.host, { locks: null, sessionId: 'owner', workflows: basicWorkflows(async options => {
     options.onProgress({ type: 'file-set', files: { ...options.files, 'style.css': 'blue' }, values: options.values });
-    await options.fetchImpl('https://provider.invalid/test'); assert.fail('A paid call must not follow a failed checkpoint.');
+    await until(() => options.signal.aborted);
+    await assert.rejects(options.fetchImpl('https://provider.invalid/test'));
+    throw options.signal.reason || new Error('aborted');
   }) }); t.after(() => session.dispose()); await session.ready;
   await session.submit({ prompt: 'Edit stylesheet', snapshot: state() }); await until(() => session.getSnapshot().runs[0]?.state === 'cancelled');
   assert.equal(providerCalls, 0); assert.equal(failed, true);
+  assert.equal(local.read().runs[0].result.files['style.css'], 'blue', 'the in-memory draft is still retained by the final write');
+});
+
+test('agent activity streams as text and step overlays, persists steps and shows the retry status', async t => {
+  const local = fixture('activity'), gate = deferred(), seen = [];
+  const session = createConversationSession(local.host, { locks: null, sessionId: 'owner', workflows: basicWorkflows(async options => {
+    options.onProgress({ type: 'tool-step', id: 'call-1', tool: 'read_file', path: 'index.html', status: 'running' });
+    options.onProgress({ type: 'tool-step', id: 'call-1', status: 'done' });
+    options.onProgress({ type: 'text-delta', delta: 'Reading the page. ' });
+    options.onProgress({ type: 'text-delta', delta: 'Done.' });
+    options.onProgress({ type: 'provider-recovery', statusCode: 429, attempt: 2, maxAttempts: 3, delayMs: 3000 });
+    await gate.promise;
+    return { files: { ...options.files, 'style.css': 'blue' }, values: options.values, valid: true, summary: 'Updated the stylesheet.' };
+  }) }); t.after(() => session.dispose()); await session.ready;
+  session.subscribe(() => { const run = session.getSnapshot().runs[0]; if (run) seen.push({ text: run.streamText, notice: run.notice, steps: run.steps }); });
+  await session.submit({ prompt: 'Edit stylesheet', snapshot: state() });
+  await until(() => session.getSnapshot().runs[0]?.notice);
+  await until(() => session.getSnapshot().runs[0]?.streamText === 'Reading the page. Done.');
+  assert.deepEqual(session.getSnapshot().runs[0].steps, [{ id: 'call-1', tool: 'read_file', status: 'done', path: 'index.html' }]);
+  assert.deepEqual(session.getSnapshot().runs[0].notice, { kind: 'retry', statusCode: 429, attempt: 2, maxAttempts: 3, delayMs: 3000 });
+  gate.resolve(); await until(() => session.getSnapshot().runs[0]?.state === 'ready');
+  const stored = local.read().runs[0];
+  assert.equal(stored.streamText, undefined, 'streamed text is not persisted; the summary is');
+  assert.deepEqual(stored.steps, [{ id: 'call-1', tool: 'read_file', status: 'done', path: 'index.html' }]);
+  assert.equal(stored.result.summary, 'Updated the stylesheet.');
+  assert.equal(Number.isFinite(stored.metrics.durationMs), true);
+});
+
+test('a project message runs one workflow call without an intent routing call', async t => {
+  const local = fixture('no-intent'), calls = [];
+  const workflows = { ...basicWorkflows(async options => { calls.push(['project', options.mode]); return { files: options.files, values: options.values, valid: true, discussion: true, summary: 'An answer.' }; }), intent: async () => assert.fail('No intent routing call') };
+  const session = createConversationSession(local.host, { locks: null, sessionId: 'owner', workflows }); t.after(() => session.dispose()); await session.ready;
+  await session.submit({ prompt: 'What does this page do?', snapshot: state() });
+  await until(() => session.getSnapshot().runs[0]?.state === 'completed');
+  await session.submit({ prompt: 'Fill the title', snapshot: state(), scope: { kind: 'content' } });
+  await until(() => session.getSnapshot().runs[1]?.state === 'completed');
+  assert.deepEqual(calls, [['project', 'edit'], ['project', 'content']]);
+  assert.equal(session.getSnapshot().runs[0].phase, 'answered');
 });
 
 test('the message budget reserves room for the assistant result before any provider call', async t => {

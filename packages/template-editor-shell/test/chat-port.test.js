@@ -268,3 +268,22 @@ test('the Selected blocks panel before the first send follows the composer scope
   assert.equal(launchBlockScope({ id: 'L2', scope: { kind: 'file', targetId: 'index.tpl' } }, null), null);
   assert.equal(launchBlockScope(null, { launchId: undefined, scope: { kind: 'block', targetId: 'k1' } }), null);
 });
+
+test('streamed assistant text arrives as text-delta and agent steps as step cards', async () => {
+  const session = fakeSession(), { port } = createChatPort(session, () => ({ ...context(), language: 'ru' }));
+  const { id } = await port.createThread(); await port.send(id, input());
+  const iterator = port.events(id)[Symbol.asyncIterator](), next = async () => (await iterator.next()).value;
+  run({ state: 'running', phase: 'generate', streamText: 'Читаю ', steps: [{ id: 'c1', tool: 'read_file', path: 'index.tpl', status: 'running' }] })(session);
+  assert.equal((await next()).type, 'status');
+  assert.deepEqual(await next(), { type: 'text-delta', messageId: 'r1', delta: 'Читаю ' });
+  assert.deepEqual(await next(), { type: 'part-start', messageId: 'r1', part: { type: 'tool-call', toolCallId: 'r1:step:c1', toolName: 'step', result: { type: 'step', label: 'Читаю index.tpl', status: 'running' } } });
+  run({ streamText: 'Читаю файл.', steps: [{ id: 'c1', tool: 'read_file', path: 'index.tpl', status: 'done' }, { id: 'c2', tool: 'review_draft', status: 'running' }] })(session);
+  assert.deepEqual(await next(), { type: 'text-delta', messageId: 'r1', delta: 'файл.' });
+  assert.deepEqual(await next(), { type: 'part-update', messageId: 'r1', toolCallId: 'r1:step:c1', result: { type: 'step', label: 'Читаю index.tpl', status: 'done' } });
+  assert.deepEqual((await next()).part.result, { type: 'step', label: 'Подагент review: проверка черновика', status: 'running', agent: 'reviewer' });
+  // The snapshot keeps step cards (they survive a messages() refresh) but never the streamed text.
+  const assistant = port.messages(id).get().find(message => message.role === 'assistant');
+  assert.equal(assistant.parts.some(part => part.type === 'text'), false);
+  assert.deepEqual(assistant.parts.map(part => part.toolName), ['step', 'step']);
+  await iterator.return();
+});

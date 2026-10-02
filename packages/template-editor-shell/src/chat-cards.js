@@ -1,7 +1,9 @@
 import { conversationChangedFiles, conversationReferenceLabel } from './conversation-diff.js';
+import { retryNotice, stepCard } from './agent-steps.js';
 
 const isImage = path => /\.(?:png|jpe?g|webp|gif|avif|svg)$/i.test(path);
-const phaseLabels = { queued: 'Queued', plan: 'Plan', review: 'Review', stopped: 'Stopped', answered: 'Answered', ready: 'Changes ready' };
+const phaseLabels = { queued: 'Queued', plan: 'Plan', generate: 'Working…', revise: 'Revise', review: 'Review', stopped: 'Stopped', answered: 'Answered', ready: 'Changes ready' };
+const activeStates = new Set(['queued', 'running']);
 const mime = path => /\.svg$/i.test(path) ? 'image/svg+xml' : /\.png$/i.test(path) ? 'image/png' : /\.webp$/i.test(path) ? 'image/webp' : /\.gif$/i.test(path) ? 'image/gif' : /\.avif$/i.test(path) ? 'image/avif' : 'image/jpeg';
 
 // base64 чанками по 32768, как conversation-runtime.js:160-161: String.fromCharCode(...bytes) на 4 MiB переполняет стек.
@@ -51,16 +53,25 @@ export function applicable(run) {
 // Применимый восстановленный interrupted-черновик — 'ready' (Apply/Preview/Discard); неприменимый ready — 'completed'.
 // Причина остановки (run.error) — сообщение статуса для failed, interrupted и cancelled, как показывала прежняя панель.
 const explained = new Set(['failed', 'interrupted', 'cancelled']);
-export function runToState(run, t) {
+// language — язык интерфейса для подписей шагов и статуса ретрая, у которых нет перевода в t().
+export function runToState(run, t, language) {
   const status = run.state === 'ready' ? (applicable(run) ? 'ready' : 'completed') : run.state === 'interrupted' && applicable(run) ? 'ready' : run.state;
-  const message = explained.has(run.state) && run.error ? run.error : run.phase && ['queued', 'running'].includes(run.state) ? t(phaseLabels[run.phase] || run.phase) : undefined;
+  const active = activeStates.has(run.state);
+  const message = explained.has(run.state) && run.error ? run.error : active && run.notice?.kind === 'retry' ? retryNotice(run.notice, { t, language })
+    : run.phase && active ? t(phaseLabels[run.phase] || run.phase) : undefined;
   return { id: run.id, status, ...(message ? { message } : {}) };
 }
-export function runToParts(run, t) {
+/** Шаги агента (вызовы инструментов, подагенты) — карточки step; toolCallId по id вызова, стабилен между снимками. */
+export function stepCards(run, t, language) {
+  return (Array.isArray(run.steps) ? run.steps : []).filter(step => step && typeof step.id === 'string')
+    .map(step => card(`${run.id}:step:${step.id}`, stepCard(step, { t, language })));
+}
+export function runToParts(run, t, language) {
   // Причина остановки interrupted/cancelled уже в сообщении статуса (runToState) — текстом не дублируется.
+  // Пока ран идёт, текст ассистента приходит потоком (text-delta): заглушка в снимке скрыла бы его.
   const draft = run.result || run.checkpoint, error = ['interrupted', 'cancelled'].includes(run.state) ? '' : run.error;
-  const text = run.result?.summary || error || (draft ? t('Changes prepared for review.') : '');
-  return [...(text ? [{ type: 'text', text }] : []), ...draftCards(run.id, run.base, draft, run.locale, t)];
+  const text = run.result?.summary || error || (draft && !activeStates.has(run.state) ? t('Changes prepared for review.') : '');
+  return [...(text ? [{ type: 'text', text }] : []), ...stepCards(run, t, language), ...draftCards(run.id, run.base, draft, run.locale, t)];
 }
 export function conflictToParts(runId, conflict, state, locale, t) {
   const overlapping = (conflict.conflicts || []).length > 0, parts = [];

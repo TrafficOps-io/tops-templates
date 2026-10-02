@@ -80,9 +80,9 @@ export function createChatPort(session, context) {
   const closePreview = runId => { const { previewRunId, onPreviewDraft } = context(); if (previewRunId === runId) onPreviewDraft?.(null); };
 
   function assistantMessage(run) {
-    const { t, state, locale } = context(), conflict = conflicts.get(run.id);
+    const { t, state, locale, language } = context(), conflict = conflicts.get(run.id);
     // id сообщения ассистента равен id рана — инвариант контракта RunState.id === message.id
-    return { id: run.id, role: 'assistant', createdAt: iso(run.createdAt ?? run.updatedAt), parts: [...runToParts(run, t), ...(conflict ? conflictToParts(run.id, conflict, state, locale, t) : [])], status: runToState(run, t) };
+    return { id: run.id, role: 'assistant', createdAt: iso(run.createdAt ?? run.updatedAt), parts: [...runToParts(run, t, language), ...(conflict ? conflictToParts(run.id, conflict, state, locale, t) : [])], status: runToState(run, t, language) };
   }
   function messagesOf(threadId) {
     const thread = document().threads.find(item => item.id === threadId); if (!thread) return [];
@@ -109,16 +109,19 @@ export function createChatPort(session, context) {
     const queue = [], waiters = [], seen = new Map();
     let closed = false;
     const push = event => { if (closed) return; queue.push(event); waiters.shift()?.(); };
-    // status сравнивается по state/phase (не по updatedAt): снимок статуса не содержит времени
+    // status сравнивается по state/phase (не по updatedAt): снимок статуса не содержит времени.
+    // text — потоковый текст ассистента активного рана (оверлей сессии streamText): в messages() его нет, только text-delta.
     const snapshotOf = run => {
-      const { t } = context();
-      return { status: JSON.stringify(runToState(run, t)), parts: new Map(runToParts(run, t).filter(part => part.type === 'tool-call').map(part => [part.toolCallId, part])), conflict: conflicts.get(run.id) };
+      const { t, language } = context();
+      return { status: JSON.stringify(runToState(run, t, language)), parts: new Map(runToParts(run, t, language).filter(part => part.type === 'tool-call').map(part => [part.toolCallId, part])), conflict: conflicts.get(run.id), text: typeof run.streamText === 'string' ? run.streamText : '' };
     };
     const emitDiff = () => {
-      const { t, state, locale } = context();
+      const { t, state, locale, language } = context();
       for (const run of runsOf(threadId)) {
         const previous = seen.get(run.id), current = snapshotOf(run), messageId = run.id;
-        if (!previous || previous.status !== current.status) push({ type: 'status', messageId, status: runToState(run, t) });
+        if (!previous || previous.status !== current.status) push({ type: 'status', messageId, status: runToState(run, t, language) });
+        const streamed = previous?.text || '';
+        if (current.text.length > streamed.length && current.text.startsWith(streamed)) push({ type: 'text-delta', messageId, delta: current.text.slice(streamed.length) });
         for (const [toolCallId, part] of current.parts) {
           const before = previous?.parts.get(toolCallId);
           if (!before) push({ type: 'part-start', messageId, part });
@@ -129,7 +132,8 @@ export function createChatPort(session, context) {
         seen.set(run.id, current);
       }
     };
-    for (const run of runsOf(threadId)) seen.set(run.id, snapshotOf(run)); // стартовое состояние уже отрисовано через messages()
+    // Стартовое состояние уже отрисовано через messages(); потоковый текст в messages() не входит — его отдаст следующий дифф.
+    for (const run of runsOf(threadId)) seen.set(run.id, { ...snapshotOf(run), text: '' });
     const off = subscribe(emitDiff);
     const close = () => { closed = true; off(); streams.delete(close); while (waiters.length) waiters.shift()(); };
     if (disposed) close(); else streams.add(close);
