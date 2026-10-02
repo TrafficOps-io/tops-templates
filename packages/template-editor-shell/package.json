@@ -4,7 +4,6 @@
   "type": "module",
   "license": "MIT",
   "exports": {
-    "./ConversationComposer": "./src/ConversationComposer.jsx",
     "./conversation-runtime": "./src/conversation-runtime.js",
     "./chat-port": "./src/chat-port.js",
     "./conversation-changes": "./src/conversation-changes.js",
@@ -33,7 +32,6 @@
     "./ai-attachments": "./src/ai-attachments.js",
     "./ai-image-choice": "./src/ai-image-choice.js",
     "./studio-ai-workflow": "./src/studio-ai-workflow.js",
-    "./PromptAttachments": "./src/PromptAttachments.jsx",
     "./file-ai-workflow": "./src/file-ai-workflow.js",
     "./file-ai-attachments": "./src/file-ai-attachments.js"
   },
