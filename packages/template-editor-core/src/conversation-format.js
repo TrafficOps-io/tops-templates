@@ -8,6 +8,7 @@ const INLINE_TEXT_BYTES = 4096;
 const DATA_URL = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/]*={0,2})$/i;
 const MIME = /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i, SHA256 = /^[a-f0-9]{64}$/, ENCODINGS = new Set(['utf8', 'bytes', 'dataUrl']);
 const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', { fatal: true });
+const put = (target, key, value) => Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value) && !(value instanceof Uint8Array);
 
 function identifier(value, label) {
@@ -30,8 +31,8 @@ export function fromBase64(text) {
   return bytes;
 }
 export function canonicalJson(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (plain(value)) return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
+  if (Array.isArray(value)) return `[${value.map(item => item === undefined ? 'null' : canonicalJson(item)).join(',')}]`;
+  if (plain(value)) return `{${Object.keys(value).filter(key => value[key] !== undefined).sort().map(key => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(',')}}`;
   return JSON.stringify(value);
 }
 
@@ -59,6 +60,9 @@ export function validateThreadFile(value) {
   if (!Number.isSafeInteger(value.revision) || value.revision < 0) throw new Error('Invalid dialogue revision.');
   if (!Array.isArray(value.messages) || value.messages.length > CONVERSATION_LIMITS.messages) throw new Error(`A dialogue supports at most ${CONVERSATION_LIMITS.messages} messages.`);
   if (!Array.isArray(value.runs) || value.runs.length > CONVERSATION_LIMITS.runs) throw new Error(`A dialogue supports at most ${CONVERSATION_LIMITS.runs} runs.`);
+  if (value.title !== undefined && typeof value.title !== 'string') throw new Error('Invalid dialogue title.');
+  if (value.updatedAt !== undefined && (!Number.isSafeInteger(value.updatedAt) || value.updatedAt < 0)) throw new Error('Invalid dialogue timestamp.');
+  for (const message of value.messages) { if (!plain(message)) throw new Error('Invalid conversation message.'); identifier(message.id, 'message ID'); }
   const ids = new Set();
   for (const run of value.runs) {
     if (!plain(run)) throw new Error('Invalid conversation run.');
@@ -103,45 +107,47 @@ export function seedSplitCache(cache, split) {
     if (!plain(value) || Object.hasOwn(value, BLOB_TAG)) return;
     const ref = value.dataUrl;
     // "data:" + mime + ";base64," + base64 → the joined dataUrl length the attachment key uses.
-    if (typeof value.id === 'string' && typeof value.mime === 'string' && plain(ref) && ref.encoding === 'dataUrl') cache.attachments.set(`${value.id}\u0000${13 + ref.mime.length + 4 * Math.ceil(ref.size / 3)}`, { ref, bytes: null });
+    if (typeof value.id === 'string' && typeof value.mime === 'string' && plain(ref) && ref.encoding === 'dataUrl') cache.attachments.set(`${value.id}\u0000${value.mime}\u0000${13 + ref.mime.length + 4 * Math.ceil(ref.size / 3)}`, { ref, bytes: null });
     Object.values(value).forEach(visit);
   })(split);
   return cache;
 }
 
-async function reference(bytes, encoding, context, extra = {}) {
-  const sha = await context.hash(bytes);
-  context.blobs.set(sha, bytes);
-  return { [BLOB_TAG]: sha, encoding, size: bytes.byteLength, ...extra };
+function reference(bytes, encoding, context, extra = {}) {
+  const ref = { [BLOB_TAG]: '', encoding, size: bytes.byteLength, ...extra };
+  context.jobs.push({ ref, bytes, sinks: context.sink ? [context.blobs, context.sink] : [context.blobs] });
+  return ref;
 }
 
 // Attachment content is immutable per id (new attachments get a random UUID; mention ids embed a content hash),
-// so id + dataUrl length is a sufficient cache key.
-async function externalizeAttachment(value, context) {
-  const key = typeof value.id === 'string' ? `${value.id}\u0000${value.dataUrl.length}` : null, cached = key && context.previous.attachments.get(key);
-  let dataUrl = value.dataUrl;
+// so id + mime + dataUrl length is a sufficient cache key.
+function externalizeAttachment(value, context) {
+  const key = typeof value.id === 'string' ? `${value.id}\u0000${value.mime}\u0000${value.dataUrl.length}` : null, cached = key && context.previous.attachments.get(key);
+  let dataUrl = value.dataUrl, entry = cached || null;
   if (cached) { if (cached.bytes) context.blobs.set(cached.ref[BLOB_TAG], cached.bytes); dataUrl = cached.ref; }
   else {
     const match = value.dataUrl.match(DATA_URL);
     let bytes = null;
     try { bytes = match && fromBase64(match[2]); } catch { /* Not decodable: kept inline. */ }
     // Only a canonical encoding is externalized, so join restores the exact string.
-    if (bytes && toBase64(bytes) === match[2]) dataUrl = await reference(bytes, 'dataUrl', context, { mime: match[1] });
+    if (bytes && toBase64(bytes) === match[2]) { dataUrl = reference(bytes, 'dataUrl', context, { mime: match[1] }); entry = { ref: dataUrl, bytes }; }
   }
-  if (key && typeof dataUrl !== 'string') context.next.attachments.set(key, cached || { ref: dataUrl, bytes: context.blobs.get(dataUrl[BLOB_TAG]) });
+  if (key && entry) context.next.attachments.set(key, entry);
   const result = {};
-  for (const [name, child] of Object.entries(value)) result[name] = name === 'dataUrl' ? dataUrl : await externalize(child, context);
+  for (const [name, child] of Object.entries(value)) put(result, name, name === 'dataUrl' ? dataUrl : externalize(child, context));
   return result;
 }
 
-async function externalize(value, context, fileContent = false) {
+function externalize(value, context, fileContent = false) {
   if (value instanceof Uint8Array) return reference(new Uint8Array(value), 'bytes', context);
   if (typeof value === 'string') {
     if (!fileContent) return value;
+    // A lone surrogate would not survive UTF-8, so such text stays inline.
+    if (!(value.isWellFormed ? value.isWellFormed() : value === value.toWellFormed?.())) return value;
     const bytes = encoder.encode(value);
     return bytes.byteLength >= INLINE_TEXT_BYTES ? reference(bytes, 'utf8', context) : value;
   }
-  if (Array.isArray(value)) { const result = []; for (const item of value) result.push(await externalize(item, context)); return result; }
+  if (Array.isArray(value)) return value.map(item => externalize(item, context));
   if (!plain(value)) return value;
   if (Object.hasOwn(value, BLOB_TAG)) throw new Error('Reserved conversation key.');
   if (typeof value.mime === 'string' && typeof value.dataUrl === 'string') return externalizeAttachment(value, context);
@@ -149,35 +155,42 @@ async function externalize(value, context, fileContent = false) {
   for (const [name, child] of Object.entries(value)) {
     if (FILE_MAP_KEYS.has(name) && plain(child)) {
       const files = {};
-      for (const [path, content] of Object.entries(child)) files[path] = await externalize(content, context, true);
-      result[name] = files;
-    } else result[name] = await externalize(child, context);
+      for (const [path, content] of Object.entries(child)) put(files, path, externalize(content, context, true));
+      put(result, name, files);
+    } else put(result, name, externalize(child, context));
   }
   return result;
 }
 
-async function splitRun(run, context) {
+function splitRun(run, context) {
   const key = Number.isSafeInteger(run.updatedAt) ? `${run.id}\u0000${run.updatedAt}` : null;
   let fields = key && context.previous.runs.get(key);
   if (!fields) {
     fields = { values: {}, blobs: new Map() };
-    const local = { ...context, blobs: fields.blobs };
-    for (const name of SNAPSHOT_KEYS) if (Object.hasOwn(run, name)) fields.values[name] = await externalize(run[name], local);
+    const local = { ...context, sink: fields.blobs };
+    for (const name of SNAPSHOT_KEYS) if (Object.hasOwn(run, name)) fields.values[name] = externalize(run[name], local);
   }
   if (key) context.next.runs.set(key, fields);
   for (const [sha, bytes] of fields.blobs) context.blobs.set(sha, bytes);
   const result = {};
-  for (const [name, child] of Object.entries(run)) result[name] = SNAPSHOT_KEYS.includes(name) ? fields.values[name] : await externalize(child, context);
+  for (const [name, child] of Object.entries(run)) put(result, name, SNAPSHOT_KEYS.includes(name) ? fields.values[name] : externalize(child, context));
   return result;
 }
 
-/** cache: the previous save's cache (read); nextCache: collects entries used by this save. */
+/** cache: the previous save's cache (read); nextCache: collects entries used by this save.
+ *  `blobs` lists blobs this split produced or whose bytes it has; cache hits from a seeded cache contribute none,
+ *  so use blobReferences(thread) for the full referenced set. A missing persisted blob is handled by the caller
+ *  re-splitting without a cache. The walk is synchronous; hashing runs afterwards as one batch. */
 export async function splitThread(thread, { cache = createSplitCache(), nextCache = createSplitCache(), hash = sha256Hex } = {}) {
-  const context = { previous: cache, next: nextCache, hash, blobs: new Map() };
+  const context = { previous: cache, next: nextCache, blobs: new Map(), jobs: [], sink: null };
   const { runs = [], ...rest } = thread;
-  const split = await externalize(rest, context);
-  split.runs = [];
-  for (const run of runs) split.runs.push(await splitRun(run, context));
+  const split = externalize(rest, context);
+  split.runs = runs.map(run => splitRun(run, context));
+  await Promise.all(context.jobs.map(async job => {
+    const sha = await hash(job.bytes);
+    job.ref[BLOB_TAG] = sha;
+    for (const sink of job.sinks) sink.set(sha, job.bytes);
+  }));
   return { thread: split, blobs: context.blobs };
 }
 
@@ -199,7 +212,7 @@ export async function joinThread(split, getBlob) {
       return ref.encoding === 'utf8' ? decoder.decode(bytes) : ref.encoding === 'dataUrl' ? `data:${ref.mime};base64,${toBase64(bytes)}` : new Uint8Array(bytes);
     }
     const result = {};
-    for (const [name, child] of Object.entries(value)) result[name] = await internalize(child);
+    for (const [name, child] of Object.entries(value)) put(result, name, await internalize(child));
     return result;
   }
   return internalize(split);

@@ -50,7 +50,9 @@ test('random documents round-trip losslessly (seeded property test)', async () =
   const text = () => 'abcé€😀\n'.repeat(1 + Math.floor(random() * (random() < 0.3 ? 1200 : 4)));
   const bytes = () => Uint8Array.from({ length: Math.floor(random() * 64) }, () => Math.floor(random() * 256));
   const dataUrl = () => pick([png, 'data:image/png;base64,QR==', 'data:image/png;base64,Q', `data:image/webp;base64,${Buffer.from(bytes()).toString('base64')}`]);
-  const generators = [text, bytes, () => 7, () => null, () => ({ files: { 'a.html': text(), 'b.bin': bytes() } }), () => ({ id: `att-${Math.floor(random() * 1e9)}`, mime: 'image/png', dataUrl: dataUrl() })];
+  const surrogate = () => `${text()}\ud800${random() < 0.5 ? 'z' : ''}`;
+  const protoObject = () => JSON.parse(`{"__proto__":{"x":${Math.floor(random() * 9)}},"k":1}`);
+  const generators = [text, bytes, surrogate, protoObject, () => ({ files: { 'l.html': 'a'.repeat(5000) + '\ud800' } }), () => 7, () => null, () => ({ files: { 'a.html': text(), 'b.bin': bytes() } }), () => ({ id: `att-${Math.floor(random() * 1e9)}`, mime: 'image/png', dataUrl: dataUrl() })];
   const value = depth => depth < 3 && random() < 0.4 ? (random() < 0.5 ? [value(depth + 1), value(depth + 1)] : { nested: value(depth + 1), other: value(depth + 1) }) : pick(generators)();
   for (let index = 0; index < 50; index++) {
     const original = { schema: 1, id: 't', revision: 0, messages: [{ id: 'm', payload: value(0) }],
@@ -98,6 +100,13 @@ test('thread files reject foreign or duplicate runs, raw bytes, too many runs an
   assert.throws(() => validateThreadFile({ ...base, messages: [{ id: 'm', raw: new Uint8Array(1) }] }), /raw bytes/);
   assert.throws(() => validateThreadFile({ ...base, runs: Array.from({ length: 101 }, (_, i) => ({ id: `r${i}`, threadId: 't' })) }), /at most 100 runs/);
   assert.throws(() => validateThreadFile({ ...base, title: 'x'.repeat(16 * 1024 * 1024) }), /16 MiB/);
+  assert.throws(() => validateThreadFile({ ...base, messages: [null] }));
+  assert.throws(() => validateThreadFile({ ...base, messages: [{ role: 'user' }] }));
+  assert.throws(() => validateThreadFile({ ...base, messages: [{ id: '' }] }));
+  assert.throws(() => validateThreadFile({ ...base, title: 5 }));
+  assert.throws(() => validateThreadFile({ ...base, updatedAt: -1 }));
+  assert.throws(() => validateThreadFile({ ...base, updatedAt: 1.5 }));
+  validateThreadFile({ ...base, title: 'ok', updatedAt: 0, messages: [{ id: 'm' }] });
 });
 
 test('threadsOf groups runs by dialogue and documentOf restores the document shape', () => {
@@ -107,4 +116,36 @@ test('threadsOf groups runs by dialogue and documentOf restores the document sha
   assert.deepEqual(documentOf('p', threads, 9), { schema: 1, projectId: 'p', revision: 9,
     threads: [{ id: 'a', revision: 2, messages: [] }, { id: 'b', revision: 0, messages: [] }], runs: [{ id: 'r2', threadId: 'a' }, { id: 'r1', threadId: 'b' }] });
   assert.throws(() => threadsOf({ ...document, runs: [{ id: 'r3', threadId: 'missing' }] }), /no dialogue/);
+});
+
+test('a large file string with a lone surrogate stays inline', async () => {
+  const value = thread(), lone = 'a'.repeat(5000) + '\ud800'; value.runs[0].result.files['lone.html'] = lone;
+  const { split, joined } = await roundTrip(value);
+  assert.equal(split.runs[0].result.files['lone.html'], lone);
+  assert.deepEqual(joined, value);
+});
+
+test('an own __proto__ key survives split and join', async () => {
+  const value = thread(); value.messages[0].args = JSON.parse('{"__proto__":{"x":1}}');
+  value.runs[0].base.files = JSON.parse(`{"__proto__":"${'y'.repeat(5000)}"}`);
+  const { split, joined } = await roundTrip(value);
+  assert.ok(Object.hasOwn(joined.messages[0].args, '__proto__'));
+  assert.ok(Object.hasOwn(split.runs[0].base.files, '__proto__'));
+  assert.deepEqual(joined, value);
+});
+
+test('threadHash matches the hash of the JSON round-trip (undefined is skipped)', async () => {
+  const value = thread(); value.messages[0].meta = { a: undefined, list: [undefined, 1] };
+  const { split } = await roundTrip(value);
+  assert.equal(await threadHash(split), await threadHash(JSON.parse(JSON.stringify(split))));
+});
+
+test('an attachment cache entry is not reused for a different mime of equal length', async () => {
+  const value = thread(), { split, blobs: stored } = await roundTrip(value);
+  const gif = png.replace('image/png', 'image/gif'); assert.equal(gif.length, png.length);
+  value.messages[0].attachments[0].dataUrl = gif; value.messages[0].attachments[0].mime = 'image/gif';
+  const result = await splitThread(value, { cache: seedSplitCache(createSplitCache(), split) });
+  assert.equal(result.thread.messages[0].attachments[0].dataUrl.mime, 'image/gif');
+  assert.equal(result.blobs.size > 0, true);
+  assert.deepEqual(await joinThread(result.thread, async sha => result.blobs.get(sha) || stored.get(sha)), value);
 });
