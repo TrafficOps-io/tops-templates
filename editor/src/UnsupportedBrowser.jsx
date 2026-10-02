@@ -1,6 +1,6 @@
 import { MonitorX } from 'lucide-react';
 
-/** Shown when the browser can neither open folders nor write to its private file system (D9). */
+/** Shown when the browser can neither open folders nor write to its private file system (spec A9). */
 export default function UnsupportedBrowser() {
   return <section className="unsupported-browser" aria-labelledby="unsupported-title">
     <MonitorX size={28} />

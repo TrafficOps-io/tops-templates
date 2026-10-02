@@ -94,6 +94,10 @@ jobs:
       - run: node editor/test/agent-browser.mjs editor/dist
       - run: node editor/test/retained-draft-settings-browser.mjs
       - run: node editor/test/ai-panel-ui-browser.mjs editor/dist
+      - run: node editor/test/branches-browser.mjs editor/dist
+      - run: node editor/test/clipboard-images-browser.mjs editor/dist
+      - run: node editor/test/rich-text-browser.mjs editor/dist
+      - run: node editor/test/openrouter-settings-browser.mjs editor/dist
       - run: node editor/test/autosave-browser.mjs
       - run: node editor/test/explicit-save-apply-browser.mjs
       - run: npm run build:embed --workspace=@trafficops/template-studio

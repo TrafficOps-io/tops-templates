@@ -2,7 +2,7 @@ import { rootDecision } from './storage/flows.js';
 import { classifyFolder as classifyFolderDefault, createOpfsRoot as createOpfsRootDefault, createSubfolder as createSubfolderDefault, deleteOpfsRoot as deleteOpfsRootDefault, folderSlug, pickFolder as pickFolderDefault } from './storage/roots.js';
 
 /**
- * Choosing the root of a new project, and the folder questions on the way (D8). No React: `show(choice | null)`
+ * Choosing the root of a new project, and the folder questions on the way (spec A8). No React: `show(choice | null)`
  * renders the pending question (FolderChoiceDialog), and `choose(id)` answers it from inside the click.
  *
  * - chooseRoot(kind, name, { allowOpen }) must be called synchronously at the start of a click flow: in folder mode its
@@ -44,7 +44,7 @@ export function createFolderChoice({ show, mode, pickFolder = pickFolderDefault,
       return null;
     }
   }
-  /** A new, empty project root, or null when cancelled (never an existing project). Same D8 rule as chooseRoot. */
+  /** A new, empty project root, or null when cancelled (never an existing project). Same spec A8 rule as chooseRoot. */
   function createRoot(kind, name) {
     return chooseRoot(kind, name, { allowOpen: false }).then(result => result?.root ?? null);
   }

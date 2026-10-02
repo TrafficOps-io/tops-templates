@@ -79,11 +79,11 @@ export function storageBundle() {
       import { createProjectInRoot, listKnownProjects, readProjectSnapshot } from './editor/src/storage/project-root.js';
       import { rememberRecent, listRecent, forgetRecent } from './editor/src/storage/recent.js';
       import { createOpfsRoot, classifyFolder } from './editor/src/storage/roots.js';
-      import { readProjectMeta, readValues, claimPendingAi, storePendingAi, resolvePendingAi, preparePendingAi, createProjectMeta } from './editor/src/storage/project-meta.js';
+      import { readProjectMeta, readValues, claimPendingAi, resolvePendingAi, createProjectMeta } from './editor/src/storage/project-meta.js';
       import { createDirectoryConversationStore } from './editor/src/storage/directory-conversation-store.js';
       import { createStoreConversationPort, sha256Hex, BLOB_TAG } from '@trafficops/template-editor-core';
       import { conversationStoreContract } from '@trafficops/template-editor-core/conversation-store-contract';
-      window.__studioStorage = { createProjectInRoot, listKnownProjects, readProjectSnapshot, rememberRecent, listRecent, forgetRecent, createOpfsRoot, classifyFolder, readProjectMeta, readValues, claimPendingAi, storePendingAi, resolvePendingAi, preparePendingAi, createProjectMeta, createDirectoryConversationStore, createStoreConversationPort, sha256Hex, BLOB_TAG, conversationStoreContract };`,
+      window.__studioStorage = { createProjectInRoot, listKnownProjects, readProjectSnapshot, rememberRecent, listRecent, forgetRecent, createOpfsRoot, classifyFolder, readProjectMeta, readValues, claimPendingAi, resolvePendingAi, createProjectMeta, createDirectoryConversationStore, createStoreConversationPort, sha256Hex, BLOB_TAG, conversationStoreContract };`,
     resolveDir: repository, sourcefile: 'studio-folders-entry.js', loader: 'js' },
     bundle: true, write: false, platform: 'browser', format: 'iife', target: 'chrome120', define: { 'process.env.NODE_ENV': '"production"' },
   }).then(result => result.outputFiles[0].text);
@@ -113,7 +113,7 @@ export async function seedProjectFolder(page, { name, kind = 'landing', files = 
     const storage = window.__studioStorage, decoded = {};
     for (const [path, value] of Object.entries(files)) decoded[path] = typeof value === 'string' ? value : Uint8Array.from(atob(value.$bytes), char => char.charCodeAt(0));
     let root, path;
-    if (opfs) { root = await storage.createOpfsRoot(projectId); path = `projects/${root.name}`; }
+    if (opfs) { root = await storage.createOpfsRoot(crypto.randomUUID()); path = `projects/${root.name}`; }
     else { root = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('picker', { create: true })).getDirectoryHandle(folder, { create: true }); path = `picker/${folder}`; }
     const meta = await storage.createProjectInRoot(root, { projectId, kind, name, files: decoded, folders, values, conversations: history, brief: pendingAi, ...(sourceTemplateId ? { sourceTemplateId } : {}) });
     if (register && !opfs) await storage.rememberRecent({ projectId, name, kind, handle: root });

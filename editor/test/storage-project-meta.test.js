@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fromBase64, sha256Hex, toBase64 } from '@trafficops/template-editor-core';
-import { claimPendingAi, createProjectMeta, encodePendingAi, preparePendingAi, readProjectMeta, readValues, rekeyProjectMeta, resolvePendingAi, storePendingAi, updateProjectMeta, writeValues } from '../src/storage/project-meta.js';
+import { claimPendingAi, createProjectMeta, encodePendingAi, readProjectMeta, readValues, rekeyProjectMeta, resolvePendingAi, updateProjectMeta, writePendingAiBlobs, writeValues } from '../src/storage/project-meta.js';
 import { createDirectoryConversationStore } from '../src/storage/directory-conversation-store.js';
 import { readFile, readJson, writeFile } from '../src/storage/write.js';
 import { MemoryDirectoryHandle } from './support/fs-access.js';
@@ -22,6 +22,15 @@ async function project(meta = {}) {
   return { root, projectId };
 }
 
+// A new project with a brief, written the way createProjectInRoot does: encode, blobs, then project.json.
+async function projectWithBrief(value, meta = {}) {
+  const root = new MemoryDirectoryHandle('root'), projectId = `project-${++count}`;
+  const { pendingAi, blobs } = await encodePendingAi(value);
+  await writePendingAiBlobs(root, projectId, blobs);
+  await createProjectMeta(root, { schema: 1, projectId, kind: 'landing', name: 'Bakery', metadataRevision: 0, ...meta }, { pendingAi });
+  return { root, projectId };
+}
+
 test('createProjectMeta writes project.json once and readProjectMeta validates it', async () => {
   const { root, projectId } = await project({ createdAt: 5 });
   assert.deepEqual(await readProjectMeta(root), { schema: 1, projectId, kind: 'landing', name: 'Bakery', metadataRevision: 0, createdAt: 5 });
@@ -34,8 +43,7 @@ test('createProjectMeta writes project.json once and readProjectMeta validates i
 });
 
 test('pendingAi round trip stores attachment bytes as conversation blobs and resolves them back', async () => {
-  const { root, projectId } = await project();
-  await storePendingAi(root, projectId, brief());
+  const { root, projectId } = await projectWithBrief(brief());
   const sha = await sha256Hex(png), stored = await readJson(root, META);
   assert.deepEqual(stored.pendingAi, { id: 'brief-1', prompt: 'A landing page for a bakery', mode: 'build', generateImages: true, attachments: [{ id: 'att-1', name: 'logo.png', mime: 'image/png', useOnPage: true, blob: { $trafficopsBlob: sha, encoding: 'bytes', size: png.byteLength } }] });
   assert.deepEqual(await readFile(root, `${BLOBS}/${sha}`), png);
@@ -49,9 +57,8 @@ test('pendingAi round trip stores attachment bytes as conversation blobs and res
 });
 
 test('pendingAi keeps text attachments and drops useOnPage for non-images', async () => {
-  const { root, projectId } = await project();
   const notes = { id: 'att-2', name: 'notes.md', mime: 'text/markdown', text: '# Menu\nBread' };
-  await storePendingAi(root, projectId, brief('b', { generateImages: false, attachments: [{ ...notes, useOnPage: true }] }));
+  const { root } = await projectWithBrief(brief('b', { generateImages: false, attachments: [{ ...notes, useOnPage: true }] }));
   const meta = await readProjectMeta(root);
   assert.equal(meta.pendingAi.attachments[0].blob.encoding, 'utf8');
   assert.equal(meta.pendingAi.attachments[0].useOnPage, false);
@@ -59,13 +66,12 @@ test('pendingAi keeps text attachments and drops useOnPage for non-images', asyn
 });
 
 test('a brief with a PDF and a text document round-trips and the runtime validator accepts the result', async () => {
-  const { root, projectId } = await project();
   const pdf = new TextEncoder().encode('%PDF-1.4\n1 0 obj << >> endobj\n%%EOF\n');
   const attachments = [
     { id: 'att-pdf', name: 'menu.pdf', mime: 'application/pdf', dataUrl: `data:application/pdf;base64,${toBase64(pdf)}`, useOnPage: true },
     { id: 'att-csv', name: 'prices.csv', mime: 'text/csv', text: 'item,price\nBread,3\nCake,12\n' },
   ];
-  await storePendingAi(root, projectId, brief('docs', { generateImages: false, attachments }));
+  const { root } = await projectWithBrief(brief('docs', { generateImages: false, attachments }));
   const meta = await readProjectMeta(root);
   assert.deepEqual(meta.pendingAi.attachments.map(item => [item.mime, item.blob.encoding, item.useOnPage]), [['application/pdf', 'bytes', false], ['text/csv', 'utf8', false]]);
   assert.deepEqual(await readFile(root, `${BLOBS}/${await sha256Hex(pdf)}`), pdf);
@@ -75,10 +81,9 @@ test('a brief with a PDF and a text document round-trips and the runtime validat
   assert.deepEqual(validateFileAiAttachments(resolved.attachments), attachments.map(({ useOnPage: _drop, ...item }) => item));
 });
 
-test('storePendingAi rejects malformed briefs and a foreign project', async () => {
-  const { root, projectId } = await project();
-  await assert.rejects(storePendingAi(root, projectId, brief('b', { attachments: [{ id: 'a', name: 'x.png', mime: 'image/png', dataUrl: 'data:image/jpeg;base64,AAAA' }] })), validation);
-  await assert.rejects(storePendingAi(root, projectId, brief('b', { prompt: 'x'.repeat(6001) })), validation);
+test('encodePendingAi rejects malformed briefs', async () => {
+  await assert.rejects(encodePendingAi(brief('b', { attachments: [{ id: 'a', name: 'x.png', mime: 'image/png', dataUrl: 'data:image/jpeg;base64,AAAA' }] })), validation);
+  await assert.rejects(encodePendingAi(brief('b', { prompt: 'x'.repeat(6001) })), validation);
   const image = brief().attachments[0], notes = { id: 'n', name: 'n.md', mime: 'text/markdown', text: 'hi' };
   for (const attachments of [
     [{ ...image, id: 'not ok' }], // id outside the runtime's regex
@@ -88,25 +93,23 @@ test('storePendingAi rejects malformed briefs and a foreign project', async () =
     [{ ...notes, mime: 'image/png', dataUrl: undefined }], // an image needs a data URL
     [{ ...image, mime: 'text/markdown' }], // a text document needs text
     [{ ...image, mime: 'application/zip', dataUrl: 'data:application/zip;base64,AAAA' }],
-  ]) await assert.rejects(storePendingAi(root, projectId, brief('b', { attachments })), validation, JSON.stringify(attachments).slice(0, 120));
-  await assert.rejects(storePendingAi(root, projectId, { ...brief('b'), id: '' }), validation);
-  await assert.rejects(storePendingAi(root, 'someone-else', brief()), conflict);
-  assert.equal((await readProjectMeta(root)).pendingAi, undefined);
+  ]) await assert.rejects(encodePendingAi(brief('b', { attachments })), validation, JSON.stringify(attachments).slice(0, 120));
+  await assert.rejects(encodePendingAi({ ...brief('b'), id: '' }), validation);
 });
 
 test('attachment names are defaulted and truncated like the runtime does', async () => {
-  const { root, projectId } = await project();
   const notes = { id: 'n', name: '', mime: 'text/plain', text: 'menu' };
-  await storePendingAi(root, projectId, brief('b', { attachments: [{ ...brief().attachments[0], name: 'x'.repeat(300) }, notes] }));
+  const { root } = await projectWithBrief(brief('b', { attachments: [{ ...brief().attachments[0], name: 'x'.repeat(300) }, notes] }));
   const [image, text] = (await resolvePendingAi(root, await readProjectMeta(root))).attachments;
   assert.equal(image.name, 'x'.repeat(160));
   assert.equal(text.name, 'Document');
 });
 
-test('preparePendingAi stores blobs without touching project.json; createProjectMeta can write the brief with the project', async () => {
+test('writePendingAiBlobs writes no metadata; createProjectMeta then writes the brief with the project', async () => {
   const root = new MemoryDirectoryHandle('root');
-  const pendingAi = await preparePendingAi(root, 'fresh', brief());
-  assert.equal(await readFile(root, META), null, 'prepare writes no metadata');
+  const { pendingAi, blobs } = await encodePendingAi(brief());
+  await writePendingAiBlobs(root, 'fresh', blobs);
+  assert.equal(await readFile(root, META), null, 'blobs alone write no metadata');
   assert.deepEqual(await readFile(root, `${BLOBS}/${pendingAi.attachments[0].blob.$trafficopsBlob}`), png);
   const created = await createProjectMeta(root, { schema: 1, projectId: 'fresh', kind: 'landing', name: 'Fresh' }, { pendingAi });
   assert.deepEqual(created.pendingAi, pendingAi);
@@ -137,8 +140,7 @@ test('a malformed pendingAi on disk is dropped from reads with an error; claim a
 });
 
 test('resolvePendingAi re-validates the rebuilt attachments', async () => {
-  const { root, projectId } = await project();
-  await storePendingAi(root, projectId, brief());
+  const { root, projectId } = await projectWithBrief(brief());
   const disk = await readJson(root, META);
   disk.pendingAi.attachments[0].mime = 'image/jpeg';
   await writeFile(root, META, JSON.stringify(disk));
@@ -146,8 +148,7 @@ test('resolvePendingAi re-validates the rebuilt attachments', async () => {
 });
 
 test('claimPendingAi removes the brief exactly once; concurrent claims have one winner', async () => {
-  const { root, projectId } = await project();
-  await storePendingAi(root, projectId, brief());
+  const { root, projectId } = await projectWithBrief(brief());
   assert.equal(await claimPendingAi(root, projectId, 'other-brief'), false);
   assert.ok((await readProjectMeta(root)).pendingAi, 'a different id leaves the brief in place');
   const results = await Promise.all([1, 2, 3, 4].map(() => claimPendingAi(root, projectId, 'brief-1')));
@@ -158,8 +159,7 @@ test('claimPendingAi removes the brief exactly once; concurrent claims have one 
 });
 
 test('a stale updateProjectMeta cannot bring pendingAi back', async () => {
-  const { root, projectId } = await project();
-  await storePendingAi(root, projectId, brief());
+  const { root, projectId } = await projectWithBrief(brief());
   const stale = await readProjectMeta(root);
   assert.equal(await claimPendingAi(root, projectId, 'brief-1'), true);
   await assert.rejects(updateProjectMeta(root, projectId, stale), validation, 'pendingAi in a patch is rejected');
@@ -171,8 +171,7 @@ test('a stale updateProjectMeta cannot bring pendingAi back', async () => {
 });
 
 test('updateProjectMeta preserves a pending brief it does not mention', async () => {
-  const { root, projectId } = await project();
-  await storePendingAi(root, projectId, brief());
+  const { root, projectId } = await projectWithBrief(brief());
   await updateProjectMeta(root, projectId, { contentRevision: 3 });
   const meta = await readProjectMeta(root);
   assert.equal(meta.contentRevision, 3);
@@ -221,8 +220,7 @@ test('values round trip; an empty object removes the file and an empty sidecar f
 });
 
 test('rekeyProjectMeta moves the folder to a new projectId, keeping the brief and every other field', async () => {
-  const { root, projectId } = await project({ contentRevision: 3 });
-  await storePendingAi(root, projectId, brief());
+  const { root, projectId } = await projectWithBrief(brief(), { contentRevision: 3 });
   const before = await readProjectMeta(root);
   const after = await rekeyProjectMeta(root, projectId, 'fresh-id');
   assert.deepEqual(after, { ...before, projectId: 'fresh-id' });

@@ -76,7 +76,7 @@ test('pickFolder opens the picker synchronously in readwrite mode; cancelling re
   await assert.rejects(pickFolder({ showDirectoryPicker: undefined }), /Chromium/);
 });
 
-test('OPFS roots live under projects/<folder>; list by folder name, create by projectId, delete by folder name', async () => {
+test('OPFS roots live under projects/<folder>; list, create and delete by folder name', async () => {
   const storage = opfs();
   assert.deepEqual(await listOpfsRoots({ storage }), []);
   const one = await createOpfsRoot('project-1', { storage }), two = await createOpfsRoot('project-2', { storage });
@@ -87,14 +87,11 @@ test('OPFS roots live under projects/<folder>; list by folder name, create by pr
   await deleteOpfsRoot('project-1', { storage });
   await deleteOpfsRoot('missing', { storage });
   assert.deepEqual((await listOpfsRoots({ storage })).map(entry => entry.name), ['project-2']);
-  // Any other id gets a hashed, path-safe folder name; deletion uses that name.
-  const odd = await createOpfsRoot('../My project', { storage });
-  assert.match(odd.name, /^~[a-f0-9]{64}$/);
-  assert.equal(await createOpfsRoot('../My project', { storage }), odd);
-  assert.deepEqual((await listOpfsRoots({ storage })).map(entry => entry.name).sort(), [odd.name, 'project-2'].sort());
-  await deleteOpfsRoot(odd.name, { storage });
-  assert.deepEqual((await listOpfsRoots({ storage })).map(entry => entry.name), ['project-2']);
-  await assert.rejects(createOpfsRoot('', { storage }), /Invalid project ID/);
+  // Studio names new roots with random UUIDs; anything that is not a plain name is refused, never hashed.
+  const uuid = await createOpfsRoot('0b6f3c1e-8f0a-4c69-9d55-2a3b4c5d6e7f', { storage });
+  assert.equal(uuid.name, '0b6f3c1e-8f0a-4c69-9d55-2a3b4c5d6e7f');
+  await deleteOpfsRoot(uuid.name, { storage });
+  for (const name of ['', '../My project', 'a/b', '.hidden', 'x'.repeat(161), 42]) await assert.rejects(createOpfsRoot(name, { storage }), /Invalid browser storage folder/, String(name));
   for (const name of ['', '.', '..', 'a/b', 'a\\b']) await assert.rejects(deleteOpfsRoot(name, { storage }), /Invalid browser storage folder/);
   assert.deepEqual((await listOpfsRoots({ storage })).map(entry => entry.name), ['project-2']);
 });

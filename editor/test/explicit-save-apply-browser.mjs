@@ -22,7 +22,7 @@ const script = `
     analyzer:{analyze:async()=>({definition:null,entrypoint:'index.html',sourceDiagnostics:[],diagnostics:[]}), render:async()=>({})}
   };
   function Harness(){
-    const editor=useEditorProject(host,()=>{},null,false);
+    const editor=useEditorProject(host,()=>{},false);
     window.editor=editor;
     return React.createElement('div',{id:'save-state'},editor.dirty?'Unsaved':'Saved');
   }

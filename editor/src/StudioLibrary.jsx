@@ -78,9 +78,9 @@ export default function StudioLibrary({ projects, busy, aiEnabled = false, aiSet
 }
 
 /** templates: the user's template projects as listed (not yet read). Selecting one is its own click: onLoadTemplate(entry)
- *  asks for access synchronously and resolves the template's files in memory (D2); Create then picks the new folder. */
+ *  asks for access synchronously and resolves the template's files in memory (spec A2); Create then picks the new folder. */
 // Template choice as buttons: choosing a user template asks for folder access, and a permission prompt needs a click or
-// key press (a <select> change does not reliably carry user activation, D8).
+// key press (a <select> change does not reliably carry user activation, spec A8).
 function TemplateChoice({ choices, selected, loading, onSelect }) {
   return <fieldset className="field template-choice"><legend>Starting template</legend>
     <div className="template-choice-list" role="group" aria-label="Starting template">{choices.map(item => <button type="button" key={item.id} aria-pressed={selected === item.id} onClick={() => onSelect(item.id)}><strong>{item.name}</strong><span>{item.builtin ? 'Starter' : 'Your template'}</span></button>)}</div>
@@ -124,7 +124,7 @@ export function CreateProjectDialog({ initial = {}, templates, busy, aiEnabled =
     const source = mode === 'template' ? loaded[sourceId] || studioStarters.find(item => item.id === sourceId) : undefined;
     // Resolve the default at generation time: the user may connect an image
     // model in the editor after creating this project's initial brief.
-    // Raw files go up: the App opens the folder picker in this click (D8), then reads them.
+    // Raw files go up: the App opens the folder picker in this click (spec A8), then reads them.
     try { await onCreate({ kind, mode, name: name.trim(), prompt: (brief?.text ?? prompt).trim(), attachmentFiles: brief?.attachments || [], useOnPage: Boolean(brief?.useOnPage), generateImages: imageChoice, source }); }
     catch (cause) { setError(cause.message); return false; }
   }

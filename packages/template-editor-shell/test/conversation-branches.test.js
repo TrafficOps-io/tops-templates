@@ -9,7 +9,7 @@ const state = () => ({ name: 'Landing', revision: 3, files: { 'index.html': '<h1
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 async function until(predicate) { for (let count = 0; count < 400; count++) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 5)); } assert.fail('Timed out waiting for runtime state'); }
 function fixture(projectId, initial) {
-  let document = initial || { schema: 1, projectId, revision: 0, legacyMigrated: true, threads: [], runs: [] };
+  let document = initial || { schema: 1, projectId, revision: 0, threads: [], runs: [] };
   const subscribers = new Set(), saved = [];
   const conversations = { projectId, load: async () => structuredClone(document), save: async (next, { expectedRevision }) => {
     if (expectedRevision !== document.revision) throw Object.assign(new Error('Concurrent write'), { code: 'conflict' });
@@ -126,7 +126,7 @@ test('a discarded parent draft is not restored when its follow-up is regenerated
 });
 
 test('a linear document from before the tree is migrated on load without changing what the user sees', async t => {
-  const initial = { schema: 1, projectId: 'legacy-linear', revision: 4, legacyMigrated: true, threads: [{ id: 't1', title: 'Old', createdAt: 1, updatedAt: 1, archived: false, messages: [
+  const initial = { schema: 1, projectId: 'legacy-linear', revision: 4, threads: [{ id: 't1', title: 'Old', createdAt: 1, updatedAt: 1, archived: false, messages: [
     { id: 'u1', role: 'user', prompt: 'First', parts: [{ type: 'text', text: 'First' }], attachments: [], mentions: [], createdAt: 1, status: 'ready', runId: 'r1' },
     { id: 'c1', role: 'user', prompt: 'Clarified', parts: [{ type: 'text', text: 'Clarified' }], attachments: [], mentions: [], createdAt: 2, status: 'queued-clarification', runId: 'r1' },
     { id: 'a1', role: 'assistant', prompt: 'Answer one', parts: [{ type: 'text', text: 'Answer one' }], createdAt: 3, runId: 'r1', status: 'ready' },

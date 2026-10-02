@@ -31,7 +31,7 @@ function runtimeAttachments(list) {
   return checked.map((item, index) => ({ ...item, useOnPage: /^image\//.test(item.mime) && list[index].useOnPage === true }));
 }
 
-// A stored brief: the shape preparePendingAi writes. Attachment contents are checked again on resolve.
+// A stored brief: the shape encodePendingAi returns. Attachment contents are checked again on resolve.
 function validatePendingAi(value) {
   const brief = briefFields(value), ids = new Set();
   invalid(value.attachments.length > FILE_ATTACHMENT_LIMITS.count, 'Invalid pending AI attachments.');
@@ -72,7 +72,7 @@ async function preparedPendingAi(root, value) {
   return pendingAi;
 }
 
-/** Writes project.json once, optionally with a brief from preparePendingAi, so a new project's metadata can be the
+/** Writes project.json once, optionally with a brief from encodePendingAi (its blobs already written), so a new project's metadata can be the
  *  last thing written. */
 export async function createProjectMeta(root, meta, { pendingAi, locks } = {}) {
   noPending(meta, 'Pass a prepared pending AI brief as the pendingAi option.');
@@ -85,12 +85,12 @@ export async function createProjectMeta(root, meta, { pendingAi, locks } = {}) {
   }, locks);
 }
 
-/** Read-modify-write of identity metadata (D11). `pendingAi` is untouchable here; `metadataRevision` is store-owned
+/** Read-modify-write of identity metadata (spec A11). `pendingAi` is untouchable here; `metadataRevision` is store-owned
  *  and grows by one when `name` or `kind` change. A malformed brief on disk is dropped; the result reports it as
  *  `pendingAiError` (never written). */
 export async function updateProjectMeta(root, projectId, patch, { locks } = {}) {
   invalid(!plain(patch), 'Invalid project metadata patch.');
-  noPending(patch, 'Only storePendingAi and claimPendingAi change the pending AI brief.');
+  noPending(patch, 'Only project creation and claimPendingAi change the pending AI brief.');
   invalid(patch.projectId !== undefined && patch.projectId !== projectId, 'The project ID cannot be changed.');
   return locked(projectId, async () => {
     const { pendingAi, pendingAiError, ...current } = await ownMeta(root, projectId);
@@ -133,28 +133,6 @@ export async function encodePendingAi(brief) {
 export async function writePendingAiBlobs(root, projectId, blobs, { locks } = {}) {
   const store = createDirectoryConversationStore(root, { projectId, locks });
   try { for (const [sha, bytes] of blobs) await store.putBlob(sha, bytes); } finally { store.close(); }
-}
-
-/** encodePendingAi, then its blobs are written. Returns the `pendingAi` value; project.json is not touched. */
-export async function preparePendingAi(root, projectId, brief, { locks } = {}) {
-  const { pendingAi, blobs } = await encodePendingAi(brief);
-  await writePendingAiBlobs(root, projectId, blobs, { locks });
-  return pendingAi;
-}
-
-/** The brief replaces any pending one in an existing project's project.json. */
-export async function storePendingAi(root, projectId, brief, { locks } = {}) {
-  // The brief and ownership are checked before any blob is written; blobs are written outside the meta lock (locks
-  // never nest).
-  const { pendingAi, blobs } = await encodePendingAi(brief);
-  await locked(projectId, () => ownMeta(root, projectId), locks);
-  await writePendingAiBlobs(root, projectId, blobs, { locks });
-  return locked(projectId, async () => {
-    const { pendingAi: _previous, pendingAiError: _dropped, ...current } = await ownMeta(root, projectId);
-    const stored = { ...current, pendingAi };
-    await writeFile(root, META, json(stored));
-    return stored;
-  }, locks);
 }
 
 /** The brief of `meta.pendingAi` with attachments resolved back to `{ id, name, mime, dataUrl | text, useOnPage }` and

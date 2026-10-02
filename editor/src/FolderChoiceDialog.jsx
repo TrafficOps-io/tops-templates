@@ -2,7 +2,7 @@ import { useEffect, useId, useRef } from 'react';
 import { FolderOpen, X } from 'lucide-react';
 
 /** A folder decision: { title, message, actions: [{ id, label, primary? }] }. Cancel is always offered. onChoose(id) runs
- *  synchronously inside the click, so an action may open a folder picker there (D8). */
+ *  synchronously inside the click, so an action may open a folder picker there (spec A8). */
 export default function FolderChoiceDialog({ choice, onChoose }) {
   const dialog = useRef(null), titleId = useId();
   useEffect(() => { dialog.current.showModal(); }, []);

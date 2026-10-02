@@ -118,28 +118,25 @@ try {
   assert.deepEqual(gc.afterClaim, { brief: false, kept: true, pendingAi: null }, 'a claimed brief’s blob becomes collectable');
 
   // pendingAi claim: two pages race for each stored brief under navigator.locks; exactly one wins every round.
-  await first.evaluate(async () => {
-    const folder = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('contract', { create: true })).getDirectoryHandle('claim', { create: true });
-    await window.__studioStorage.createProjectInRoot(folder, { projectId: 'claim-project', name: 'Claim' });
-  });
   assert.equal(await first.evaluate(() => Boolean(navigator.locks?.request)), true, 'the race runs under real Web Locks');
   for (let round = 1; round <= 5; round++) {
     const id = `brief-${round}`;
     await first.evaluate(async id => {
-      const folder = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('contract')).getDirectoryHandle('claim');
-      await window.__studioStorage.storePendingAi(folder, 'claim-project', { id, prompt: `Round ${id}`, mode: 'create', generateImages: false, attachments: [] });
+      // A fresh project per round: a brief is only written with its project.
+      const folder = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('contract', { create: true })).getDirectoryHandle(`claim-${id}`, { create: true });
+      await window.__studioStorage.createProjectInRoot(folder, { projectId: 'claim-project', name: 'Claim', brief: { id, prompt: `Round ${id}`, mode: 'create', generateImages: false, attachments: [] } });
     }, id);
     const at = Date.now() + 150;
     const claim = target => target.evaluate(async ({ id, at }) => {
-      const folder = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('contract')).getDirectoryHandle('claim');
+      const folder = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('contract')).getDirectoryHandle(`claim-${id}`);
       await new Promise(done => setTimeout(done, Math.max(0, at - Date.now())));
       return window.__studioStorage.claimPendingAi(folder, 'claim-project', id);
     }, { id, at });
     const won = await Promise.all([claim(first), claim(second)]);
     assert.equal(won.filter(Boolean).length, 1, `exactly one page claims ${id}: ${JSON.stringify(won)}`);
-    assert.equal(await first.evaluate(async () => (await window.__studioStorage.readProjectMeta(await (await (await navigator.storage.getDirectory()).getDirectoryHandle('contract')).getDirectoryHandle('claim'))).pendingAi ?? null), null);
+    assert.equal(await first.evaluate(async id => (await window.__studioStorage.readProjectMeta(await (await (await navigator.storage.getDirectory()).getDirectoryHandle('contract')).getDirectoryHandle(`claim-${id}`))).pendingAi ?? null, id), null);
   }
-  assert.equal(await second.evaluate(async () => window.__studioStorage.claimPendingAi(await (await (await navigator.storage.getDirectory()).getDirectoryHandle('contract')).getDirectoryHandle('claim'), 'claim-project', 'brief-5')), false, 'a claimed brief cannot be claimed again');
+  assert.equal(await second.evaluate(async () => window.__studioStorage.claimPendingAi(await (await (await navigator.storage.getDirectory()).getDirectoryHandle('contract')).getDirectoryHandle('claim-brief-5'), 'claim-project', 'brief-5')), false, 'a claimed brief cannot be claimed again');
   await first.close(); await second.close();
 
   // A history over 20 MiB (three incompressible 8 MiB blobs in two dialogues) exports as an editable ZIP and imports

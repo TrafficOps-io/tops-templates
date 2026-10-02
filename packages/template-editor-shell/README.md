@@ -21,7 +21,7 @@ in `studio.css`; the embedded entry inherits the application's theme through its
 ShadowRoot and loads CSS before mounting React.
 
 Optional presentation props: `previewExpandButton`, `initialExpanded`, `showExportFooter`,
-`onNewProject`, `onManageProjects`, `projectSwitcher`, `storageHelp`, `onSnapshot`.
+`onNewProject`, `projectSwitcher`, `storageHelp`, `onSnapshot`.
 These do not change the host contract. The core conformance runner accepts the
 same host factory without requiring React or a DOM.
 

@@ -4,7 +4,7 @@ import { conversationDocumentFromFiles, fromBase64, readZipProject, runHostConfo
 import { unzipSync } from 'fflate';
 import { createFolderHost } from '../src/hosts/FolderHost.js';
 import { createStudioAiPort } from '../src/hosts/StudioAiPort.js';
-import { readProjectMeta, readValues, storePendingAi } from '../src/storage/project-meta.js';
+import { readProjectMeta, readValues } from '../src/storage/project-meta.js';
 import { createProjectInRoot } from '../src/storage/project-root.js';
 import { listDirectory, readText, removePath, writeFile } from '../src/storage/write.js';
 import { MemoryDirectoryHandle } from './support/fs-access.js';
@@ -132,9 +132,9 @@ test('a pending AI brief becomes one auto-start initial request that only one ho
   assert.equal(later.ai.initialRequest, undefined);
   // The AI port passes through untouched; a brief without AI is ignored.
   assert.equal(typeof later.ai.begin, 'function'); assert.equal(later.ai.settings.owner, 'user');
-  await storePendingAi(root, 'p-1', { ...brief, id: 'brief-2', mode: 'something' });
-  assert.equal((await host(root, meta, { ai: ai() })).ai.initialRequest.mode, 'create');
-  assert.equal(Object.hasOwn(await host(root, meta), 'ai'), false);
+  const odd = await project({ brief: { ...brief, id: 'brief-2', mode: 'something' } });
+  assert.equal((await host(odd.root, odd.meta, { ai: ai() })).ai.initialRequest.mode, 'create');
+  assert.equal(Object.hasOwn(await host(odd.root, odd.meta), 'ai'), false);
 });
 
 test('source export carries the store\'s dialogue files with shared blobs once and imports back', async () => {

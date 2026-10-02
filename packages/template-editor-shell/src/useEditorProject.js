@@ -6,7 +6,7 @@ import { mergeChangeSet } from './conversation-changes.js';
 import { assertBlockDraftScope, assertBlockScopeBase } from './block-edit-scope.js';
 import { stableSavedState } from './stable-state.js';
 
-export function useEditorProject(host, onSnapshot, recovered, externalBusy = false) {
+export function useEditorProject(host, onSnapshot, externalBusy = false) {
   const [state, setState] = useState(null), [analysis, setAnalysis] = useState(null), [baseline, setBaseline] = useState({});
   const [locale, setLocale] = useState(''), [busy, setBusy] = useState(false), [dirty, setDirty] = useState(false), [savedAt, setSavedAt] = useState(''), [saveBusy, setSaveBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false), [aiDraft, setAiDraft] = useState(null);
@@ -49,7 +49,7 @@ export function useEditorProject(host, onSnapshot, recovered, externalBusy = fal
   }, []);
   useEffect(() => {
     mounted.current = true;
-    operation(signal => host.project.open({ signal })).then(next => { if (mounted.current) { install(next); if (recovered?.dirty) { setDirty(true); dirtyRef.current = true; setBaseline(recovered.sourceBaseline || next.files); } } }).catch(report);
+    operation(signal => host.project.open({ signal })).then(next => { if (mounted.current) install(next); }).catch(report);
     return () => { mounted.current = false; for (const controller of operations.current) controller.abort(); };
   }, [host, install, operation, report]);
   const change = useCallback(patch => {

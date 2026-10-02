@@ -28,7 +28,7 @@ export function StatusNotices({ blocked, blockedReason, pwa, online, update, err
   </>;
 }
 
-/** Switches to another listed project. Menu items are buttons, so a permission prompt runs in their click (D8). */
+/** Switches to another listed project. Menu items are buttons, so a permission prompt runs in their click (spec A8). */
 export function ProjectMenu({ projects, current, activity, disabled, onOpen }) {
   const label = current?.name || 'Switch project';
   return <Menu label="Switch project" className="studio-project-menu" triggerClassName="btn btn-ghost btn-sm" disabled={disabled} trigger={<><span className="studio-navigation-label">{label}</span><ChevronDown size={14} /></>}>

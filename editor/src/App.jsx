@@ -49,7 +49,7 @@ export default function App() {
   const archive = useRef(null), snapshot = useRef(null), currentRef = useRef(null), busyRef = useRef(false), lostRef = useRef(null), modeRef = useRef(null), boot = useRef(null);
   const ai = useRef(null), hosts = useRef(new Map()), queuedImports = useRef([]), importNext = useRef(null);
   const folders = useFolderChoice(() => modeRef.current), folderChoice = folders.choice;
-  // D7: the AI port is always available; installedDisplayMode() only drives install and window chrome.
+  // Spec A7: the AI port is always available; installedDisplayMode() only drives install and window chrome.
   function studioAi() { return ai.current ||= createStudioAiPort(); }
   const blocked = busy || Boolean(view?.busy);
   const blockedReason = blocked ? 'Wait for the current save to finish.' : '';
@@ -101,7 +101,7 @@ export default function App() {
     try { setKnown(await listKnownProjects()); } catch (cause) { setError(`Could not list your projects: ${cause.message}`); }
   }
   const rootSource = () => modeRef.current === 'opfs' ? 'opfs' : 'folder';
-  // "Save as template" asks the App for a new root (D4): the picker opens in that dialog's submit.
+  // "Save as template" asks the App for a new root (spec A4): the picker opens in that dialog's submit.
   async function folderHost(root, meta) {
     const next = await createFolderHost({ root, meta, ai: studioAi(), createProjectRoot: ({ kind, name }) => folders.createRoot(kind, name), onProjectCreated: (created, target) => remember(created, target) });
     return watchAccess(next, meta.projectId, root);
@@ -124,8 +124,8 @@ export default function App() {
   async function enter(root, meta, source) {
     const entry = { projectId: meta.projectId, name: meta.name, kind: meta.kind, source, handle: root };
     if (source === 'folder') await rememberRecent({ projectId: entry.projectId, name: entry.name, kind: entry.kind, handle: root });
-    const next = await folderHost(root, meta);
     else rememberOpfsOpened(entry.projectId);
+    const next = await folderHost(root, meta);
     setProblems(items => without(items, entry.projectId));
     mount(next, entry); setCreating(null);
     await refreshKnown();
@@ -195,7 +195,7 @@ export default function App() {
   }
 
   // Creation from the dialog and the home prompt. Validation is synchronous; chooseRoot opens the picker before any
-  // await, and the brief's attachment files are read only afterwards (D8). A user template arrives already read (D2).
+  // await, and the brief's attachment files are read only afterwards (spec A8). A user template arrives already read (spec A2).
   function createProject({ kind = 'landing', mode: creation, name, prompt = '', source, attachmentFiles = [], useOnPage = false, generateImages }) {
     if (busyRef.current) return;
     if (!name && creation === 'ai') name = prompt.trim().split('\n')[0].replace(/[\x00-\x1f\x7f]/g, ' ').trim().slice(0, 80) || 'New AI project';
@@ -241,7 +241,7 @@ export default function App() {
     const picking = pickFolder();
     return perform(async () => { const handle = await picking; if (handle) await openRoot(handle); });
   }
-  // A library card: the permission prompt opens in this click (D8).
+  // A library card: the permission prompt opens in this click (spec A8).
   function openKnown(entry) {
     if (busyRef.current || !entry) return;
     const asking = requestAccess(entry.handle);
@@ -307,7 +307,7 @@ export default function App() {
     return perform(() => forget(entry));
   }
 
-  // D2: choosing a user template is its own click. Access is asked in it; the files and values are read into memory
+  // Spec A2: choosing a user template is its own click. Access is asked in it; the files and values are read into memory
   // (no history), so the Create click can open the picker for the new project.
   function loadTemplate(entry) {
     const asking = requestAccess(entry.handle);
@@ -325,7 +325,7 @@ export default function App() {
     return perform(async () => setCreating({ mode: 'template', source: await reading }));
   }
 
-  // D1 + D8: the archive is read first; its "Import {name}" dialog then picks the new root in its own click.
+  // Spec A1 + A8: the archive is read first; its "Import {name}" dialog then picks the new root in its own click.
   function importArchive(file) {
     if (!file) return;
     if (busyRef.current) { queuedImports.current.push(file); return; }
@@ -345,7 +345,7 @@ export default function App() {
       : { title: `Import ${name}`, message: `This ZIP holds plain files. Import them as a landing page or as a reusable template. ${where}`, actions: [{ id: 'template', label: 'Import as template', root: { kind: 'template', name } }, { id: 'landing', label: 'Import as landing', primary: true, root: { kind: 'landing', name } }] });
     if (!answer.rooting) return;
     return perform(async () => folders.withRoot(await answer.rooting, async root => {
-      // A projectId Studio already knows becomes a copy: new identity, remapped history (D1).
+      // A projectId Studio already knows becomes a copy: new identity, remapped history (spec A1).
       const identity = importIdentity(imported.metadata, (await listKnownProjects()).map(entry => entry.projectId));
       let conversations = imported.conversationFiles ? await conversationDocumentFromFiles(imported.conversationFiles, imported.metadata.projectId) : null;
       if (conversations) conversations = identity.copy ? remapConversation(conversations, identity.projectId) : interruptImportedRuns(conversations);
@@ -357,7 +357,7 @@ export default function App() {
     }));
   }
 
-  // D8: a source without granted access takes one click to grant it, then "Choose destination…" picks the copy's root.
+  // Spec A8: a source without granted access takes one click to grant it, then "Choose destination…" picks the copy's root.
   function duplicateProject(entry) {
     if (busyRef.current) return;
     const name = `${entry.name.slice(0, 108)} (copy)`;

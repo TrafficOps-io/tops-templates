@@ -9,7 +9,7 @@ const state = () => ({ name: 'Landing', revision: 3, files: { 'index.html': '<h1
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 async function until(predicate) { for (let count = 0; count < 200; count++) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 5)); } assert.fail('Timed out waiting for runtime state'); }
 function fixture(projectId = 'project', initial) {
-  let document = initial || { schema: 1, projectId, revision: 0, legacyMigrated: true, threads: [], runs: [] };
+  let document = initial || { schema: 1, projectId, revision: 0, threads: [], runs: [] };
   const subscribers = new Set(), connections = [], saved = [];
   const conversations = { projectId, load: async () => structuredClone(document), save: async (next, { expectedRevision }) => {
     if (expectedRevision !== document.revision) throw Object.assign(new Error('Concurrent write'), { code: 'conflict' });
@@ -310,7 +310,7 @@ test('a project message runs one workflow call without an intent routing call', 
 });
 
 test('the message budget reserves room for the assistant result before any provider call', async t => {
-  const initial = { schema: 1, projectId: 'message-budget', revision: 0, legacyMigrated: true, runs: [], threads: [{ id: 'thread', title: 'Long conversation', archived: false, messages: Array.from({ length: 499 }, (_, index) => ({ id: `message-${index}`, role: 'user', prompt: 'Previous message' })) }] };
+  const initial = { schema: 1, projectId: 'message-budget', revision: 0, runs: [], threads: [{ id: 'thread', title: 'Long conversation', archived: false, messages: Array.from({ length: 499 }, (_, index) => ({ id: `message-${index}`, role: 'user', prompt: 'Previous message' })) }] };
   const local = fixture('message-budget', initial), session = createConversationSession(local.host, { locks: null, sessionId: 'owner', workflows: basicWorkflows(async options => ({ files: options.files, values: options.values, valid: true })) }); t.after(() => session.dispose()); await session.ready;
   await assert.rejects(session.submit({ threadId: 'thread', prompt: 'One more change', snapshot: state() }), /message limit/);
   assert.equal(local.connections.length, 0); assert.equal(local.saved.length, 0);

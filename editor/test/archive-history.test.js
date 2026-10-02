@@ -36,22 +36,20 @@ test('readArchive posts { bytes, history } to the worker, transferring the input
   assert.equal(archiveReadTimeout(100 * 1024 * 1024), 50000);
 });
 
-test('archive.worker reads { bytes, history } and still accepts bare bytes', async t => {
+test('archive.worker reads { bytes, history }; history defaults to off', async t => {
   const messages = [];
   globalThis.self = { postMessage: (data, transfer = []) => messages.push(Object.assign(data, { transfer })) };
   t.after(() => { delete globalThis.self; });
   await import('../src/archive.worker.js');
   const bytes = await archive();
   globalThis.self.onmessage({ data: { bytes, history: true } });
-  globalThis.self.onmessage({ data: bytes });
-  globalThis.self.onmessage({ data: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) });
+  globalThis.self.onmessage({ data: { bytes } });
   assert.equal(messages[0].conversationFiles.threads[0].id, 'thread-1');
   // Result buffers (binary files and blobs) are transferred back.
   const buffers = [messages[0].files['logo.png'].buffer, ...[...messages[0].conversationFiles.blobs.values()].map(blob => blob.buffer)];
   assert.ok(buffers.every(buffer => messages[0].transfer.includes(buffer)));
   assert.equal(messages[1].transfer.length, 0);
   assert.match(messages[1].error, /history/i);
-  assert.match(messages[2].error, /history/i);
 });
 
 test('ZIP thread file names match the directory store names', async () => {

@@ -37,7 +37,7 @@ export function reconnectDecision(projectId, classification) {
   return { ok: true, meta: classification.meta };
 }
 
-/** D1: an imported archive keeps its projectId unless Studio already knows it; then the import becomes a copy under a
+/** Spec A1: an imported archive keeps its projectId unless Studio already knows it; then the import becomes a copy under a
  *  new id. An archive without metadata gets a new id and is not a copy. */
 export function importIdentity(metadata, knownIds, { newId = () => crypto.randomUUID() } = {}) {
   const known = knownIds instanceof Set ? knownIds : new Set(knownIds || []);
@@ -58,7 +58,7 @@ export async function duplicateDecision(known, handle, { access = queryAccess, r
   return meta?.projectId === known.projectId ? { action: 'make-independent', original: known } : { action: 'open' };
 }
 
-/** D8: each permission prompt or picker needs its own click. A source that is not granted takes one click to grant,
+/** Spec A8: each permission prompt or picker needs its own click. A source that is not granted takes one click to grant,
  *  then another to choose the destination; an OPFS destination needs no prompt. */
 export function duplicatePermissionPlan(sourceAccess, mode = 'folder') {
   const destination = mode === 'opfs' ? 'opfs' : 'pick-destination';
@@ -112,7 +112,7 @@ export function sameValues(left, right) {
   return JSON.stringify(canonical(left ?? {})) === JSON.stringify(canonical(right ?? {}));
 }
 
-/** Editor storage labels (D9). `summary` names the location only: the save status ("Saved to folder") is shown by
+/** Editor storage labels (spec A9). `summary` names the location only: the save status ("Saved to folder") is shown by
  *  the editor, so the location never repeats it. */
 export function storageLabels(source, folderName) {
   if (source === 'opfs') return { summary: 'In this browser', help: 'Stored in this browser — export a backup ZIP regularly. Clearing site data removes this project.' };
