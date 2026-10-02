@@ -14,6 +14,10 @@ test('classifyFolder: empty ignores system clutter, a project carries its meta, 
   assert.deepEqual(await classifyFolder(new MemoryDirectoryHandle('a', { notes: new MemoryDirectoryHandle('notes') })), { status: 'files' });
   // A sidecar without project.json (an interrupted create, values only) is not a project.
   assert.deepEqual(await classifyFolder(new MemoryDirectoryHandle('a', { '.trafficops': new MemoryDirectoryHandle('.trafficops', { 'values.json': '{}' }) })), { status: 'files' });
+  // A malformed project.json is still a project; callers decide what to do with it.
+  const broken = new MemoryDirectoryHandle('b', { '.trafficops': new MemoryDirectoryHandle('.trafficops', { 'project.json': '{ nope' }) });
+  const result = await classifyFolder(broken);
+  assert.equal(result.status, 'project'); assert.equal(result.meta, null); assert.match(result.error, /project.json is not valid JSON/);
   const project = new MemoryDirectoryHandle('p', { 'index.tpl': 'hello' });
   await createProjectMeta(project, { schema: 1, projectId: 'p-1', kind: 'template', name: 'Bakery' });
   assert.deepEqual(await classifyFolder(project), { status: 'project', meta: { schema: 1, projectId: 'p-1', kind: 'template', name: 'Bakery' } });
@@ -64,25 +68,27 @@ test('pickFolder opens the picker synchronously in readwrite mode; cancelling re
   await assert.rejects(pickFolder({ showDirectoryPicker: undefined }), /Chromium/);
 });
 
-test('OPFS roots live under projects/<projectId>; list, create and delete', async () => {
+test('OPFS roots live under projects/<folder>; list by folder name, create by projectId, delete by folder name', async () => {
   const storage = opfs();
   assert.deepEqual(await listOpfsRoots({ storage }), []);
   const one = await createOpfsRoot('project-1', { storage }), two = await createOpfsRoot('project-2', { storage });
   assert.equal(one, await createOpfsRoot('project-1', { storage }));
   assert.equal((await opfsProjectsRoot({ storage })).name, 'projects');
   await (await opfsProjectsRoot({ storage })).getFileHandle('stray.txt', { create: true });
-  assert.deepEqual((await listOpfsRoots({ storage })).map(entry => [entry.projectId, entry.handle]).sort(), [['project-1', one], ['project-2', two]]);
+  assert.deepEqual((await listOpfsRoots({ storage })).map(entry => [entry.name, entry.handle]).sort(), [['project-1', one], ['project-2', two]]);
   await deleteOpfsRoot('project-1', { storage });
   await deleteOpfsRoot('missing', { storage });
-  assert.deepEqual((await listOpfsRoots({ storage })).map(entry => entry.projectId), ['project-2']);
-  // Any other id gets a hashed, path-safe folder name.
+  assert.deepEqual((await listOpfsRoots({ storage })).map(entry => entry.name), ['project-2']);
+  // Any other id gets a hashed, path-safe folder name; deletion uses that name.
   const odd = await createOpfsRoot('../My project', { storage });
   assert.match(odd.name, /^~[a-f0-9]{64}$/);
   assert.equal(await createOpfsRoot('../My project', { storage }), odd);
-  assert.deepEqual((await listOpfsRoots({ storage })).map(entry => entry.projectId).sort(), [null, 'project-2'].sort());
-  await deleteOpfsRoot('../My project', { storage });
-  assert.deepEqual((await listOpfsRoots({ storage })).map(entry => entry.projectId), ['project-2']);
+  assert.deepEqual((await listOpfsRoots({ storage })).map(entry => entry.name).sort(), [odd.name, 'project-2'].sort());
+  await deleteOpfsRoot(odd.name, { storage });
+  assert.deepEqual((await listOpfsRoots({ storage })).map(entry => entry.name), ['project-2']);
   await assert.rejects(createOpfsRoot('', { storage }), /Invalid project ID/);
+  for (const name of ['', '.', '..', 'a/b', 'a\\b']) await assert.rejects(deleteOpfsRoot(name, { storage }), /Invalid browser storage folder/);
+  assert.deepEqual((await listOpfsRoots({ storage })).map(entry => entry.name), ['project-2']);
 });
 
 test('persistStorage asks once per storage and never throws', async () => {

@@ -3,7 +3,7 @@ import test from 'node:test';
 import { fromBase64, sha256Hex, toBase64 } from '@trafficops/template-editor-core';
 import { adoptFolder, copyProject, createProjectInRoot, interruptImportedRuns, listKnownProjects, makeIndependent, readProjectSnapshot, remapConversation } from '../src/storage/project-root.js';
 import { readProjectMeta, createProjectMeta } from '../src/storage/project-meta.js';
-import { classifyFolder, createOpfsRoot } from '../src/storage/roots.js';
+import { classifyFolder, createOpfsRoot, deleteOpfsRoot } from '../src/storage/roots.js';
 import { rememberRecent } from '../src/storage/recent.js';
 import { fileAt, listDirectory, readFile, readText } from '../src/storage/write.js';
 import { MemoryDirectoryHandle } from './support/fs-access.js';
@@ -64,10 +64,39 @@ test('createProjectInRoot rejects history of another project before writing anyt
   assert.deepEqual(await listDirectory(root, ''), []);
 });
 
+// Patches a directory of `root` when it is first opened, so the destination itself starts empty.
+function onDirectory(directory, [name, ...rest], patch) {
+  const get = directory.getDirectoryHandle.bind(directory);
+  let patched = false;
+  directory.getDirectoryHandle = async (child, options) => {
+    const handle = await get(child, options);
+    if (child === name && !patched) { patched = true; if (rest.length) onDirectory(handle, rest, patch); else patch(handle); }
+    return handle;
+  };
+  return directory;
+}
+
+test('createProjectInRoot validates the brief before writing anything', async () => {
+  const root = new MemoryDirectoryHandle('x');
+  await assert.rejects(create(root, { brief: { ...brief, attachments: [{ ...brief.attachments[0], dataUrl: 'data:image/png;base64,AAAA' }] } }), error => error?.code === 'validation');
+  await assert.rejects(create(root, { brief: { ...brief, prompt: 'x'.repeat(6001) } }), error => error?.code === 'validation');
+  assert.deepEqual(await listDirectory(root, ''), []);
+});
+
+test('createProjectInRoot needs an empty destination unless allowExistingFiles; a project is never overwritten', async () => {
+  const busy = new MemoryDirectoryHandle('busy', { 'notes.txt': 'mine', '.DS_Store': 'x' });
+  await assert.rejects(create(busy), conflict);
+  assert.deepEqual((await listDirectory(busy, '')).map(entry => entry.name).sort(), ['.DS_Store', 'notes.txt']);
+  const clutter = new MemoryDirectoryHandle('clutter', { '.DS_Store': 'x' });
+  assert.equal((await create(clutter)).projectId, 'p-1');
+  const allowed = new MemoryDirectoryHandle('allowed', { 'notes.txt': 'mine' });
+  await create(allowed, { allowExistingFiles: true });
+  assert.equal(await readText(allowed, 'notes.txt'), 'mine');
+  await assert.rejects(create(allowed, { allowExistingFiles: true }), conflict);
+});
+
 test('create order: a failed history write leaves no project.json', async () => {
-  const conversations = new MemoryDirectoryHandle('conversations');
-  conversations.getFileHandle = async () => { throw new Error('Disk disconnected'); };
-  const root = new MemoryDirectoryHandle('x', { '.trafficops': new MemoryDirectoryHandle('.trafficops', { conversations }) });
+  const root = onDirectory(new MemoryDirectoryHandle('x'), ['.trafficops', 'conversations'], conversations => { conversations.getFileHandle = async () => { throw new Error('Disk disconnected'); }; });
   await assert.rejects(create(root), /Disk disconnected/);
   assert.equal(await readText(root, 'index.tpl'), 'hello');
   assert.equal(await readText(root, '.trafficops/values.json'), JSON.stringify({ title: 'Hi' }, null, 2) + '\n');
@@ -76,9 +105,11 @@ test('create order: a failed history write leaves no project.json', async () => 
 });
 
 test('create order: a failure after the history write (the brief blobs) still leaves no project.json', async () => {
-  const sha = await sha256Hex(png), blobs = new MemoryDirectoryHandle('blobs'), getFileHandle = blobs.getFileHandle.bind(blobs);
-  blobs.getFileHandle = async (name, options) => { if (name === sha && options?.create) throw new Error('Quota hit'); return getFileHandle(name, options); };
-  const root = new MemoryDirectoryHandle('x', { '.trafficops': new MemoryDirectoryHandle('.trafficops', { conversations: new MemoryDirectoryHandle('conversations', { blobs }) }) });
+  const sha = await sha256Hex(png);
+  const root = onDirectory(new MemoryDirectoryHandle('x'), ['.trafficops', 'conversations', 'blobs'], blobs => {
+    const getFileHandle = blobs.getFileHandle.bind(blobs);
+    blobs.getFileHandle = async (name, options) => { if (name === sha && options?.create) throw new Error('Quota hit'); return getFileHandle(name, options); };
+  });
   await assert.rejects(create(root), /Quota hit/);
   assert.deepEqual(await threadFiles(root), ['thread-one.json', 'thread-two.json']);
   assert.equal(await fileAt(root, META), null);
@@ -108,10 +139,18 @@ test('listKnownProjects merges recent folders and OPFS roots, deduplicated by pr
   await createOpfsRoot('p-unfinished', { storage });
   const known = await listKnownProjects({ storage });
   assert.deepEqual(known, [
-    { projectId: 'p-b', name: 'OPFS B', kind: 'template', source: 'opfs', handle: opfsProject, lastOpenedAt: 500, access: 'granted' },
+    { projectId: 'p-b', name: 'OPFS B', kind: 'template', source: 'opfs', handle: opfsProject, folderName: 'p-b', lastOpenedAt: 500, access: 'granted' },
     { projectId: 'p-a', name: 'Folder A', kind: 'landing', source: 'folder', handle: folder, lastOpenedAt: 100, access: 'prompt' },
   ]);
   assert.deepEqual((await listKnownProjects({ storage: undefined })).map(entry => entry.projectId), ['p-a']);
+  // A rekeyed OPFS project keeps its folder: the entry names it, so it can still be deleted.
+  const moved = await createOpfsRoot('p-c', { storage });
+  await createProjectInRoot(moved, { projectId: 'p-c', name: 'Moved', files: { 'index.tpl': 'x' } });
+  const rekeyed = await makeIndependent(moved);
+  const entry = (await listKnownProjects({ storage })).find(item => item.projectId === rekeyed.projectId);
+  assert.equal(entry.folderName, 'p-c'); assert.equal(entry.handle, moved);
+  await deleteOpfsRoot(entry.folderName, { storage });
+  assert.equal((await listKnownProjects({ storage })).some(item => item.projectId === rekeyed.projectId), false);
 });
 
 test('remapConversation gives every internal id a new value, keeps references consistent and interrupts runs', () => {
@@ -143,7 +182,11 @@ test('interruptImportedRuns keeps ids and interrupts running and queued runs', (
 test('makeIndependent gives the folder a new projectId and remaps every thread and run id', async () => {
   const root = new MemoryDirectoryHandle('copy-of-bakery');
   await create(root);
-  const meta = await makeIndependent(root);
+  const names = [], locks = { request: (name, fn) => { names.push(name); return fn(); } };
+  const meta = await makeIndependent(root, { locks });
+  // The rewrite runs under the old id's conversation lock and the rekey under its meta lock, never the new id's.
+  assert.ok(names.includes('trafficops-conversations:p-1')); assert.ok(names.includes('trafficops-project-meta:p-1'));
+  assert.deepEqual(names.filter(name => !name.endsWith(':p-1')), []);
   assert.notEqual(meta.projectId, 'p-1');
   assert.equal(meta.name, 'Bakery');
   assert.equal(meta.pendingAi.id, 'brief-1');
@@ -186,4 +229,7 @@ test('copyProject copies files, values and remapped history to a new identity, w
   assert.deepEqual(await readProjectSnapshot(source), before);
   assert.equal((await copyProject(source, new MemoryDirectoryHandle('default-name'))).name, 'Bakery');
   await assert.rejects(copyProject(source, destination), conflict);
+  const occupied = new MemoryDirectoryHandle('occupied', { 'keep.txt': 'mine' });
+  await assert.rejects(copyProject(source, occupied), conflict);
+  assert.deepEqual((await listDirectory(occupied, '')).map(item => item.name), ['keep.txt']);
 });

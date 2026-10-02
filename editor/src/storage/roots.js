@@ -29,10 +29,12 @@ export function pickFolder(options = {}) {
   return Promise.resolve(chosen).catch(error => { if (error?.name === 'AbortError') return null; throw error; });
 }
 
-/** { status: 'empty' } (system clutter ignored), { status: 'project', meta } when .trafficops/project.json exists,
- *  else { status: 'files' }. */
+/** { status: 'empty' } (system clutter ignored), { status: 'project', meta } when .trafficops/project.json exists
+ *  ({ status: 'project', meta: null, error } when it is malformed), else { status: 'files' }. */
 export async function classifyFolder(handle) {
-  if (await fileAt(handle, '.trafficops/project.json')) return { status: 'project', meta: await readProjectMeta(handle) };
+  if (await fileAt(handle, '.trafficops/project.json')) {
+    try { return { status: 'project', meta: await readProjectMeta(handle) }; } catch (error) { return { status: 'project', meta: null, error: error?.message || String(error) }; }
+  }
   for await (const name of handle.keys()) if (!CLUTTER.has(name)) return { status: 'files' };
   return { status: 'empty' };
 }
@@ -80,15 +82,17 @@ export async function createOpfsRoot(projectId, options = {}) {
   return (await opfsProjectsRoot(options)).getDirectoryHandle(name, { create: true });
 }
 
-/** [{ projectId, handle }] for every folder under projects/; projectId is null for a hashed name (read project.json). */
+/** [{ name, handle }] for every folder under projects/. The folder name only matches the projectId the root was
+ *  created for: a rekeyed project keeps its folder, so read project.json for the id and delete by name. */
 export async function listOpfsRoots(options = {}) {
   const roots = [];
-  for await (const [name, handle] of (await opfsProjectsRoot(options)).entries()) if (handle.kind === 'directory') roots.push({ projectId: READABLE.test(name) ? name : null, handle });
+  for await (const [name, handle] of (await opfsProjectsRoot(options)).entries()) if (handle.kind === 'directory') roots.push({ name, handle });
   return roots;
 }
 
-export async function deleteOpfsRoot(projectId, options = {}) {
-  const name = await opfsName(projectId);
+/** Removes projects/<name> (a folder name from listOpfsRoots or a root's handle.name); missing is OK. */
+export async function deleteOpfsRoot(name, options = {}) {
+  if (typeof name !== 'string' || !name || name === '.' || name === '..' || /[\\/\x00-\x1f]/.test(name)) throw new ValidationError('Invalid browser storage folder.');
   try { await (await opfsProjectsRoot(options)).removeEntry(name, { recursive: true }); } catch (error) { if (!missing(error)) throw error; }
 }
 

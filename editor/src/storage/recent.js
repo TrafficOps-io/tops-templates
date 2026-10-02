@@ -54,7 +54,10 @@ export async function rememberRecent(entry) {
       const defined = Object.fromEntries(Object.entries(entry).filter(([, value]) => value !== undefined));
       let next;
       try { next = validEntry({ ...request.result, lastOpenedAt: Date.now(), ...defined }); } catch (error) { fail(error); return; }
-      store.put(next);
+      try { store.put(next); } catch (error) {
+        fail(error?.name === 'DataCloneError' ? new Error('Studio could not store this folder in its list of recent projects. Choose the folder again.', { cause: error }) : error);
+        return;
+      }
       done(next);
     };
   }, { required: true });

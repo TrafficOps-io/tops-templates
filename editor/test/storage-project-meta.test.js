@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fromBase64, sha256Hex, toBase64 } from '@trafficops/template-editor-core';
-import { claimPendingAi, createProjectMeta, preparePendingAi, readProjectMeta, readValues, rekeyProjectMeta, resolvePendingAi, storePendingAi, updateProjectMeta, writeValues } from '../src/storage/project-meta.js';
+import { claimPendingAi, createProjectMeta, encodePendingAi, preparePendingAi, readProjectMeta, readValues, rekeyProjectMeta, resolvePendingAi, storePendingAi, updateProjectMeta, writeValues } from '../src/storage/project-meta.js';
 import { createDirectoryConversationStore } from '../src/storage/directory-conversation-store.js';
 import { readFile, readJson, writeFile } from '../src/storage/write.js';
 import { MemoryDirectoryHandle } from './support/fs-access.js';
@@ -213,4 +213,14 @@ test('rekeyProjectMeta moves the folder to a new projectId, keeping the brief an
   await assert.rejects(updateProjectMeta(root, projectId, { name: 'Stale' }), conflict);
   assert.equal(await claimPendingAi(root, 'fresh-id', 'brief-1'), true);
   await assert.rejects(rekeyProjectMeta(root, 'fresh-id', ''), /project ID/);
+});
+
+test('encodePendingAi validates a brief and returns its refs and blob bytes without any I/O', async () => {
+  const { pendingAi, blobs } = await encodePendingAi(brief());
+  const sha = await sha256Hex(png);
+  assert.deepEqual(pendingAi.attachments[0].blob, { $trafficopsBlob: sha, encoding: 'bytes', size: png.byteLength });
+  assert.deepEqual(blobs, [[sha, png]]);
+  await assert.rejects(encodePendingAi(brief('brief-1', { prompt: 'x'.repeat(6001) })), validation);
+  await assert.rejects(encodePendingAi(brief('brief-1', { attachments: [{ id: 'bad id!', name: 'a', mime: 'image/png', dataUrl: pngUrl }] })), validation);
+  await assert.rejects(encodePendingAi(null), validation);
 });

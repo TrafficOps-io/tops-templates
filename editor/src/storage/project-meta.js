@@ -116,9 +116,9 @@ export async function rekeyProjectMeta(root, projectId, nextProjectId, { locks }
 }
 
 /** Validates a brief `{ id, prompt, mode, generateImages, attachments: [{ id, name, mime, dataUrl | text, useOnPage }] }`
- *  with the runtime's attachment rules and writes the attachment bytes to `.trafficops/conversations/blobs/`.
- *  Returns the `pendingAi` value (attachments as blob refs); project.json is not touched. */
-export async function preparePendingAi(root, projectId, brief, { locks } = {}) {
+ *  with the runtime's attachment rules, without any I/O. Returns `{ pendingAi, blobs }`: the stored shape (attachments
+ *  as blob refs) and the `[sha, bytes]` pairs to write with writePendingAiBlobs. */
+export async function encodePendingAi(brief) {
   const fields = briefFields(brief), attachments = [], blobs = [];
   for (const { text, dataUrl, ...attachment } of runtimeAttachments(brief.attachments)) {
     const encoding = text === undefined ? 'bytes' : 'utf8', bytes = text === undefined ? fromBase64(dataUrl.slice(dataUrl.indexOf(',') + 1)) : encoder.encode(text);
@@ -126,16 +126,29 @@ export async function preparePendingAi(root, projectId, brief, { locks } = {}) {
     blobs.push([sha, bytes]);
     attachments.push({ ...attachment, blob: { [BLOB_TAG]: sha, encoding, size: bytes.byteLength } });
   }
-  const store = createDirectoryConversationStore(root, { projectId, locks });
-  try { for (const [sha, bytes] of blobs) await store.putBlob(sha, bytes); } finally { store.close(); }
-  return { ...fields, attachments };
+  return { pendingAi: { ...fields, attachments }, blobs };
 }
 
-/** preparePendingAi, then the brief replaces any pending one in an existing project's project.json. */
+/** Writes encoded brief blobs to `.trafficops/conversations/blobs/`. */
+export async function writePendingAiBlobs(root, projectId, blobs, { locks } = {}) {
+  const store = createDirectoryConversationStore(root, { projectId, locks });
+  try { for (const [sha, bytes] of blobs) await store.putBlob(sha, bytes); } finally { store.close(); }
+}
+
+/** encodePendingAi, then its blobs are written. Returns the `pendingAi` value; project.json is not touched. */
+export async function preparePendingAi(root, projectId, brief, { locks } = {}) {
+  const { pendingAi, blobs } = await encodePendingAi(brief);
+  await writePendingAiBlobs(root, projectId, blobs, { locks });
+  return pendingAi;
+}
+
+/** The brief replaces any pending one in an existing project's project.json. */
 export async function storePendingAi(root, projectId, brief, { locks } = {}) {
-  // Ownership is checked before any blob is written; blobs are written outside the meta lock (locks never nest).
+  // The brief and ownership are checked before any blob is written; blobs are written outside the meta lock (locks
+  // never nest).
+  const { pendingAi, blobs } = await encodePendingAi(brief);
   await locked(projectId, () => ownMeta(root, projectId), locks);
-  const pendingAi = await preparePendingAi(root, projectId, brief, { locks });
+  await writePendingAiBlobs(root, projectId, blobs, { locks });
   return locked(projectId, async () => {
     const { pendingAi: _previous, pendingAiError: _dropped, ...current } = await ownMeta(root, projectId);
     const stored = { ...current, pendingAi };

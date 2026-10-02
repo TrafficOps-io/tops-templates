@@ -32,6 +32,9 @@ test('rememberRecent rejects entries that cannot be reopened', async t => {
   await assert.rejects(rememberRecent({ name: 'x', kind: 'landing', handle: new MemoryDirectoryHandle('x') }), /project ID/);
   await assert.rejects(rememberRecent({ projectId: 'p', name: 'x', kind: 'landing' }), /folder/);
   await assert.rejects(rememberRecent({ projectId: 'p', name: 'x', kind: 'other', handle: new MemoryDirectoryHandle('x') }), /kind/);
+  // A handle the browser cannot store fails with a clear message, not a raw DataCloneError.
+  const uncloneable = { kind: 'directory', name: 'x', isSameEntry() {} };
+  await assert.rejects(rememberRecent({ projectId: 'p', name: 'x', kind: 'landing', handle: uncloneable }), error => /could not store this folder/.test(error.message) && error.cause?.name === 'DataCloneError');
   assert.deepEqual(await listRecent(), []);
 });
 

@@ -1,10 +1,10 @@
 import { ConflictError, ValidationError, clonePortablePayload, createStoreConversationPort, validateConversationDocument, validatePortableMetadata } from '@trafficops/template-editor-core';
 import { createDirectoryConversationStore } from './directory-conversation-store.js';
 import { readProjectTree, syncProjectTree } from './files.js';
-import { createProjectMeta, preparePendingAi, readProjectMeta, readValues, rekeyProjectMeta, writeValues } from './project-meta.js';
+import { createProjectMeta, encodePendingAi, readProjectMeta, readValues, rekeyProjectMeta, writePendingAiBlobs, writeValues } from './project-meta.js';
 import { listRecent } from './recent.js';
-import { listOpfsRoots, queryAccess } from './roots.js';
-import { fileAt, lastModified } from './write.js';
+import { classifyFolder, listOpfsRoots, queryAccess } from './roots.js';
+import { lastModified } from './write.js';
 
 const META = '.trafficops/project.json';
 // Project content inside run snapshots: copied as is, never remapped.
@@ -13,8 +13,9 @@ const newUuid = () => crypto.randomUUID();
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 // One-shot access to a folder's history through the store port. No background GC: these operations end here.
-async function withHistory(root, projectId, operation) {
-  const store = createDirectoryConversationStore(root, { projectId });
+// `lockId` names the store's lock (and channel): the folder's current projectId while history is rewritten for a new one.
+async function withHistory(root, projectId, operation, { lockId = projectId, locks } = {}) {
+  const store = createDirectoryConversationStore(root, { projectId: lockId, locks });
   const { collectGarbage: _collect, ...oneShot } = store;
   try { return await operation(createStoreConversationPort(oneShot, { projectId })); } finally { store.close(); }
 }
@@ -63,12 +64,17 @@ export function interruptImportedRuns(document) {
 }
 
 /** Writes a new project into `root`: files → values → history → brief blobs → project.json LAST, so an interrupted
- *  create never leaves a folder that claims to be a complete project. `conversations` is a joined document of this
- *  projectId; `brief` is a pending AI brief (see preparePendingAi). Returns the stored meta. */
-export async function createProjectInRoot(root, { projectId = newUuid(), kind = 'landing', name, files = {}, folders = [], values, brief, sourceTemplateId, conversations, now = Date.now } = {}) {
+ *  create never leaves a folder that claims to be a complete project. Everything is validated before the first write.
+ *  The destination must be empty (system clutter aside) unless `allowExistingFiles`; a project is never overwritten.
+ *  `conversations` is a joined document of this projectId; `brief` is a pending AI brief (see encodePendingAi).
+ *  Returns the stored meta. */
+export async function createProjectInRoot(root, { projectId = newUuid(), kind = 'landing', name, files = {}, folders = [], values, brief, sourceTemplateId, conversations, allowExistingFiles = false, now = Date.now } = {}) {
   const meta = validatePortableMetadata({ schema: 1, projectId, kind, name, metadataRevision: 0, createdAt: now(), ...(sourceTemplateId === undefined ? {} : { sourceTemplateId }) });
   const history = conversations ? validateConversationDocument(conversations, projectId) : null;
-  if (await fileAt(root, META)) throw new ConflictError('The folder already holds a Studio project.');
+  const encoded = brief ? await encodePendingAi(brief) : null;
+  const { status } = await classifyFolder(root);
+  if (status === 'project') throw new ConflictError('The folder already holds a Studio project.');
+  if (status === 'files' && !allowExistingFiles) throw new ConflictError('Choose an empty folder for the new project.');
   await syncProjectTree(root, { files: {}, folders: [] }, { files, folders });
   if (plain(values) && Object.keys(values).length) await writeValues(root, values);
   if (history?.threads.length) {
@@ -76,8 +82,8 @@ export async function createProjectInRoot(root, { projectId = newUuid(), kind = 
     const fresh = { ...history, threads: history.threads.map(({ revision: _revision, ...thread }) => thread) };
     await withHistory(root, projectId, async port => port.save(fresh, { expectedRevision: (await port.load()).revision }));
   }
-  const pendingAi = brief ? await preparePendingAi(root, projectId, brief) : undefined;
-  return createProjectMeta(root, meta, { pendingAi });
+  if (encoded) await writePendingAiBlobs(root, projectId, encoded.blobs);
+  return createProjectMeta(root, meta, { pendingAi: encoded?.pendingAi });
 }
 
 /** Gives an existing folder of files a Studio identity. Its tree must be readable as a project. */
@@ -87,19 +93,19 @@ export async function adoptFolder(root, { name = root.name, kind = 'landing', no
 }
 
 /** Recent folders and OPFS projects: [{ projectId, name, kind, source: 'folder' | 'opfs', handle, lastOpenedAt, access }],
- *  newest first. A projectId known from both is listed once, as its recent folder. An OPFS project's lastOpenedAt is
- *  its project.json modification time; OPFS folders without readable metadata (an interrupted create) are skipped. */
+ *  newest first; OPFS entries add `folderName` (for deleteOpfsRoot: a rekeyed project keeps its folder). A projectId
+ *  known from both is listed once, as its recent folder. An OPFS project's lastOpenedAt is its project.json
+ *  modification time; OPFS folders without readable metadata (an interrupted create) are skipped. */
 export async function listKnownProjects(options = {}) {
   const known = new Map();
   for (const { projectId, name, kind, handle, lastOpenedAt } of await listRecent()) known.set(projectId, { projectId, name, kind, source: 'folder', handle, lastOpenedAt, access: await queryAccess(handle) });
   let roots = [];
   try { roots = await listOpfsRoots(options); } catch { /* No browser file storage: recent folders only. */ }
-  for (const { projectId: folderId, handle } of roots) {
-    if (folderId !== null && known.has(folderId)) continue;
+  for (const { name: folderName, handle } of roots) {
     let meta;
     try { meta = await readProjectMeta(handle); } catch { continue; }
     if (!meta || known.has(meta.projectId)) continue;
-    known.set(meta.projectId, { projectId: meta.projectId, name: meta.name, kind: meta.kind, source: 'opfs', handle, lastOpenedAt: await lastModified(handle, META) ?? 0, access: await queryAccess(handle) });
+    known.set(meta.projectId, { projectId: meta.projectId, name: meta.name, kind: meta.kind, source: 'opfs', handle, folderName, lastOpenedAt: await lastModified(handle, META) ?? 0, access: await queryAccess(handle) });
   }
   return [...known.values()].sort((left, right) => right.lastOpenedAt - left.lastOpenedAt);
 }
@@ -114,16 +120,21 @@ export async function readProjectSnapshot(root) {
 }
 
 /** A folder copied outside Studio shares its source's projectId. This gives it its own: the history is rewritten under
- *  new ids (new dialogue files first, then the old ones are deleted), then project.json is rekeyed. */
-export async function makeIndependent(root) {
-  const meta = await ownedMeta(root), projectId = newUuid();
-  const remapped = remapConversation(await withHistory(root, meta.projectId, port => port.load()), projectId);
-  // The new id's port sees the old dialogues as its base: one save writes the remapped ones and deletes the old ones.
-  await withHistory(root, projectId, async port => port.save(remapped, { expectedRevision: (await port.load()).revision }));
-  return rekeyProjectMeta(root, meta.projectId, projectId);
+ *  new ids (new dialogue files first, then the old ones are deleted), then project.json is rekeyed. Every history write
+ *  takes the OLD id's conversation lock, so it serializes with any window still writing under that id, and the rekey
+ *  takes the old id's meta lock; the locks are taken one after another, never nested. A damaged dialogue file is left
+ *  in place. */
+export async function makeIndependent(root, { locks } = {}) {
+  const meta = await ownedMeta(root), projectId = newUuid(), current = { lockId: meta.projectId, locks };
+  const remapped = remapConversation(await withHistory(root, meta.projectId, port => port.load(), current), projectId);
+  // A new-id port over the folder sees the old dialogues as its base: one save writes the remapped ones, then deletes
+  // the old ones (each a CAS on its revision).
+  await withHistory(root, projectId, async port => port.save(remapped, { expectedRevision: (await port.load()).revision }), current);
+  return rekeyProjectMeta(root, meta.projectId, projectId, { locks });
 }
 
-/** Copies a project into an empty destination under a new identity, with remapped history and without the brief. */
+/** Copies a project into an empty destination under a new identity, with remapped history and without the brief.
+ *  A destination holding anything but system clutter is rejected before anything is written. */
 export async function copyProject(sourceRoot, destinationRoot, { name } = {}) {
   const { meta, files, folders, values, conversations } = await readProjectSnapshot(sourceRoot), projectId = newUuid();
   return createProjectInRoot(destinationRoot, { projectId, kind: meta.kind, name: name ?? meta.name, files, folders, values, sourceTemplateId: meta.sourceTemplateId, conversations: remapConversation(conversations, projectId) });
