@@ -164,7 +164,6 @@ test('streamed text survives a new snapshot and is not duplicated once the snaps
   // the port switched to snapshots for this message: its text wins
   const final = snapshot.with(1, { ...snapshot[1], parts: [{ type: 'text', text: 'Final' }] });
   assert.deepEqual(mergeStreamedText(final, streamed)[1].parts, [{ type: 'text', text: 'Final' }]);
-  assert.equal(addStreamedText(streamed, snapshot, { type: 'text-delta', messageId: 'missing', delta: 'x' }), streamed);
 });
 
 test('FakeChatPort: every events() call is an independent subscription and return() releases a pending next()', async () => {
@@ -182,4 +181,21 @@ test('FakeChatPort: every events() call is an independent subscription and retur
   port.emitText('a');
   assert.deepEqual((await first.next()).value, { type: 'text-delta', messageId: port.messages(thread.id).get()[1].id, delta: 'a' });
   assert.equal(port.messages(thread.id).get()[1].parts.length, 0, 'emitText does not touch messages()');
+});
+
+test('deltas for a message missing from the snapshot are buffered until it appears, with a bound', () => {
+  let streamed = {};
+  streamed = addStreamedText(streamed, [], { type: 'text-delta', messageId: 'm2', delta: 'Hel' });
+  streamed = addStreamedText(streamed, [], { type: 'text-delta', messageId: 'm2', delta: 'lo' });
+  assert.deepEqual(mergeStreamedText([], streamed), [], 'nothing to show before the message exists');
+  assert.deepEqual(mergeStreamedText(base(), streamed)[1].parts, [{ type: 'text', text: 'Hello' }], 'shown once the snapshot has the message');
+  // once the message is known, later deltas extend the same segment
+  streamed = addStreamedText(streamed, base(), { type: 'text-delta', messageId: 'm2', delta: '!' });
+  assert.deepEqual(mergeStreamedText(base(), streamed)[1].parts, [{ type: 'text', text: 'Hello!' }]);
+  // bound: at most 8 unknown messages are buffered, the oldest is dropped
+  let many = {};
+  for (let index = 0; index < 10; index++) many = addStreamedText(many, [], { type: 'text-delta', messageId: `x${index}`, delta: 'a' });
+  assert.deepEqual(Object.keys(many), ['x2', 'x3', 'x4', 'x5', 'x6', 'x7', 'x8', 'x9']);
+  assert.equal(addStreamedText(many, [], { type: 'text-delta', messageId: 'x9', delta: 'b'.repeat(64 * 1024) }), many, 'oversized buffer is refused');
+  assert.equal(addStreamedText(many, [], { type: 'text-delta', delta: 'a' }), many, 'no messageId');
 });

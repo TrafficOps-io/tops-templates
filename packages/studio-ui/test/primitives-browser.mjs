@@ -101,6 +101,10 @@ try {
   assert.equal(await busy.getAttribute('aria-busy'), 'true');
 
   // MentionChip remove
+  for (const [selector, name] of [['.studio-chip-mention .studio-chip-main', 'chip'], ['.studio-chip-mention .studio-chip-remove', 'chip remove']]) {
+    const box = await page.locator(selector).boundingBox();
+    assert.ok(box.width >= 32 && box.height >= 32, `${name} hit target ${Math.round(box.width)}×${Math.round(box.height)} ≥ 32 px`);
+  }
   await page.getByRole('button', { name: 'Remove Hero' }).click();
   assert.equal(await page.locator('.studio-chip-mention').count(), 0, 'chip removed');
 

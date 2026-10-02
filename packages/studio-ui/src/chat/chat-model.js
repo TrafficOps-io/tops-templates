@@ -69,10 +69,23 @@ export function applyChatEvent(messages, event) {
 // Streamed text (text-delta) lives beside the port's snapshots: a port that streams deltas does not put that text into
 // messages() (contract rule), so a new snapshot must not wipe it. streamed: { [messageId]: { at, text }[] } — segments,
 // at = number of snapshot parts when the segment started (a delta after a new card starts a new segment).
+// A delta for a message the snapshot does not have yet (the event outran the snapshot) is buffered at position 0 and
+// shown once the message appears; at most MAX_PENDING such messages and MAX_PENDING_TEXT characters each are kept.
+const MAX_PENDING = 8, MAX_PENDING_TEXT = 64 * 1024;
 export function addStreamedText(streamed, messages, event) {
+  if (!event.messageId || !event.delta) return streamed;
   const message = messages.find(item => item.id === event.messageId);
-  if (!message || !event.delta) return streamed;
-  const at = message.parts.length, segments = streamed[message.id] ?? [], last = segments.at(-1);
+  const segments = streamed[event.messageId] ?? [], last = segments.at(-1);
+  if (!message) {
+    const text = (last?.text ?? '') + event.delta;
+    if (text.length > MAX_PENDING_TEXT) return streamed;
+    const known = new Set(messages.map(item => item.id));
+    const pending = Object.keys(streamed).filter(id => !known.has(id) && id !== event.messageId);
+    const kept = { ...streamed };
+    for (const id of pending.slice(0, Math.max(0, pending.length - MAX_PENDING + 1))) delete kept[id];
+    return { ...kept, [event.messageId]: [{ at: 0, text }] };
+  }
+  const at = message.parts.length;
   const next = last && last.at === at ? segments.with(-1, { at, text: last.text + event.delta }) : [...segments, { at, text: event.delta }];
   return { ...streamed, [message.id]: next };
 }

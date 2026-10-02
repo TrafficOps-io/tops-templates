@@ -90,6 +90,8 @@ try {
   assert.equal(await listbox.getByRole('option').nth(1).getAttribute('aria-selected'), 'true');
   await page.keyboard.press('Enter');
   await composer.locator('.studio-chip-mention', { hasText: 'Scene 2' }).waitFor();
+  await assertTarget(composer.locator('.studio-chip-mention', { hasText: 'Scene 2' }).locator('.studio-chip-main'), 'mention chip');
+  await assertTarget(composer.getByRole('button', { name: 'Remove Scene 2' }), 'mention chip remove');
   assert.equal(await page.getByRole('listbox').count(), 0, 'Enter picks the option and closes the menu');
   assert.equal((await input.inputValue()).includes('@scene'), false, 'the @query is removed from the text');
   await page.keyboard.type(' @');
@@ -122,6 +124,7 @@ try {
   assert.deepEqual(sent[2].mentions.map(target => target.id), ['scene:s2'], 'the mention travels with the message');
   await feed.locator('[data-run-status="running"]').waitFor();
   await assertTarget(feed.getByRole('button', { name: 'Stop' }), 'run stop');
+  await assertTarget(feed.locator('[data-role="user"] .studio-chip-main').first(), 'mention chip in a user message');
   assert.equal(await feed.locator('.studio-chat-run-status[data-status="running"]').count(), 1, 'run status carries data-status');
   assert.equal(await input.inputValue(), '', 'the composer is cleared after send');
   assert.equal(await composer.locator('.studio-chip-mention').count(), 0, 'mentions are cleared after send');
