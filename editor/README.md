@@ -123,9 +123,7 @@ History saves use their own IndexedDB revision and folder mirror. Folder errors 
 
 ## OpenRouter BYOK
 
-The mode descriptions below also document the legacy embedded assistant. Installed Studio exposes them through the unified conversation composer and scoped actions.
-
-In the installed PWA, open **AI assistant → AI connection settings**, enter an OpenRouter API key, and choose a text model with tool calling. `openrouter/auto` is the text default. Set a separate image model ID from the OpenRouter catalog to enable image generation. The connection is stored in a separate IndexedDB database, outside project folders, recovery snapshots and exports. **Remove key** deletes the connection. Ordinary Studio browser tabs expose neither AI settings nor AI operations, including when a connection or an AI creation brief was saved previously.
+In the installed PWA, open **Conversations → AI settings** (the conversation header menu), enter an OpenRouter API key, and choose a text model with tool calling. `openrouter/auto` is the text default. Set a separate image model ID from the OpenRouter catalog to enable image generation. The connection is stored in a separate IndexedDB database, outside project folders, recovery snapshots and exports. **Remove key** deletes the connection. Ordinary Studio browser tabs expose neither AI settings nor AI operations, including when a connection or an AI creation brief was saved previously.
 
 **New project → With AI** saves a separate project and its brief (up to 6,000 characters), then starts generation if a connection is already configured. The initial request is claimed once before calling the provider. Reloading keeps the brief for a manual retry and never automatically repeats a paid run. Without a configured key, connect in the editor and start the request manually.
 
@@ -238,17 +236,19 @@ PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/conversations-br
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/conversation-ui-browser.mjs editor/dist
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/home-chat-browser.mjs editor/dist
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/project-folder-browser.mjs editor/dist
-node editor/test/support/build-legacy-studio.mjs /tmp/studio-legacy-conversations
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/file-ai-browser.mjs editor/dist
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/block-ai-browser.mjs editor/dist
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node packages/studio-ui/test/primitives-browser.mjs .
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/preview-block-selection-browser.mjs
-PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/fill-content-browser.mjs /tmp/studio-legacy-conversations
-PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/optiheart-ai-browser.mjs /tmp/studio-legacy-conversations
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/fill-content-browser.mjs editor/dist
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/optiheart-ai-browser.mjs editor/dist
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/recovery-browser.mjs editor/dist
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/studio-browser.mjs editor/dist
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/pwa-access-browser.mjs editor/dist
-PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/agent-browser.mjs /tmp/studio-legacy-conversations
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/agent-browser.mjs editor/dist
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/ai-panel-ui-browser.mjs editor/dist
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/retained-draft-settings-browser.mjs
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/durable-ai-recovery-browser.mjs
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/autosave-browser.mjs
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/interactive-preview-browser.mjs
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/interactive-preview-security-browser.mjs
