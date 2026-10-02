@@ -180,6 +180,30 @@ test('a dialogue never seen whose read fails once appears on the next watch even
   assert.equal(seen.at(-1).storageWarning, undefined);
 });
 
+test('a persisted overflow past 100 dialogues still lets existing dialogues change; only adding one is rejected', async () => {
+  const store = createMemoryConversationStore(), a = port(store), b = port(store);
+  const seed = addThread(await a.load(), 'live');
+  for (let index = 1; index < 99; index++) seed.threads.push({ id: `t${index}`, title: `t${index}`, archived: false, messages: [] });
+  await a.save(seed, { expectedRevision: seed.revision });
+  // Two stale windows each add one dialogue: each save alone stays within 100, together they persist 101.
+  const fromA = await a.load(), fromB = await b.load();
+  fromB.threads.push({ id: 'from-b', title: 'from-b', archived: false, messages: [] });
+  await b.save(fromB, { expectedRevision: fromB.revision });
+  fromA.threads.push({ id: 'from-a', title: 'from-a', archived: false, messages: [] });
+  await a.save(fromA, { expectedRevision: fromA.revision });
+  assert.equal((await store.listThreads()).length, 101);
+  const loaded = await a.load();
+  assert.equal(loaded.threads.length, 101); assert.match(loaded.storageWarning, /more than 100 dialogues; delete some to start new ones/);
+  const beat = structuredClone(loaded); beat.runs[0].owner.expiresAt = 42;
+  const saved = await a.save(beat, { expectedRevision: loaded.revision });
+  assert.equal(saved.runs[0].owner.expiresAt, 42); assert.match(saved.storageWarning, /more than 100 dialogues/);
+  const more = structuredClone(saved); more.threads.push({ id: 'one-more', title: 'one-more', archived: false, messages: [] });
+  await assert.rejects(a.save(more, { expectedRevision: saved.revision }), /at most 100 dialogues/);
+  assert.equal((await store.listThreads()).length, 101);
+  const fewer = await a.save({ ...saved, threads: saved.threads.filter(thread => thread.id !== 't1') }, { expectedRevision: saved.revision });
+  assert.equal(fewer.threads.length, 100); assert.equal(fewer.storageWarning, undefined);
+});
+
 test('a partial commit followed by an I/O error is published by the next refresh', async () => {
   const inner = createMemoryConversationStore(); let fail = false;
   const store = { ...inner, async writeThread(thread, options) { if (fail && thread.id === 't2') throw new Error('disk full'); return inner.writeThread(thread, options); } };

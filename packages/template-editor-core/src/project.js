@@ -53,13 +53,14 @@ export function clonePortablePayload(value) {
   return result;
 }
 
-export function validateConversationDocument(value, expectedProjectId) {
+/** maxThreads is internal: the conversation port accepts a persisted overflow and enforces the cap on added dialogues. */
+export function validateConversationDocument(value, expectedProjectId, { maxThreads = CONVERSATION_LIMITS.threads } = {}) {
   const document = clonePortablePayload(value);
   if (!document || Array.isArray(document) || document.schema !== 1) throw new Error('Unsupported project history schema.');
   identifier(document.projectId, 'history project ID');
   if (expectedProjectId && document.projectId !== expectedProjectId) throw new Error('History belongs to a different project.');
   if (!Number.isSafeInteger(document.revision) || document.revision < 0) throw new Error('Invalid history revision.');
-  for (const [key, limit] of [['threads', CONVERSATION_LIMITS.threads], ['runs', CONVERSATION_LIMITS.threads * CONVERSATION_LIMITS.runs]]) {
+  for (const [key, limit] of [['threads', maxThreads], ['runs', maxThreads * CONVERSATION_LIMITS.runs]]) {
     if (!Array.isArray(document[key]) || document[key].length > limit) throw new Error(`Project history supports at most ${limit} ${key}.`);
     const ids = new Set();
     for (const entry of document[key]) {

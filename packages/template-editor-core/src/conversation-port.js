@@ -2,7 +2,7 @@ import { ConflictError } from './errors.js';
 import { CONVERSATION_LIMITS, validateConversationDocument } from './project.js';
 import { blobReferences, createSplitCache, documentOf, joinThread, seedSplitCache, sha256Hex, splitThread, threadHash, threadsOf, validateThreadFile } from './conversation-format.js';
 
-const BASES = 16, GC_INTERVAL_MS = 5 * 60 * 1000;
+const BASES = 16, GC_INTERVAL_MS = 5 * 60 * 1000, MAX_THREADS = CONVERSATION_LIMITS.threads;
 const fileId = file => typeof file?.id === 'string' ? file.id : null;
 const signatureOf = entries => entries.map(([id, revision]) => JSON.stringify([id, revision ?? null])).sort().join('\n');
 
@@ -21,7 +21,9 @@ export function createStoreConversationPort(store, { projectId, hashBlob = sha25
   const listeners = new Set(), bases = new Map();
   const report = error => { try { onError(error); } catch { /* Reporting cannot fail an operation. */ } };
   const serial = operation => { const task = queue.catch(() => {}).then(operation); queue = task; return task; };
-  const keyOf = () => JSON.stringify([[...current].map(([id, entry]) => [id, entry.revision]).sort(), warning ?? null]);
+  // Concurrent adds from stale windows can persist more than the cap; such a project stays usable and says so.
+  const warningOf = () => [warning, ...(current.size > MAX_THREADS ? [`This project has more than ${MAX_THREADS} dialogues; delete some to start new ones.`] : [])].filter(Boolean).join(' ') || undefined;
+  const keyOf = () => JSON.stringify([[...current].map(([id, entry]) => [id, entry.revision]).sort(), warningOf() ?? null]);
   const notify = document => {
     if (!listeners.size) return;
     const copy = structuredClone(document);
@@ -29,7 +31,8 @@ export function createStoreConversationPort(store, { projectId, hashBlob = sha25
   };
 
   function publish() {
-    const document = { ...documentOf(projectId, [...current.values()].map(entry => entry.joined), ++counter), ...(warning ? { storageWarning: warning } : {}) };
+    const storageWarning = warningOf();
+    const document = { ...documentOf(projectId, [...current.values()].map(entry => entry.joined), ++counter), ...(storageWarning ? { storageWarning } : {}) };
     bases.set(counter, new Map([...current].map(([id, { revision, hash }]) => [id, { revision, hash }])));
     for (const old of bases.keys()) { if (bases.size <= BASES) break; bases.delete(old); }
     publishedKey = keyOf();
@@ -104,8 +107,8 @@ export function createStoreConversationPort(store, { projectId, hashBlob = sha25
     return serial(async () => {
       const base = bases.get(expectedRevision);
       if (!base) throw new ConflictError('Conversation history changed too often since this copy was taken. Reload the dialogue before saving.');
-      const threads = threadsOf(validateConversationDocument(document, projectId));
-      if (threads.length > CONVERSATION_LIMITS.threads) throw new Error(`Project history supports at most ${CONVERSATION_LIMITS.threads} dialogues.`);
+      // The dialogue cap applies to dialogues this save adds, so a persisted overflow never blocks changes to existing ones.
+      const threads = threadsOf(validateConversationDocument(document, projectId, { maxThreads: Infinity }));
       const nextCache = createSplitCache(), changes = [], incoming = new Set(threads.map(thread => thread.id));
       const persisted = new Set([...current.values()].flatMap(entry => [...entry.refs]));
       // Split and validate every changed thread before any I/O, so an over-limit save writes nothing.
@@ -115,6 +118,11 @@ export function createStoreConversationPort(store, { projectId, hashBlob = sha25
         if (was && was.hash === hash && was.revision === expected) continue;
         validateThreadFile(parts.thread);
         changes.push({ thread, parts, hash, expected });
+      }
+      if (threads.some(thread => !base.has(thread.id) && !current.has(thread.id))) {
+        const changed = new Set(changes.map(change => change.thread.id));
+        const count = threads.filter(thread => changed.has(thread.id) || current.has(thread.id)).length + [...current.keys()].filter(id => !incoming.has(id) && !base.has(id)).length;
+        if (count > MAX_THREADS) throw new Error(`Project history supports at most ${MAX_THREADS} dialogues. Delete some to start new ones.`);
       }
       // Only dialogues in the copy's base can be deleted by absence; one created elsewhere since is never touched.
       const removed = [...base].filter(([id]) => !incoming.has(id));
