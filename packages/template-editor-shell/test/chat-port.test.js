@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { File } from 'node:buffer';
-import { createChatPort, keptDraft, markUseOnPage, sectionSource, toMentionTarget } from '../src/chat-port.js';
+import { createChatPort, keptDraft, launchBlockScope, markUseOnPage, sectionSource, toMentionTarget } from '../src/chat-port.js';
 
 function fakeSession() {
   let doc = { projectId: 'p', revision: 0, threads: [], runs: [] }; const listeners = new Set(), calls = [];
@@ -246,4 +246,25 @@ test('the use-on-page switch marks image attachments only', async () => {
   const png = new File([Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jp1sAAAAASUVORK5CYII=', 'base64'))], 'person.png', { type: 'image/png' });
   await port.send(id, input({ attachments: [png] }));
   assert.equal(session.calls[0][1].attachments[0].useOnPage, true);
+});
+
+test('onSent runs after a successful send only (the use-on-page switch resets), not after a rejected one', async () => {
+  let sent = 0;
+  const session = fakeSession(), { port } = createChatPort(session, () => ({ ...context(), useOnPage: true, onSent: () => { sent++; } })), { id } = await port.createThread();
+  await port.send(id, input()); assert.equal(sent, 1);
+  session.submit = async () => { throw new Error('Runtime refused'); };
+  await assert.rejects(port.send(id, input()), /Runtime refused/); assert.equal(sent, 1, 'a rejected send keeps the switch');
+  const unconfigured = createChatPort(fakeSession(), () => ({ ...context(), settings: { configured: false }, onSent: () => { sent++; } })).port;
+  await assert.rejects(unconfigured.send('t', input())); assert.equal(sent, 1);
+});
+
+test('the Selected blocks panel before the first send follows the composer scope of the launch', () => {
+  const editScope = { targets: ['hero'] }, launch = { id: 'L1', scope: { kind: 'block', targetId: 'k1' }, editScope };
+  assert.equal(launchBlockScope(launch, null), editScope, 'before the first onScopeChange the launch scope applies');
+  assert.equal(launchBlockScope(launch, { launchId: 'L1', scope: { kind: 'block', targetId: 'k1' } }), editScope);
+  assert.equal(launchBlockScope(launch, { launchId: 'L1', scope: { kind: 'project' } }), null, 'removing the Block chip hides the panel');
+  assert.equal(launchBlockScope(launch, { launchId: 'L1', scope: { kind: 'block', targetId: 'other' } }), null, 'another block selection is not this panel');
+  assert.equal(launchBlockScope(launch, { launchId: 'L0', scope: { kind: 'project' } }), editScope, 'a scope of an older launch does not hide a new one');
+  assert.equal(launchBlockScope({ id: 'L2', scope: { kind: 'file', targetId: 'index.tpl' } }, null), null);
+  assert.equal(launchBlockScope(null, { launchId: undefined, scope: { kind: 'block', targetId: 'k1' } }), null);
 });

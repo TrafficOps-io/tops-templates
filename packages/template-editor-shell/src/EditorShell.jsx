@@ -15,7 +15,7 @@ import AiSettings from './AiSettings.jsx';
 import { Button, ConfirmDialog, InlineNotice, Skeleton } from '@trafficops/studio-ui/primitives';
 import { StudioUiProvider, useStudioUi } from '@trafficops/studio-ui/i18n';
 import { useChatPort } from './useChatPort.js';
-import { keptDraft } from './chat-port.js';
+import { keptDraft, launchBlockScope } from './chat-port.js';
 import { getConversationSession } from './conversation-runtime.js';
 import Menu from './Menu.jsx';
 import { fileAiSupport } from './file-ai-workflow.js';
@@ -307,7 +307,7 @@ function Shell({ host, onSnapshot, onNewProject, onImportProject, newProjectCrea
           {tab === 'files' && (typeof files[active] === 'string' && (!/\.svg$/i.test(active) || imageSource) ? <Suspense fallback={<div className="source-loading" role="status" aria-label={t('Opening editor…')}><LoaderCircle className="spin" size={24} aria-hidden="true" /></div>}><CodeEditor key={active} dialect={host.dialect} path={active} value={files[active]} files={files} onChange={value => mutate(previous => ({ files: { ...previous.files, [active]: value } }))} reveal={reveal?.path === active ? reveal : null} onOpenFile={openFile} onError={editor.setError} onEditWithAi={openFileAi} aiEditDisabled={!fileAiAvailability.supported} aiEditReason={fileAiAvailability.reason} readOnly={locked} /></Suspense> : <AssetPreview key={active} path={active} value={files[active]} onEditSource={typeof files[active] === 'string' ? () => setImageSource(true) : undefined} onEditWithAi={openFileAi} aiEditDisabled={locked || !fileAiAvailability.supported} aiEditReason={fileAiAvailability.reason} />)}
           {aiEnabled && <><div hidden={tab !== 'ai' || aiView !== 'assistant'} className="conversations-active">{host.conversations
             ? <ShellChat host={context} chatRef={chat} mounted={aiOpened} threadId={chatThreadId} onThreadChange={setChatThreadId} launch={chatLaunch} onLaunch={setChatLaunch} selectionStale={selectionStale} useOnPage={useOnPage} onUseOnPageChange={setUseOnPage} disabled={externalBusy || busy} onBlockSelectionBusyChange={setBlockSelectionBusy} previewRunId={editor.conversationDraft?.runId}
-              chatContext={{ state, locale, sectionFrame: selectionStale || editor.conversationDraft ? null : selectionFrame, t, language: host.language, previewRunId: editor.conversationDraft?.runId, useOnPage,
+              chatContext={{ state, locale, sectionFrame: selectionStale || editor.conversationDraft ? null : selectionFrame, t, language: host.language, previewRunId: editor.conversationDraft?.runId, useOnPage, onSent: () => setUseOnPage(false),
                 onApplyRun: editor.applyConversationDraft, onPreviewDraft: editor.previewConversationDraft, onKeepDraft: keepDraftInEditor, onOpenFile: openFile,
                 onOpenSection: target => { setTab('content'); if (target.kind === 'field') setSection(target.id.replace(/^field:/, '').split('.')[0]); } }}
               onSettings={openSettings} onCreateProject={text => { createPrompt.current = text; setDialog({ kind: 'ai-create' }); }} />
@@ -333,7 +333,7 @@ function Shell({ host, onSnapshot, onNewProject, onImportProject, newProjectCrea
 // Чат вкладки AI: порт над сессией разговоров хоста, StudioChat грузится лениво при первом открытии вкладки.
 function ShellChat({ host, chatRef, mounted, threadId, onThreadChange, launch, onLaunch, disabled, chatContext, onSettings, onCreateProject, onBlockSelectionBusyChange, previewRunId, selectionStale, useOnPage, onUseOnPageChange }) {
   const t = chatContext.t, ui = useStudioUi();
-  const [aiSettings, setAiSettings] = useState(null);
+  const [aiSettings, setAiSettings] = useState(null), [composerScope, setComposerScope] = useState(null);
   useEffect(() => {
     let alive = true;
     const load = () => host.ai?.settings.load().then(value => { if (alive) setAiSettings(value); }).catch(() => { if (alive) setAiSettings(null); });
@@ -370,10 +370,12 @@ function ShellChat({ host, chatRef, mounted, threadId, onThreadChange, launch, o
     }).catch(() => {});
     return () => { alive = false; };
   }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
-  // Панель «Selected blocks»: область последнего незавершённого блочного рана диалога, иначе область запуска «Edit selected» для нового диалога.
+  // Панель «Selected blocks»: область последнего незавершённого блочного рана диалога, иначе — до первой отправки — область
+  // запуска «Edit selected», пока композер её держит (снятый чип Block скрывает панель, onScopeChange).
   const threadRuns = threadId ? document.runs.filter(run => run.threadId === threadId) : [], latestRun = threadRuns.at(-1);
   const blockScope = latestRun?.scope?.kind === 'block' && !['applied', 'discarded'].includes(latestRun.state) ? latestRun.scope.editScope
-    : !latestRun && launch?.scope?.kind === 'block' ? launch.editScope : null;
+    : !latestRun ? launchBlockScope(launch, composerScope) : null;
+  const scopeChanged = useCallback(scope => setComposerScope({ launchId: launch?.id, scope }), [launch?.id]);
   const hasDraft = Boolean(latestRun?.result || latestRun?.checkpoint), { state, locale } = chatContext;
   const blockScopeStale = Boolean(blockScope && ((selectionStale && !hasDraft) || (blockScope.locale && blockScope.locale !== locale)
     || !blockScopeBaseMatches(blockScope, { files: state.files, rawValues: state.translations?.[locale] || {} })));
@@ -387,7 +389,7 @@ function ShellChat({ host, chatRef, mounted, threadId, onThreadChange, launch, o
   // StudioUiProvider внешнего хоста (portalContainer embed) сохраняется; иначе язык и перекрытия берутся из хоста.
   return <StudioUiProvider language={ui?.language ?? host.language} messages={ui?.messages ?? host.messages} portalContainer={ui?.portalContainer}>
     <Suspense fallback={<div className="studio-chat-loading" aria-busy="true" aria-label={t('Loading conversations…')}><Skeleton shape="block" height="100%" /><div><Skeleton shape="line" width="40%" /><Skeleton shape="block" /><Skeleton shape="block" height={96} /></div></div>}>
-      <StudioChat port={chat.port} threadId={threadId || ''} onThreadChange={selectThread} launch={launch} disabled={disabled} actions={actions} footer={footer} />
+      <StudioChat port={chat.port} threadId={threadId || ''} onThreadChange={selectThread} onScopeChange={scopeChanged} launch={launch} disabled={disabled} actions={actions} footer={footer} />
     </Suspense>
   </StudioUiProvider>;
 }

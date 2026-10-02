@@ -246,6 +246,12 @@ try {
     assert.equal(report.providerRequests.length, beforeReload, 'Reload never resumes generation automatically');
     assert.equal(await page.locator('.preview-selection-toggle').getAttribute('aria-pressed'), 'false');
 
+    // Before the first send the Selected blocks panel follows the composer scope: removing the Block chip hides it.
+    await selectBlocks();
+    await chat().scope.getByRole('button', { name: 'Remove Block', exact: true }).click();
+    await chat().scope.getByRole('button', { name: 'Project', pressed: true, exact: true }).waitFor();
+    await page.getByRole('group', { name: 'Selected blocks', exact: true }).waitFor({ state: 'detached', timeout: 5000 });
+
     // A source fragment is shared: editing one rendered body updates all three.
     intent = 'source'; await selectBlocks();
     await generate('Add the source-improved class to the shared comment body template for every instance. Preserve all content.');

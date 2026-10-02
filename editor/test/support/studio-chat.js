@@ -19,6 +19,7 @@ export function studioChat(scope) {
     status: status => feed.locator(`[data-run-status="${status}"]`),
     cards: type => feed.locator(type ? `[data-testid="studio-chat-card"][data-card="${type}"]` : '[data-testid="studio-chat-card"]'),
     apply: feed.locator('[data-testid="studio-chat-apply"]'),
+    discard: feed.locator('[data-testid="studio-chat-discard"]'),
     keepDraft: feed.locator('[data-testid="studio-chat-keep-draft"]'),
     continueRun: feed.locator('[data-testid="studio-chat-continue"]'),
     // Thread in the list (the list is hidden below 560 px of chat width; ChatHeader then offers it as a menu).

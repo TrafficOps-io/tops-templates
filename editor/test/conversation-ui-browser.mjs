@@ -23,6 +23,9 @@ const heroStart = source.indexOf('<section data-block="Main hero">'), heroEnd = 
 document.threads[1].messages[0].mentions = [{ kind: 'section', id: 'main-hero', label: 'Main hero', path: 'index.tpl', page: 'index.html', locale: 'en', start: heroStart, end: heroEnd, content: source.slice(heroStart, heroEnd), values: { '/title': 'Collection' } }];
 document.threads.push({ id: 'thread-file', title: 'Adjust selected stylesheet', archived: false, createdAt: now + 3, updatedAt: now + 3, messages: [{ id: 'message-file', role: 'user', prompt: 'Adjust only the selected stylesheet.', createdAt: now + 3, runId: 'run-file' }] });
 document.runs.push({ id: 'run-file', threadId: 'thread-file', messageId: 'message-file', state: 'ready', phase: 'review', scope: { kind: 'file', path: 'styles.css' }, locale: 'en', base, result: { files: { ...fixture.files, 'styles.css': 'body{font:16px system-ui;padding:48px}' }, values: fixture.settings, valid: true, summary: 'Adjusted only the selected stylesheet.' }, createdAt: now + 3, updatedAt: now + 4 });
+// A failed run that left a draft: Discard must keep that draft out of the next send (the runtime would otherwise retain it).
+document.threads.unshift({ id: 'thread-broken', title: 'Recover a broken draft', archived: false, createdAt: now - 2, updatedAt: now - 2, messages: [{ id: 'message-broken', role: 'user', prompt: 'Tighten the stylesheet.', createdAt: now - 2, runId: 'run-broken' }] });
+document.runs.unshift({ id: 'run-broken', threadId: 'thread-broken', messageId: 'message-broken', state: 'failed', phase: 'review', scope: { kind: 'project' }, locale: 'en', base, result: { files: { ...fixture.files, 'styles.css': 'body{font:16px system-ui;padding:4px' }, values: fixture.settings, valid: false, summary: 'The stylesheet draft is broken.' }, error: 'The model stopped mid-file.', createdAt: now - 2, updatedAt: now - 1 });
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.woff2': 'font/woff2' };
 const server = createServer(async (request, response) => {
   try { const path = new URL(request.url, 'http://localhost').pathname, file = resolve(root, '.' + (path === '/' ? '/index.html' : path)); if (!file.startsWith(root + '/')) throw new Error('Path'); response.setHeader('Content-Type', types[extname(file)] || 'application/octet-stream'); response.end(await readFile(file)); }
@@ -148,6 +151,21 @@ try {
   await page.getByRole('button', { name: 'Clear selection', exact: true }).click();
   await page.getByRole('button', { name: 'Select elements', exact: true }).click();
   report.checks.push('section picker supports search and multiple instances; file and section mentions coexist, deduplicate, preserve prompt and render saved history');
+
+  await openThread(chat, 'Recover a broken draft'); await chat.run('run-broken').waitFor();
+  assert.equal(await chat.run('run-broken').getAttribute('data-run-status'), 'failed');
+  assert.equal(await chat.run('run-broken').locator('[data-testid="studio-chat-apply"]').count(), 0, 'a failed run is never applicable');
+  await chat.run('run-broken').locator('[data-testid="studio-chat-discard"]').click();
+  await chat.run('run-broken').and(page.locator('[data-run-status="discarded"]')).waitFor();
+  while (await composerMentions.count()) await composerMentions.first().locator('.studio-chip-remove').click();
+  await prompt.fill('Tighten the stylesheet again from the current project.'); await chat.send.click();
+  const readConversation = () => page.evaluate(id => new Promise((done, reject) => { const request = indexedDB.open('trafficops-studio-conversations', 1); request.onerror = () => reject(request.error); request.onsuccess = () => { const db = request.result, get = db.transaction('documents', 'readonly').objectStore('documents').get(id); get.onsuccess = () => { db.close(); done(get.result); }; get.onerror = () => { db.close(); reject(get.error); }; }; }), fixture.id);
+  let brokenRuns = [];
+  for (const deadline = Date.now() + 10000; Date.now() < deadline; await page.waitForTimeout(100)) { brokenRuns = (await readConversation()).runs.filter(run => run.threadId === 'thread-broken'); if (brokenRuns.length === 2) break; }
+  assert.equal(brokenRuns.length, 2, 'the follow-up creates a run');
+  assert.equal(brokenRuns[0].state, 'discarded'); assert.equal(brokenRuns[0].result, undefined);
+  assert.equal(brokenRuns[1].starting, undefined, 'the discarded draft is not the starting point of the next run'); assert.equal(brokenRuns[1].attempt, 0);
+  report.checks.push('Discard of a failed run keeps its draft out of the next send');
 
   for (const width of [1024, 320]) { await page.setViewportSize({ width, height: 1000 }); await page.screenshot({ path: `${out}/${width}.png`, fullPage: true }); const geometry = await page.evaluate(() => ({ viewport: innerWidth, document: document.documentElement.scrollWidth, panel: document.querySelector('[data-testid="studio-chat"]').getBoundingClientRect().width, overflow: [...document.querySelectorAll('body *')].map(element => ({ tag: element.tagName, class: element.className?.baseVal || element.className, right: element.getBoundingClientRect().right })).filter(item => item.right > innerWidth + 1).slice(0, 15) })); assert.ok(geometry.document <= width + 1, `No clipping at ${width}: ${JSON.stringify(geometry)}`); report.widths.push(geometry); }
   assert.deepEqual(report.errors, []); await context.close();

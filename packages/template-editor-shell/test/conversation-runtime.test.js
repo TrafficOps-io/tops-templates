@@ -358,3 +358,23 @@ test('legacy recovery keeps the user clarifications for the continuation', async
   await until(() => calls.length === 1);
   assert.match(calls[0].conversationContext, /RETAINED_CLARIFICATION keep the photo/);
 });
+
+test('discarding a stopped run with a checkpoint keeps its draft out of the next send', async t => {
+  const local = fixture('discard-stopped'), calls = [], waits = [];
+  const session = createConversationSession(local.host, { locks: null, sessionId: 'owner', workflows: basicWorkflows(value => {
+    calls.push(value); const wait = deferred(); waits.push(wait);
+    if (calls.length === 1) value.onProgress({ type: 'file-set', path: 'style.css', files: { ...value.files, 'style.css': 'blue' }, values: value.values });
+    return wait.promise;
+  }) });
+  t.after(() => session.dispose()); await session.ready;
+  const threadId = await session.submit({ prompt: 'Edit styles', snapshot: state() });
+  await until(() => local.read().runs[0]?.checkpoint?.files['style.css'] === 'blue');
+  const runId = session.getSnapshot().runs[0].id;
+  await session.stop(runId); await until(() => session.getSnapshot().runs[0].state === 'cancelled'); waits[0].resolve();
+  await session.discard(runId);
+  const discarded = session.getSnapshot().runs[0];
+  assert.equal(discarded.state, 'discarded'); assert.equal(discarded.result, undefined); assert.equal(discarded.checkpoint, undefined);
+  await session.submit({ threadId, prompt: 'Try again', snapshot: state() }); await until(() => calls.length === 2);
+  assert.equal(calls[1].files['style.css'], 'red', 'the discarded draft is not carried into the next run');
+  waits[1].resolve({ files: calls[1].files, values: calls[1].values, valid: true }); await until(() => session.getSnapshot().runs[1].state === 'ready');
+});

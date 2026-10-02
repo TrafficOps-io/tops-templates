@@ -28,6 +28,16 @@ export function sectionSource(target, files = {}) {
 }
 /** Изображения-вложения отправки получают useOnPage по переключателю «Use attached images on the page». */
 export const markUseOnPage = (attachments, useOnPage) => attachments.map(item => item.mime?.startsWith('image/') ? { ...item, useOnPage: Boolean(useOnPage) } : item);
+/**
+ * Область «Selected blocks» до первой отправки: editScope запуска «Edit selected», пока композер держит его область
+ * (composer — { launchId, scope } из StudioChat.onScopeChange). Снятый чип Block или другая область → null. До первого
+ * onScopeChange нового запуска действует область самого запуска.
+ */
+export function launchBlockScope(launch, composer) {
+  if (launch?.scope?.kind !== 'block' || !launch.editScope) return null;
+  const scope = composer && composer.launchId === launch.id ? composer.scope : launch.scope;
+  return scope?.kind === 'block' && scope.targetId === launch.scope.targetId ? launch.editScope : null;
+}
 const sectionId = section => `${section.page}:${section.id}`;
 
 /**
@@ -43,7 +53,7 @@ export function keptDraft(run, { locale, t }) {
 /**
  * ChatPort над сессией conversation-runtime. `context()` возвращает актуальные state, locale, sectionFrame,
  * settings, onApplyRun(run, { allowStaleContext }), onPreviewDraft(draft | null), previewRunId (ран черновика в превью), useOnPage,
- * onKeepDraft(run), onOpenFile(path, selection?), onOpenSection(target), t.
+ * onSent() (после успешной отправки: сброс переключателя useOnPage), onKeepDraft(run), onOpenFile(path, selection?), onOpenSection(target), t.
  * Возвращает { port, registerBlockScope, invalidateConflicts, refresh }: три последних — внутренний API адаптера, в ChatPort их нет.
  */
 export function createChatPort(session, context) {
@@ -169,7 +179,7 @@ export function createChatPort(session, context) {
       // Рантайм требует непустой prompt; сообщение «только вложения» получает нейтральную формулировку.
       const body = text || t('Use the attached files as reference.');
       await session.submit({ threadId, prompt: fieldNotes ? `${body}\n(${fieldNotes})` : body, attachments, mentions, scope, snapshot: state, locale, sectionFrame, generateImages: input.generateImages, ...(input.mode ? { mode: input.mode } : {}) });
-      pendingThreads.delete(threadId); notify();
+      pendingThreads.delete(threadId); context().onSent?.(); notify();
     },
     async stop(runId) { await session.stop(runId); },
     async discard(runId) { conflicts.delete(runId); await session.discard(runId); closePreview(runId); notify(); },
