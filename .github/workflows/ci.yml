@@ -80,6 +80,8 @@ jobs:
       - run: node editor/test/preview-block-selection-browser.mjs
       - run: node editor/test/studio-browser.mjs editor/dist
       - run: node editor/test/studio-ux-browser.mjs editor/dist
+      - run: node editor/test/theme-menu-browser.mjs editor/dist
+      - run: node editor/test/section-tabs-browser.mjs editor/dist
       - run: node editor/test/workspace-axe-browser.mjs editor/dist
       - run: node editor/test/storage-access-browser.mjs editor/dist
       - run: node editor/test/storage-contract-browser.mjs editor/dist

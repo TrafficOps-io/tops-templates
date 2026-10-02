@@ -325,6 +325,9 @@ fieldset:disabled { opacity: .65; }
 .source-heading:has(.file-ai-launch) .source-tools { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; min-width: 0; }
 .hosted-heading{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center}
 .hosted-actions{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center}.hosted-heading{justify-content:space-between;margin:1.5rem 0}.hosted-heading h1{font-size:2rem;margin:.3rem 0}.hosted-heading .eyebrow{margin:0}.hosted-actions{justify-content:flex-end}.hosted-callout{display:flex;flex-wrap:wrap;gap:1rem;padding:1rem;border:1px solid var(--ui-border);border-radius:.6rem;margin:1rem 0}.hosted-callout a{color:var(--color-primary);text-decoration:underline}.hosted-diagnostics{padding:.75rem 1rem;background:var(--ui-danger-surface);border:1px solid color-mix(in srgb,var(--color-error) 40%,var(--ui-border));border-radius:.6rem;margin:.75rem 0;max-height:14rem;overflow:auto}.hosted-diagnostics summary{cursor:pointer;font-weight:600}.hosted-diagnostics ul{list-style:none;padding:0;margin:.5rem 0}.hosted-diagnostics button{text-align:left;border:0;background:transparent;color:inherit;padding:.25rem;cursor:pointer}.hosted-diagnostics small{color:var(--ui-muted);margin:0 .5rem}.hosted-sections{margin-bottom:1.2rem;overflow-x:auto}.editor-root fieldset{border:0;padding:0;margin:0;min-width:0}.editor-root .field-group{border:1px solid var(--ui-border);padding:1rem;margin:1rem 0}.editor-root .inline-error{margin:.5rem 0}.editor-root .asset-preview{height:100%}
+/* Keep full section names in one row; overflow belongs to the section strip. */
+.hosted-sections { overscroll-behavior-x: contain; }
+.hosted-sections .studio-tab { flex: none; white-space: nowrap; }
 @media(max-width:640px){.hosted-heading h1{font-size:1.6rem}}
 .editor-root button:disabled { opacity: .45; }
 /* Shared editor controls and modal layout. */
@@ -558,8 +561,8 @@ fieldset:disabled { opacity: .65; }
 
 /* The Content tab's section tabs are the panel header in the app layout. */
 .editor-shell.is-app .author-content:not(.source-content) { padding-top: 0; }
-.editor-shell.is-app .author-content > .hosted-sections { position: sticky; z-index: 2; top: 0; height: var(--studio-panel-header); margin: 0 -1.25rem var(--ui-space-5); padding: 0 var(--ui-space-3); align-items: stretch; border-bottom: 1px solid var(--ui-border); background: var(--ui-surface); }
-.editor-shell.is-app .author-content > .hosted-sections .studio-tab { min-height: 0; }
+.editor-shell.is-app .author-content > .hosted-sections { position: sticky; z-index: 2; top: 0; min-height: var(--studio-panel-header); margin: 0 -1.25rem var(--ui-space-5); padding: 0 var(--ui-space-3); align-items: stretch; border-bottom: 1px solid var(--ui-border); background: var(--ui-surface); }
+.editor-shell.is-app .author-content > .hosted-sections .studio-tab { min-height: var(--studio-panel-header); }
 .editor-shell.is-app .author-content > .empty-content-actions { margin-top: var(--ui-space-5); }
 
 /* Status bar: storage, preview mode and page count in one quiet line. */

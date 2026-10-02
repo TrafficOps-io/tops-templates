@@ -4,10 +4,10 @@
 .studio-menu, .editor-menu { position: relative; }
 .studio-menu > button, .editor-menu > button { display: inline-flex; align-items: center; gap: .35rem; }
 .studio-menu [role=menu], .editor-menu [role=menu] { position: absolute; z-index: var(--ui-z-menu); top: calc(100% + .5rem); right: 0; min-width: 12rem; max-height: 55vh; max-width: 80vw; overflow: auto; padding: .35rem; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); background: var(--ui-surface); box-shadow: var(--ui-shadow-menu); }
-.studio-menu [role=menuitem], .editor-menu [role=menuitem] { display: flex; width: 100%; min-height: 2rem; justify-content: flex-start; align-items: center; gap: .5rem; padding: .45rem .6rem; border: 0; border-radius: .25rem; font-size: var(--ui-text-xs); font-weight: 400; color: var(--ui-text); text-align: left; background: transparent; }
-.studio-menu [role=menuitem]:hover, .studio-menu [role=menuitem]:focus-visible, .editor-menu [role=menuitem]:hover, .editor-menu [role=menuitem]:focus-visible { background: var(--ui-page); }
-.studio-menu [role=menuitem][aria-current], .editor-menu [role=menuitem][aria-current] { color: var(--ui-text); box-shadow: inset 2px 0 0 var(--ui-accent); background: color-mix(in srgb, var(--ui-accent) 14%, transparent); }
-.studio-menu [role=menuitem] > span:first-child, .editor-menu [role=menuitem] > span:first-child { flex: 1; }
+:is(.studio-menu, .editor-menu) :is([role=menuitem], [role=menuitemradio], [role=menuitemcheckbox]) { display: flex; width: 100%; min-height: 2rem; justify-content: flex-start; align-items: center; gap: .5rem; padding: .45rem .6rem; border: 0; border-radius: .25rem; font-size: var(--ui-text-xs); font-weight: 400; color: var(--ui-text); text-align: left; background: transparent; }
+:is(.studio-menu, .editor-menu) :is([role=menuitem], [role=menuitemradio], [role=menuitemcheckbox]):is(:hover, :focus-visible) { background: var(--ui-page); }
+:is(.studio-menu, .editor-menu) :is([role=menuitem][aria-current], [role=menuitemradio][aria-checked=true], [role=menuitemcheckbox][aria-checked=true]) { color: var(--ui-text); box-shadow: inset 2px 0 0 var(--ui-accent); background: color-mix(in srgb, var(--ui-accent) 14%, transparent); }
+:is(.studio-menu, .editor-menu) :is([role=menuitem], [role=menuitemradio], [role=menuitemcheckbox]) > span:first-child { flex: 1; }
 .studio-menu hr, .editor-menu hr { margin-block: .25rem; border-color: var(--ui-border); }
 
 /* Modal */
@@ -238,6 +238,7 @@
 .studio-model-more:hover { background: var(--ui-surface-raised); }
 .studio-model-more:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: -2px; }
 @media (pointer: coarse) {
+  :is(.studio-menu, .editor-menu) :is([role=menuitem], [role=menuitemradio], [role=menuitemcheckbox]) { min-height: 44px; }
   .studio-model-picker .studio-model-trigger, .studio-model-more { min-height: 44px; }
   .studio-model-filter { min-height: 44px; min-width: 44px; justify-content: center; }
   .studio-model-option { min-height: 44px; }
