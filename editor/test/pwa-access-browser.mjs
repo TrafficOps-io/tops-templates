@@ -225,8 +225,7 @@ try {
     const regions = [...document.querySelectorAll('.editor-shell [role="status"]')].filter(visible).filter(element => element.querySelector('.studio-badge'));
     const text = regions[0]?.textContent.trim();
     const shown = [...document.querySelectorAll('.editor-shell *')].filter(element => visible(element) && element.textContent.trim() === text && ![...element.children].some(child => child.textContent.trim() === text));
-    const geometry = [...toolbar.querySelectorAll(':scope > *, .studio-navigation > *, .studio-toolbar-actions > *')].map(e => `${e.tagName}.${String(e.className).split(' ').slice(0,2).join('.')}:${Math.round(e.getBoundingClientRect().left)}+${Math.round(e.getBoundingClientRect().width)}@${Math.round(e.getBoundingClientRect().top)}`);
-    return { geometry, lines: lines.size, height: Math.round(toolbar.getBoundingClientRect().height), regions: regions.length, text, shown: shown.length, storage: [...toolbar.querySelectorAll('.studio-toolbar-storage')].filter(visible).map(element => element.textContent) };
+    return { lines: lines.size, height: Math.round(toolbar.getBoundingClientRect().height), regions: regions.length, text, shown: shown.length, storage: [...toolbar.querySelectorAll('.studio-toolbar-storage')].filter(visible).map(element => element.textContent) };
   });
   assert.equal(header.lines, 1, `installed header on one line at 1280: ${JSON.stringify(header)}`);
   assert.ok(header.height <= 72, `installed header height: ${JSON.stringify(header)}`);
