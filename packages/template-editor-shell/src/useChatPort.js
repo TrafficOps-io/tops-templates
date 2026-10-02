@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { getConversationSession } from './conversation-runtime.js';
 import { createChatPort } from './chat-port.js';
 
-const PORT_METHODS = ['events', 'send', 'stop', 'discard', 'apply', 'previewDraft', 'answer', 'continueRun', 'keepDraft', 'createThread', 'renameThread', 'archiveThread', 'deleteThread', 'mentionTargets', 'openTarget'];
+const PORT_METHODS = ['events', 'send', 'stop', 'discard', 'apply', 'previewDraft', 'answer', 'continueRun', 'keepDraft', 'regenerate', 'editMessage', 'switchBranch', 'createThread', 'renameThread', 'archiveThread', 'deleteThread', 'mentionTargets', 'openTarget'];
 
 /**
  * `port` — стабильный фасад над текущим адаптером: StudioChat получает его в рендере, а StrictMode делает

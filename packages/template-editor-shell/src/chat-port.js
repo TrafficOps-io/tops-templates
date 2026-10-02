@@ -3,6 +3,7 @@ import { conflictToParts, runToParts, runToState } from './chat-cards.js';
 import { addFileMention, addSectionMention } from './conversation-mentions.js';
 import { blockScopeBaseMatches, previewSectionOptions, previewSelectionMatches } from './preview-selection.js';
 import { FILE_ATTACHMENT_ACCEPT, FILE_ATTACHMENT_LIMITS, readFileAiAttachments } from './file-ai-attachments.js';
+import { branchOf, conversationTree, visiblePath } from './conversation-tree.js';
 
 const uuid = () => globalThis.crypto?.randomUUID?.() || `t-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const iso = value => new Date(value ?? Date.now()).toISOString();
@@ -79,20 +80,24 @@ export function createChatPort(session, context) {
   // Превью черновика этого рана закрывается после Discard и Apply: превью возвращается к текущему проекту.
   const closePreview = runId => { const { previewRunId, onPreviewDraft } = context(); if (previewRunId === runId) onPreviewDraft?.(null); };
 
-  function assistantMessage(run) {
+  // Положение в дереве (port.d.ts): parentId всегда, branch — только когда у сообщения есть соседи.
+  const treeFields = (tree, id) => { const branch = branchOf(tree, id); return { parentId: tree.nodes.get(id)?.parentId ?? null, ...(branch?.count > 1 ? { branch } : {}) }; };
+  function assistantMessage(run, tree) {
     const { t, state, locale, language } = context(), conflict = conflicts.get(run.id);
     // id сообщения ассистента равен id рана — инвариант контракта RunState.id === message.id
-    return { id: run.id, role: 'assistant', createdAt: iso(run.createdAt ?? run.updatedAt), parts: [...runToParts(run, t, language), ...(conflict ? conflictToParts(run.id, conflict, state, locale, t) : [])], status: runToState(run, t, language) };
+    return { id: run.id, role: 'assistant', createdAt: iso(run.createdAt ?? run.updatedAt), parts: [...runToParts(run, t, language), ...(conflict ? conflictToParts(run.id, conflict, state, locale, t) : [])], status: runToState(run, t, language), ...(tree ? treeFields(tree, run.id) : {}) };
   }
+  const userMessage = (message, extra) => ({ id: message.id, role: 'user', createdAt: iso(message.createdAt), parts: [{ type: 'text', text: message.prompt || message.text || '' }], mentions: (message.mentions || []).map(toMentionTarget), attachments: (message.attachments || []).map(a => ({ id: a.id, name: a.name, type: a.mime?.startsWith('image/') ? 'image' : 'document', bytes: attachmentBytes(a), ...(a.dataUrl ? { url: a.dataUrl } : {}) })), ...extra });
+  const treeOf = threadId => { const thread = document().threads.find(item => item.id === threadId); return thread ? conversationTree(thread, document().runs) : null; };
+  // Видимый путь дерева диалога: пользовательские сообщения и раны (ответы); уточнения во время рана — после его ответа.
   function messagesOf(threadId) {
-    const thread = document().threads.find(item => item.id === threadId); if (!thread) return [];
-    const runs = runsOf(threadId), out = [];
-    for (const message of thread.messages) {
-      if (message.role !== 'user') continue;
-      out.push({ id: message.id, role: 'user', createdAt: iso(message.createdAt), parts: [{ type: 'text', text: message.prompt || message.text || '' }], mentions: (message.mentions || []).map(toMentionTarget), attachments: (message.attachments || []).map(a => ({ id: a.id, name: a.name, type: a.mime?.startsWith('image/') ? 'image' : 'document', bytes: attachmentBytes(a), ...(a.dataUrl ? { url: a.dataUrl } : {}) })) });
-      // Матч только по messageId: уточнения (queued-clarification, runId занятого рана) не порождают сообщений ассистента.
-      const run = runs.find(value => value.messageId === message.id);
-      if (run) out.push(assistantMessage(run));
+    const tree = treeOf(threadId); if (!tree) return [];
+    const out = [];
+    for (const id of visiblePath(tree)) {
+      const node = tree.nodes.get(id);
+      if (node.kind === 'user') { out.push(userMessage(node.message, treeFields(tree, id))); continue; }
+      out.push(assistantMessage(node.run, tree));
+      for (const message of tree.attached(id)) if (message.role === 'user') out.push(userMessage(message, { parentId: id }));
     }
     return out;
   }
@@ -201,6 +206,25 @@ export function createChatPort(session, context) {
       if (value === 'rebase') { conflicts.delete(runId); const { state, locale } = context(); await session.continue(runId, { snapshot: state, locale, rebase: true }); notify(); }
       else if (value === 'reviewed') await port.apply(runId, { allowStaleContext: true });
     },
+    async regenerate(threadId, messageId) {
+      const { settings, t } = context();
+      if (!settings?.configured) throw new PolicyError(t('Connect your key in Settings to start.'));
+      const run = findRun(messageId); if (!run || run.threadId !== threadId) throw new Error(t('This result no longer exists.'));
+      await session.regenerate(threadId, messageId); notify();
+    },
+    async editMessage(threadId, messageId, { text } = {}) {
+      const { state, locale, settings, t } = context();
+      if (!settings?.configured) throw new PolicyError(t('Connect your key in Settings to start.'));
+      if (!String(text || '').trim()) throw new PolicyError(t('Type a message or attach a file.'));
+      await session.editMessage(threadId, messageId, { text, snapshot: state, locale }); notify();
+    },
+    async switchBranch(threadId, messageId) {
+      await session.switchBranch(threadId, messageId);
+      // Черновик рана из скрытой ветки не остаётся в превью.
+      const { previewRunId } = context(), tree = treeOf(threadId);
+      if (previewRunId && tree && tree.nodes.has(previewRunId) && !visiblePath(tree).includes(previewRunId)) closePreview(previewRunId);
+      notify();
+    },
     async continueRun(runId, prompt) { const { state, locale } = context(); await session.continue(runId, { prompt: prompt || undefined, snapshot: state, locale }); notify(); },
     async keepDraft(runId) { const run = findRun(runId); if (run) await context().onKeepDraft?.(run); notify(); },
     async createThread() {
@@ -216,7 +240,7 @@ export function createChatPort(session, context) {
       if (target.kind === 'file') onOpenFile?.(target.id); else if (source) onOpenFile?.(source.path, source.selection); else onOpenSection?.(target);
     },
     attachmentLimits: { count: FILE_ATTACHMENT_LIMITS.count, bytesPerFile: FILE_ATTACHMENT_LIMITS.bytes, bytesTotal: FILE_ATTACHMENT_LIMITS.total, accept: FILE_ATTACHMENT_ACCEPT },
-    get capabilities() { const { settings, onKeepDraft } = context(); return { scopes: ['project', 'file', 'block', 'content', 'discussion'], clarifyWhileRunning: true, discardStopped: true, cost: false, previewDraft: true, generateImages: Boolean(settings?.imageModel), conflictReview: true, keepDraft: Boolean(onKeepDraft) }; },
+    get capabilities() { const { settings, onKeepDraft } = context(); return { scopes: ['project', 'file', 'block', 'content', 'discussion'], clarifyWhileRunning: true, discardStopped: true, cost: false, previewDraft: true, generateImages: Boolean(settings?.imageModel), conflictReview: true, keepDraft: Boolean(onKeepDraft), regenerate: true, edit: true, branches: true }; },
     dispose() { for (const close of [...streams]) close(); disposed = true; unsubscribe(); listeners.clear(); messageStores.clear(); },
   };
   return {

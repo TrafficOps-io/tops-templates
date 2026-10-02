@@ -287,3 +287,30 @@ test('streamed assistant text arrives as text-delta and agent steps as step card
   assert.deepEqual(assistant.parts.map(part => part.toolName), ['step', 'step']);
   await iterator.return();
 });
+
+test('the tree is shown as its visible path with parentId and branch; regenerate, edit and switch reach the session', async () => {
+  const session = fakeSession(), previews = [];
+  Object.assign(session, { async regenerate(...args) { session.calls.push(['regenerate', ...args]); }, async editMessage(...args) { session.calls.push(['editMessage', ...args]); },
+    async switchBranch(threadId, id) { session.calls.push(['switchBranch', threadId, id]); session.set({ ...session.doc(), threads: [{ ...session.doc().threads[0], activeLeafId: id }] }); } });
+  const { port } = createChatPort(session, () => ({ ...context(), previewRunId: 'r1b', onPreviewDraft: value => previews.push(value) }));
+  assert.equal(port.capabilities.regenerate, true); assert.equal(port.capabilities.edit, true); assert.equal(port.capabilities.branches, true);
+  const user = (id, parentId, createdAt) => ({ id, role: 'user', prompt: id, parts: [], mentions: [], attachments: [], createdAt, parentId, runId: `r-${id}` });
+  const run = (id, messageId, createdAt) => ({ id, threadId: 't', messageId, state: 'ready', phase: 'ready', scope: { kind: 'project' }, locale: 'en', base: state, result: draft('b', { valid: true, summary: id }), createdAt, updatedAt: createdAt });
+  session.set({ projectId: 'p', revision: 1, threads: [{ id: 't', title: 'T', archived: false, createdAt: 1, updatedAt: 1, activeLeafId: 'r1b', messages: [user('u1', null, 1), user('u2', 'r1', 3)] }], runs: [run('r1', 'u1', 2), run('r2', 'u2', 4), run('r1b', 'u1', 5)] });
+  let messages = port.messages('t').get();
+  assert.deepEqual(messages.map(message => message.id), ['u1', 'r1b']);
+  assert.equal(messages[0].parentId, null); assert.equal('branch' in messages[0], false, 'a single message has no branch');
+  assert.deepEqual(messages[1].branch, { index: 1, count: 2, siblingIds: ['r1', 'r1b'] }); assert.equal(messages[1].parentId, 'u1');
+  await port.switchBranch('t', 'r1');
+  assert.deepEqual(session.calls.at(-1), ['switchBranch', 't', 'r1']);
+  messages = port.messages('t').get();
+  assert.deepEqual(messages.map(message => message.id), ['u1', 'r1', 'u2', 'r2']);
+  assert.deepEqual(previews, [null], 'the previewed draft of the hidden branch is closed');
+  await port.regenerate('t', 'r2'); assert.deepEqual(session.calls.at(-1), ['regenerate', 't', 'r2']);
+  await assert.rejects(port.regenerate('t', 'missing'), /no longer exists/);
+  await port.editMessage('t', 'u2', { text: 'New text' });
+  assert.deepEqual(session.calls.at(-1), ['editMessage', 't', 'u2', { text: 'New text', snapshot: state, locale: 'en' }]);
+  await assert.rejects(port.editMessage('t', 'u2', { text: ' ' }), error => error.code === 'policy');
+  const locked = createChatPort(session, () => ({ ...context(), settings: { configured: false } })).port;
+  await assert.rejects(locked.regenerate('t', 'r2'), error => error.code === 'policy'); await assert.rejects(locked.editMessage('t', 'u2', { text: 'x' }), error => error.code === 'policy');
+});
