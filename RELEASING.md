@@ -13,7 +13,9 @@ The CLI and Composer package are public OSS packages. Do not create production t
 
 ## Cut a release
 
-Update versions in root `package.json`, `tops-cli/package.json`, `vscode-extension/package.json`, all six manifests in `packages/`, and internal workspaces/dependencies together, then run `npm install --package-lock-only`. Record changes in `CHANGELOG.md`.
+Update versions in root `package.json`, `tops-cli/package.json`, `vscode-extension/package.json`, the lockstep manifests in `packages/` (language, Monaco, core, shell), and internal workspaces/dependencies together, then run `npm install --package-lock-only`. Record changes in `CHANGELOG.md`.
+
+`@trafficops/studio-tokens` and `@trafficops/studio-ui` are versioned independently of the tag (they are shared with other studios and move faster). `scripts/check-release.mjs` keeps them in an explicit list: for them it checks only a valid semantic version and that every workspace depending on them (`editor`, `studio-ui`, `template-editor-shell`) pins exactly that version. Bump them on their own changes. The `Release` workflow publishes them with the other packages, and npm rejects a version that is already in the registry, so a tag must ship a new studio-tokens/studio-ui version or have them published separately beforehand.
 
 ```sh
 npm ci
@@ -55,4 +57,4 @@ ship in the same tarball. The private Studio app and the prebundled embed artifa
 are not registry publication targets. Verify the clean consumer in `editor/README.md`
 before publishing the six public editor packages.
 
-`@trafficops/studio-tokens` and `@trafficops/studio-ui` are public packages consumed by the shell and by other studios. Publication order follows dependencies: language, Monaco, core, studio-tokens, studio-ui, shell, CLI. `studio-ui` depends on `studio-tokens` at the same version; shell depends on both.
+`@trafficops/studio-tokens` and `@trafficops/studio-ui` are public packages consumed by the shell and by other studios. Publication order follows dependencies: language, Monaco, core, studio-tokens, studio-ui, shell, CLI. `studio-ui` pins the exact `studio-tokens` version it was built with; shell pins both.
