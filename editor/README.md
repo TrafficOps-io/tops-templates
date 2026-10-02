@@ -119,7 +119,7 @@ The compact composer accepts text, image and document references and keyboard-ac
 
 Applying uses the run's frozen source and language. Independent file/value changes merge into the current project; overlapping changes require continuing with the current project. Changed read context requires reviewing the updated candidate and explicitly confirming it. Final analysis and rendering run again before the versioned save. Applied-run IDs commit with project content, so a crash cannot apply a run twice. A reload marks orphaned runs interrupted, retains completed work and never repeats a paid request automatically. Continuing is explicit.
 
-History saves use their own IndexedDB revision and folder mirror. Folder errors retain the device copy and show a warning; later access retries the mirror. Runtime ownership uses Web Locks where available and lease/fencing checks as a fallback. The optional `host.conversations` port keeps these features separate from published version history; embedded hosts without this port retain their existing assistant flow.
+History saves use their own IndexedDB revision and folder mirror. Folder errors retain the device copy and show a warning; later access retries the mirror. Runtime ownership uses Web Locks where available and lease/fencing checks as a fallback. The `host.conversations` port keeps these features separate from published version history. Every host with the `ai` capability must provide it (`load` and `save`; `runHostConformance` rejects AI hosts without it); hosts without AI omit it.
 
 ## OpenRouter BYOK
 
