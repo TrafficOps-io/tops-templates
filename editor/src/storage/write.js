@@ -43,12 +43,13 @@ export async function readJson(root, path) {
 
 export async function writeFile(root, path, data) {
   const handle = await fileAt(root, path, { create: true });
-  const writable = await handle.createWritable();
+  let writable;
   try {
+    writable = await handle.createWritable();
     await writable.write(typeof data === 'string' ? encoder.encode(data) : data);
     await writable.close();
   } catch (error) {
-    try { await writable.abort?.(); } catch {}
+    try { await writable?.abort?.(); } catch {}
     if (error?.name === 'QuotaExceededError') throw new Error(FULL, { cause: error });
     throw error;
   }

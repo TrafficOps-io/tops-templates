@@ -87,6 +87,17 @@ test('QuotaExceededError becomes a friendly error with cause', async () => {
   });
 });
 
+test('QuotaExceededError from createWritable itself becomes the friendly error', async () => {
+  const root = new MemoryDirectoryHandle('root');
+  const file = await root.getFileHandle('f.txt', { create: true });
+  const quota = Object.assign(new Error('quota'), { name: 'QuotaExceededError' });
+  file.createWritable = async () => { throw quota; };
+  await assert.rejects(writeFile(root, 'f.txt', 'x'), error => error.message === 'Browser storage is full — export the project as ZIP and free some space.' && error.cause === quota);
+  const other = new Error('denied');
+  file.createWritable = async () => { throw other; };
+  await assert.rejects(writeFile(root, 'f.txt', 'x'), error => error === other);
+});
+
 test('missing paths: reads return null, removal is ok, listing is empty', async () => {
   const root = new MemoryDirectoryHandle('root', { 'f.txt': 'x' });
   assert.equal(await readFile(root, 'nope/x.txt'), null);
