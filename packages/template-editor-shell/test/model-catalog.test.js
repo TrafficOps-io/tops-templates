@@ -59,3 +59,14 @@ test('recent model ids are kept per kind, newest first, at most five', () => {
   assert.deepEqual(recentModels('text', storage), ['b', 'f', 'e', 'd', 'c']); assert.deepEqual(recentModels('image', storage), ['img']);
   storage.setItem('trafficops-ai-recent-models', '{broken'); assert.deepEqual(recentModels('text', storage), []);
 });
+
+test('a catalog request that hangs times out, aborts its fetch and is not cached', async () => {
+  resetOpenRouterCatalog();
+  const storage = memory(), signals = [];
+  const hanging = async (_url, init) => { signals.push(init.signal); return new Promise(() => {}); };
+  await assert.rejects(loadOpenRouterCatalog({ fetchImpl: hanging, storage, timeoutMs: 20 }), /did not respond within/);
+  assert.equal(signals[0]?.aborted, true, 'the hanging request is aborted');
+  const fetchImpl = async () => Response.json({ data: [{ id: 'a/text', name: 'Text', architecture: { input_modalities: ['text'], output_modalities: ['text'] }, supported_parameters: ['tools'] }] });
+  assert.equal((await loadOpenRouterCatalog({ fetchImpl, storage, timeoutMs: 20 })).length, 1, 'the next call retries');
+  resetOpenRouterCatalog();
+});

@@ -79,20 +79,35 @@ function readCache(storage, now) {
 /** The cached catalog without a network request, or null. */
 export const cachedOpenRouterCatalog = ({ storage = sessionStore(), now = Date.now } = {}) => readCache(storage, now());
 
-/** Compact catalog records; one request per session (failures are not cached, the next call retries). */
-export function loadOpenRouterCatalog({ fetchImpl = (...args) => globalThis.fetch(...args), storage = sessionStore(), now = Date.now } = {}) {
+export const CATALOG_TIMEOUT_MS = 15000;
+/**
+ * Compact catalog records; one request per session (failures are not cached, the next call retries).
+ * A request that hangs is aborted after timeoutMs, so the settings fall back to free-text model input.
+ */
+export function loadOpenRouterCatalog({ fetchImpl = (...args) => globalThis.fetch(...args), storage = sessionStore(), now = Date.now, timeoutMs = CATALOG_TIMEOUT_MS } = {}) {
   const cached = readCache(storage, now());
   if (cached) return Promise.resolve(cached);
   if (pending && now() - pending.at < TTL_MS) return pending.promise;
-  const promise = (async () => {
-    const response = await fetchImpl(OPENROUTER_MODELS_URL, { credentials: 'omit' });
+  const controller = new AbortController();
+  let timer;
+  // Races the work too: a fetch implementation that ignores the signal cannot hang the picker.
+  const timedOut = new Promise((_resolve, reject) => { timer = setTimeout(() => {
+    const error = new Error(`The OpenRouter model catalog did not respond within ${Math.round(timeoutMs / 1000)} seconds.`);
+    controller.abort(error); reject(error);
+  }, timeoutMs); });
+  timedOut.catch(() => {});
+  const work = (async () => {
+    const response = await fetchImpl(OPENROUTER_MODELS_URL, { credentials: 'omit', signal: controller.signal });
     if (!response?.ok) throw new Error(`The OpenRouter model catalog responded with HTTP ${response?.status}.`);
     const payload = await response.json();
     const models = Array.isArray(payload?.data) ? payload.data.map(compactModel).filter(Boolean) : [];
     if (!models.length) throw new Error('The OpenRouter model catalog is empty.');
+    if (controller.signal.aborted) throw controller.signal.reason;
     try { storage?.setItem(CACHE_KEY, JSON.stringify({ at: now(), models })); } catch { /* Storage full or unavailable: the promise still caches. */ }
     return models;
   })();
+  work.catch(() => {});
+  const promise = Promise.race([work, timedOut]).finally(() => clearTimeout(timer));
   pending = { at: now(), promise };
   promise.catch(() => { if (pending?.promise === promise) pending = null; });
   return promise;
