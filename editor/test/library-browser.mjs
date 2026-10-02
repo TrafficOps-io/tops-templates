@@ -138,6 +138,12 @@ try {
   assert.equal(await page.getByLabel('Headline', { exact: false }).inputValue(), 'Template baseline');
   await page.getByLabel('Headline', { exact: false }).fill('Landing-only headline');
   await waitForSaved('Independent landing', { headline: 'Landing-only headline' });
+  // Save state is text: a role=status badge with the save time, in the toolbar and in the sidebar footer.
+  await page.locator('.hosted-status[role="status"]').filter({ hasText: /^Saved \d{1,2}:\d{2}/ }).waitFor();
+  await page.locator('.sidebar-footer [role="status"]').filter({ hasText: /^Saved \d{1,2}:\d{2}/ }).waitFor();
+  await page.locator('.hosted-more > summary').click(); await page.getByRole('button', { name: 'Expand editor', exact: true }).click();
+  await page.locator('.studio-toolbar [role="status"]').filter({ hasText: /^Saved \d{1,2}:\d{2}/ }).waitFor();
+  await page.keyboard.press('Escape'); await page.locator('.editor-shell.is-expanded').waitFor({ state: 'detached' });
   assert.equal((await readRecords()).find(item => item.id === template.id).settings.headline, 'Template baseline');
 
   await page.getByRole('button', { name: 'Save as template', exact: true }).click();

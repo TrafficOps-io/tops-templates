@@ -65,10 +65,6 @@ h1 { font-size: clamp(2.25rem, 4.5vw, 4.4rem); line-height: 1.02; letter-spacing
 .install-button { gap: .375rem; }
 .project-manager-button { max-width: 15rem; gap: .5rem; }
 .project-manager-button > span:first-of-type { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.save-indicator { width: .4rem; height: .4rem; flex-shrink: 0; border-radius: 999px; background: var(--color-success); }
-.save-indicator.pending { background: var(--color-warning); }
-.save-indicator.saving { background: var(--color-warning); }
-.save-indicator.error { background: var(--color-error); }
 .update-banner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; padding: .75rem 1rem; border: 1px solid color-mix(in srgb, var(--color-primary) 35%, var(--ui-border)); border-radius: var(--radius-field); background: color-mix(in srgb, var(--color-primary) 8%, var(--ui-surface)); font-size: .875rem; }
 .pwa-update-toast { z-index: var(--ui-z-toast); }
 .update-notice { display: flex; align-items: center; gap: .75rem; padding: .75rem; border: 1px solid color-mix(in srgb, var(--color-primary) 35%, var(--ui-border)); border-radius: var(--radius-box); background: var(--ui-surface); box-shadow: 0 .3125rem 1.25rem rgb(0 0 0 / 24%); font-size: .8rem; }

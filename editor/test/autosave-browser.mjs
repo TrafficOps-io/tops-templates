@@ -17,6 +17,7 @@ const script = `
     capabilities:{autosave:true, inlinePreview:false},
     project:{open:async()=>state, save:async value=>{
       window.saveAttempts++;
+      if(window.conflictNext){ window.conflictNext=false; throw Object.assign(new Error('Changed elsewhere.'),{code:'conflict'}); }
       if(!window.allowSave) throw new Error('Browser storage is full.');
       return {...value,revision:value.revision+1};
     }},
@@ -94,6 +95,15 @@ try {
   assert.equal(flushError, 'Browser storage is full.', 'flush propagates failures to stop navigation');
   assert.equal(await page.evaluate(() => window.editor.state.name), 'Keep after failed switch');
   assert.equal(await page.evaluate(() => window.editor.dirty), true);
+  // Save state exposed for the text badge: savedAt after a successful save, conflict after a stale revision.
+  await page.evaluate(() => { window.allowSave = true; window.setExternalBusy(false); });
+  await page.waitForFunction(() => !window.editor.locked);
+  await page.evaluate(() => window.editor.change({ name: 'Timestamped' }));
+  await page.waitForFunction(() => !window.editor.dirty && window.editor.savedAt);
+  assert.ok(await page.evaluate(() => !Number.isNaN(Date.parse(window.editor.savedAt))), 'savedAt is an ISO time of the last successful save');
+  await page.evaluate(() => { window.conflictNext = true; window.editor.change({ name: 'Conflicting' }); });
+  await page.waitForFunction(() => window.editor.conflict);
+  assert.equal(await page.evaluate(() => window.editor.dirty), true, 'a conflict keeps the edits unsaved');
   assert.deepEqual(errors, []);
   console.log('PASS: autosave failure pause/recovery, external navigation locking, revision-aware flush and failure propagation.');
 } finally {

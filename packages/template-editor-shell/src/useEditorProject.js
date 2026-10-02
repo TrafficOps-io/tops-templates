@@ -7,7 +7,7 @@ import { assertBlockDraftScope, assertBlockScopeBase } from './block-edit-scope.
 
 export function useEditorProject(host, onSnapshot, recovered, externalBusy = false) {
   const [state, setState] = useState(null), [analysis, setAnalysis] = useState(null), [baseline, setBaseline] = useState({});
-  const [locale, setLocale] = useState(''), [busy, setBusy] = useState(false), [dirty, setDirty] = useState(false);
+  const [locale, setLocale] = useState(''), [busy, setBusy] = useState(false), [dirty, setDirty] = useState(false), [savedAt, setSavedAt] = useState(''), [saveBusy, setSaveBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false), [aiDraft, setAiDraft] = useState(null);
   const [conversationDraft, previewConversationDraft] = useState(null), [draftAnalysis, setDraftAnalysis] = useState(null);
   const [error, setError] = useState(''), [notice, setNotice] = useState(''), [conflict, setConflict] = useState(false);
@@ -69,14 +69,14 @@ export function useEditorProject(host, onSnapshot, recovered, externalBusy = fal
       return;
     }
     if (!current.current) return;
-    saving.current = true; setBusy(true); setError('');
+    saving.current = true; setBusy(true); setSaveBusy(true); setError('');
     const submitted = current.current, version = editVersion.current;
     try {
       const pending = operation(signal => host.project.save(submitted, { signal }));
       savePromise.current = pending;
       const next = await pending;
       if (!mounted.current) return next;
-      autosavePaused.current = false;
+      autosavePaused.current = false; setSavedAt(new Date().toISOString());
       // Local save snapshots may omit analysis. Keep the working form mounted
       // while fresh diagnostics run, preserving rich-text selection and history.
       if (editVersion.current === version) install(next, { preserveAnalysis: true });
@@ -91,7 +91,7 @@ export function useEditorProject(host, onSnapshot, recovered, externalBusy = fal
       autosavePaused.current = true;
       report(cause);
       if (propagate) throw cause;
-    } finally { savePromise.current = null; saving.current = false; if (mounted.current) setBusy(false); }
+    } finally { savePromise.current = null; saving.current = false; if (mounted.current) { setBusy(false); setSaveBusy(false); } }
   }, [host, conflict, operation, install, report]);
   // App navigation uses the same save/install path as the editor so a later
   // operation failure leaves the open editor on the newly persisted revision.
@@ -147,7 +147,7 @@ export function useEditorProject(host, onSnapshot, recovered, externalBusy = fal
       const pending = operation(signal => host.project.save(validated, { signal }));
       savePromise.current = pending;
       const saved = await pending;
-      if (mounted.current) { install(saved); previewConversationDraft(null); setNotice('Conversation changes applied.'); }
+      if (mounted.current) { setSavedAt(new Date().toISOString()); install(saved); previewConversationDraft(null); setNotice('Conversation changes applied.'); }
       return saved;
     } finally {
       savePromise.current = null; applying.current = false; saving.current = false;
@@ -251,7 +251,7 @@ export function useEditorProject(host, onSnapshot, recovered, externalBusy = fal
     setBusy(true);
     try { const next = await operation(signal => host.project.open({ signal })); if (mounted.current) install(next); } catch (cause) { report(cause); } finally { if (mounted.current) setBusy(false); }
   }
-  return { state, current, setState, install, analysis, baseline, locale, setLocale, busy, setBusy, dirty, locked, change, save, flush, reload, operation, report,
+  return { state, current, setState, install, analysis, baseline, locale, setLocale, busy, setBusy, dirty, savedAt, saving: saveBusy, locked, change, save, flush, reload, operation, report,
     error, setError, notice, setNotice, conflict, files, values, aiBusy, setAiBusy, aiDraft, setAiDraft, preview, previewError, previewPage, setPreviewPage, showPreview, setShowPreview,
     interactivePreview, previewPaused, previewBusy, refreshPreview, togglePreviewPaused, previewDisplayed,
     conversationDraft, previewConversationDraft, applyConversationDraft, previewAnalysis, previewPages };
