@@ -293,7 +293,7 @@
 
 /* Hit targets (spec 5.1): at least 32 px, 44 px on touch screens. */
 @media (pointer: coarse) {
-  .studio-chat-scope button, .studio-chat-run-stop, .studio-card-action, .studio-card-link, .studio-chat-composer-dismiss, .studio-chat-threads-archive, .studio-chat-threads-open { min-height: 44px; }
+  .studio-chat-scope button, .studio-chat-run-stop, .studio-card-action, .studio-card-link, .studio-chat-composer-dismiss, .studio-chat-threads-archive, .studio-chat-threads-open { min-height: 44px; min-width: 44px; }
   .studio-chat-scope .studio-chat-scope-remove, .studio-chat-header-button, .studio-chat-threads-more, .studio-chat-scroll-bottom { width: 44px; height: 44px; min-height: 44px; }
   .studio-chip-main { min-height: 44px; min-width: 44px; margin-block: -12px; }
   .studio-chip-remove { width: 44px; height: 44px; margin: -12px -10px -12px -12px; }

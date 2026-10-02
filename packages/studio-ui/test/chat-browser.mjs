@@ -398,6 +398,13 @@ try {
     }, IMAGE);
     await touch.getByTestId('studio-chat-apply').waitFor();
     await assertTouchTargets('ready with cards');
+    // A scope chip with a short label ("File") is still 44 px wide.
+    await touch.goto(`${origin}/?scopes=project,file`);
+    const fileChip = touch.getByTestId('studio-chat').getByRole('group', { name: 'Assistant task' }).getByRole('button', { name: 'File', exact: true });
+    await fileChip.waitFor();
+    const chipBox = await fileChip.boundingBox();
+    assert.ok(chipBox.width >= 44 && chipBox.height >= 44, `short scope chip ${Math.round(chipBox.width)}×${Math.round(chipBox.height)} ≥ 44 px`);
+    await assertTouchTargets('short scope chips');
     await context.close();
   }
   console.log('chat-browser: OK');
