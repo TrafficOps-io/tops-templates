@@ -1,10 +1,11 @@
 import { BLOB_TAG, ConflictError, ValidationError, fromBase64, sha256Hex, toBase64, validateBlobRef, validatePortableMetadata } from '@trafficops/template-editor-core';
+import { FILE_ATTACHMENT_LIMITS, validateFileAiAttachments } from '@trafficops/template-editor-shell/file-ai-attachments';
 import { createDirectoryConversationStore } from './directory-conversation-store.js';
 import { withLock } from './locks.js';
 import { fileAt, readJson, removePath, writeFile } from './write.js';
 
 const META = '.trafficops/project.json', VALUES = '.trafficops/values.json';
-const DATA_URL = /^data:([a-z0-9.+-]+\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/]*={0,2})$/i, MIME = /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i;
+const ATTACHMENT_ID = /^[a-zA-Z0-9-]{1,80}$/, MIME = /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i;
 const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', { fatal: true });
 const json = value => JSON.stringify(value, null, 2) + '\n';
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -13,41 +14,47 @@ const locked = (projectId, fn, locks) => withLock(`trafficops-project-meta:${pro
 function invalid(condition, message) { if (condition) throw new ValidationError(message); }
 const label = (value, max, message) => { invalid(typeof value !== 'string' || !value.trim() || value.length > max || /[\x00-\x1f\x7f]/.test(value), message); return value; };
 
-// Everything of a brief except its attachments; `attachment` validates one stored or incoming attachment.
+// The brief without its attachments.
 function briefFields(value) {
   invalid(!plain(value), 'Invalid pending AI brief.');
   invalid(typeof value.prompt !== 'string' || value.prompt.length > 6000, 'The AI prompt must contain at most 6000 characters.');
   invalid(value.generateImages !== undefined && typeof value.generateImages !== 'boolean', 'Invalid AI image choice.');
-  invalid(!Array.isArray(value.attachments) || value.attachments.length > 16, 'Invalid pending AI attachments.');
+  invalid(!Array.isArray(value.attachments), 'Invalid pending AI attachments.');
   return { id: label(value.id, 160, 'Invalid pending AI brief ID.'), prompt: value.prompt, mode: label(value.mode, 40, 'Invalid pending AI mode.'), generateImages: value.generateImages === true };
 }
-function attachmentFields(value) {
-  invalid(!plain(value), 'Invalid pending AI attachment.');
-  invalid(typeof value.mime !== 'string' || !MIME.test(value.mime), 'Invalid pending AI attachment type.');
-  return { id: label(value.id, 160, 'Invalid pending AI attachment ID.'), name: label(value.name, 160, 'Invalid pending AI attachment name.'), mime: value.mime, useOnPage: /^image\//.test(value.mime) && value.useOnPage === true };
+
+// The runtime's rules (validateFileAiAttachments: ids, types, contents, count and size limits, name defaults), plus
+// useOnPage, which only an image keeps.
+function runtimeAttachments(list) {
+  let checked;
+  try { checked = validateFileAiAttachments(list); } catch (error) { throw new ValidationError(error.message, { cause: error }); }
+  return checked.map((item, index) => ({ ...item, useOnPage: /^image\//.test(item.mime) && list[index].useOnPage === true }));
 }
 
+// A stored brief: the shape preparePendingAi writes. Attachment contents are checked again on resolve.
 function validatePendingAi(value) {
-  const brief = briefFields(value);
+  const brief = briefFields(value), ids = new Set();
+  invalid(value.attachments.length > FILE_ATTACHMENT_LIMITS.count, 'Invalid pending AI attachments.');
   return { ...brief, attachments: value.attachments.map(item => {
-    const attachment = attachmentFields(item);
+    invalid(!plain(item) || typeof item.id !== 'string' || !ATTACHMENT_ID.test(item.id) || ids.has(item.id), 'Invalid pending AI attachment.');
+    ids.add(item.id);
+    invalid(typeof item.name !== 'string' || item.name.length > 160 || typeof item.mime !== 'string' || !MIME.test(item.mime), 'Invalid pending AI attachment.');
     try { validateBlobRef(item.blob); } catch { throw new ValidationError('Invalid pending AI attachment reference.'); }
     invalid(!['bytes', 'utf8'].includes(item.blob.encoding), 'Invalid pending AI attachment reference.');
-    return { ...attachment, blob: { [BLOB_TAG]: item.blob[BLOB_TAG], encoding: item.blob.encoding, size: item.blob.size } };
+    return { id: item.id, name: item.name, mime: item.mime, useOnPage: /^image\//.test(item.mime) && item.useOnPage === true, blob: { [BLOB_TAG]: item.blob[BLOB_TAG], encoding: item.blob.encoding, size: item.blob.size } };
   }) };
-}
-
-function validateMeta(value) {
-  const meta = validatePortableMetadata(value);
-  return value.pendingAi === undefined ? meta : { ...meta, pendingAi: validatePendingAi(value.pendingAi) };
 }
 
 const noPending = (value, message) => invalid(plain(value) && Object.hasOwn(value, 'pendingAi'), message);
 
-/** `.trafficops/project.json`: portable metadata plus an optional `pendingAi` brief whose attachments are blob refs. */
+/** `.trafficops/project.json`: portable metadata plus an optional `pendingAi` brief whose attachments are blob refs.
+ *  A malformed `pendingAi` never makes the project unreadable: it is omitted and described by `pendingAiError`. */
 export async function readProjectMeta(root) {
   const value = await readJson(root, META);
-  return value === null ? null : validateMeta(value);
+  if (value === null) return null;
+  const meta = validatePortableMetadata(value);
+  if (value.pendingAi === undefined) return meta;
+  try { return { ...meta, pendingAi: validatePendingAi(value.pendingAi) }; } catch (error) { return { ...meta, pendingAiError: `The pending AI brief is invalid and was ignored: ${error.message}` }; }
 }
 
 // Read under the meta lock: the file must exist and belong to projectId.
@@ -58,82 +65,96 @@ async function ownMeta(root, projectId) {
   return current;
 }
 
-export async function createProjectMeta(root, meta, { locks } = {}) {
-  noPending(meta, 'A new project cannot carry a pending AI brief; use storePendingAi.');
+// A prepared brief (refs) whose blobs exist in this folder.
+async function preparedPendingAi(root, value) {
+  const pendingAi = validatePendingAi(value);
+  for (const { blob } of pendingAi.attachments) invalid(!await fileAt(root, `.trafficops/conversations/blobs/${blob[BLOB_TAG]}`), 'A pending AI attachment is missing from the folder.');
+  return pendingAi;
+}
+
+/** Writes project.json once, optionally with a brief from preparePendingAi, so a new project's metadata can be the
+ *  last thing written. */
+export async function createProjectMeta(root, meta, { pendingAi, locks } = {}) {
+  noPending(meta, 'Pass a prepared pending AI brief as the pendingAi option.');
   const value = validatePortableMetadata(meta);
+  const stored = pendingAi === undefined ? value : { ...value, pendingAi: await preparedPendingAi(root, pendingAi) };
   return locked(value.projectId, async () => {
     if (await fileAt(root, META)) throw new ConflictError('The folder already holds a Studio project.');
-    await writeFile(root, META, json(value));
-    return value;
+    await writeFile(root, META, json(stored));
+    return stored;
   }, locks);
 }
 
 /** Read-modify-write of identity metadata (D11). `pendingAi` is untouchable here; `metadataRevision` is store-owned
- *  and grows by one when `name` or `kind` change. */
+ *  and grows by one when `name` or `kind` change. A malformed brief on disk is dropped; the result reports it as
+ *  `pendingAiError` (never written). */
 export async function updateProjectMeta(root, projectId, patch, { locks } = {}) {
   invalid(!plain(patch), 'Invalid project metadata patch.');
   noPending(patch, 'Only storePendingAi and claimPendingAi change the pending AI brief.');
   invalid(patch.projectId !== undefined && patch.projectId !== projectId, 'The project ID cannot be changed.');
   return locked(projectId, async () => {
-    const { pendingAi, ...current } = await ownMeta(root, projectId);
-    const { metadataRevision: _ignored, ...changes } = patch;
+    const { pendingAi, pendingAiError, ...current } = await ownMeta(root, projectId);
+    const { metadataRevision: _ignored, pendingAiError: _report, ...changes } = patch;
     const merged = validatePortableMetadata({ ...current, ...changes, projectId });
     const identityChanged = merged.name !== current.name || merged.kind !== current.kind;
     const next = { ...merged, metadataRevision: (current.metadataRevision ?? 0) + (identityChanged ? 1 : 0) };
     const stored = pendingAi ? { ...next, pendingAi } : next;
     await writeFile(root, META, json(stored));
-    return stored;
+    return pendingAiError ? { ...stored, pendingAiError } : stored;
   }, locks);
 }
 
-/** Stores a brief `{ id, prompt, mode, generateImages, attachments: [{ id, name, mime, dataUrl | text, useOnPage }] }`.
- *  Attachment bytes go to `.trafficops/conversations/blobs/` first, then the refs into project.json. */
-export async function storePendingAi(root, projectId, brief, { locks } = {}) {
+/** Validates a brief `{ id, prompt, mode, generateImages, attachments: [{ id, name, mime, dataUrl | text, useOnPage }] }`
+ *  with the runtime's attachment rules and writes the attachment bytes to `.trafficops/conversations/blobs/`.
+ *  Returns the `pendingAi` value (attachments as blob refs); project.json is not touched. */
+export async function preparePendingAi(root, projectId, brief, { locks } = {}) {
   const fields = briefFields(brief), attachments = [], blobs = [];
-  for (const item of brief.attachments) {
-    const attachment = attachmentFields(item);
-    let bytes, encoding;
-    if (typeof item.text === 'string' && item.dataUrl === undefined) { bytes = encoder.encode(item.text); encoding = 'utf8'; }
-    else {
-      const match = typeof item.dataUrl === 'string' ? item.dataUrl.match(DATA_URL) : null;
-      invalid(!match || match[1].toLowerCase() !== attachment.mime.toLowerCase(), 'A pending AI attachment must be a base64 data URL of its type.');
-      try { bytes = fromBase64(match[2]); } catch { throw new ValidationError('A pending AI attachment is not valid base64.'); }
-      encoding = 'bytes';
-    }
+  for (const { text, dataUrl, ...attachment } of runtimeAttachments(brief.attachments)) {
+    const encoding = text === undefined ? 'bytes' : 'utf8', bytes = text === undefined ? fromBase64(dataUrl.slice(dataUrl.indexOf(',') + 1)) : encoder.encode(text);
     const sha = await sha256Hex(bytes);
     blobs.push([sha, bytes]);
     attachments.push({ ...attachment, blob: { [BLOB_TAG]: sha, encoding, size: bytes.byteLength } });
   }
-  // Ownership is checked before any blob is written; blobs are written outside the meta lock (locks never nest).
-  await locked(projectId, () => ownMeta(root, projectId), locks);
   const store = createDirectoryConversationStore(root, { projectId, locks });
   try { for (const [sha, bytes] of blobs) await store.putBlob(sha, bytes); } finally { store.close(); }
-  const pendingAi = { ...fields, attachments };
+  return { ...fields, attachments };
+}
+
+/** preparePendingAi, then the brief replaces any pending one in an existing project's project.json. */
+export async function storePendingAi(root, projectId, brief, { locks } = {}) {
+  // Ownership is checked before any blob is written; blobs are written outside the meta lock (locks never nest).
+  await locked(projectId, () => ownMeta(root, projectId), locks);
+  const pendingAi = await preparePendingAi(root, projectId, brief, { locks });
   return locked(projectId, async () => {
-    const stored = { ...await ownMeta(root, projectId), pendingAi };
+    const { pendingAi: _previous, pendingAiError: _dropped, ...current } = await ownMeta(root, projectId);
+    const stored = { ...current, pendingAi };
     await writeFile(root, META, json(stored));
     return stored;
   }, locks);
 }
 
-/** The brief of `meta.pendingAi` with attachments resolved back to `{ id, name, mime, dataUrl | text, useOnPage }`. */
+/** The brief of `meta.pendingAi` with attachments resolved back to `{ id, name, mime, dataUrl | text, useOnPage }` and
+ *  checked again with the runtime's rules. */
 export async function resolvePendingAi(root, meta) {
   if (!meta?.pendingAi) return null;
   const { attachments, ...brief } = meta.pendingAi, store = createDirectoryConversationStore(root, { projectId: meta.projectId });
   try {
     const resolved = [];
-    for (const { blob, ...attachment } of attachments) {
+    for (const { blob, id, name, mime, useOnPage } of attachments) {
       const bytes = await store.getBlob(blob[BLOB_TAG]);
-      resolved.push(blob.encoding === 'utf8' ? { id: attachment.id, name: attachment.name, mime: attachment.mime, text: decoder.decode(bytes), useOnPage: attachment.useOnPage } : { id: attachment.id, name: attachment.name, mime: attachment.mime, dataUrl: `data:${attachment.mime};base64,${toBase64(bytes)}`, useOnPage: attachment.useOnPage });
+      let content;
+      try { content = blob.encoding === 'utf8' ? { text: decoder.decode(bytes) } : { dataUrl: `data:${mime};base64,${toBase64(bytes)}` }; } catch { throw new ValidationError('A pending AI text attachment is not valid UTF-8.'); }
+      resolved.push({ id, name, mime, ...content, useOnPage });
     }
-    return { ...brief, attachments: resolved };
+    return { ...brief, attachments: runtimeAttachments(resolved) };
   } finally { store.close(); }
 }
 
-/** Removes `pendingAi` if its id matches; true for exactly one caller. Its blobs become collectable by the store's GC. */
+/** Removes `pendingAi` if its id matches; true for exactly one caller. Its blobs become collectable by the store's GC.
+ *  A malformed brief cannot be claimed. */
 export async function claimPendingAi(root, projectId, id, { locks } = {}) {
   return locked(projectId, async () => {
-    const { pendingAi, ...rest } = await ownMeta(root, projectId);
+    const { pendingAi, pendingAiError, ...rest } = await ownMeta(root, projectId);
     if (!pendingAi || pendingAi.id !== id) return false;
     await writeFile(root, META, json(rest));
     return true;
