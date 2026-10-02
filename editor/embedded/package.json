@@ -1,6 +1,6 @@
 {
   "name": "@trafficops/template-editor-embed",
-  "version": "0.4.12",
+  "version": "0.5.0",
   "type": "module",
   "description": "Embeddable TrafficOps Studio with bundled runtime, Monaco and React",
   "license": "MIT",

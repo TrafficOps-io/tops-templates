@@ -1,6 +1,7 @@
 import { translateStudio } from '@trafficops/template-editor-shell/translation';
 // @ts-check
 import { decodeProject, encodeProject, PolicyError, ConflictError, runOperation, throwIfAborted } from '@trafficops/template-editor-core';
+import { createConversationPort } from '../../src/studio-conversations.js';
 
 /** @typedef {import('@trafficops/template-editor-core').EditorHost} EditorHost */
 const interpolate = (text, values = {}) => text.replace(/\{(\w+)\}/g, (match, key) => values[key] ?? match);
@@ -202,6 +203,9 @@ export async function createHttpHost(options) {
     },
     finish,
   };
+  // PWApps has no server-side dialogue store: embedded conversations live in this browser's IndexedDB (open question 2).
+  const projectKey = `embed:${new URL(options.endpoint, globalThis.location?.href || 'http://localhost/').pathname}`;
+  const conversations = capabilities.ai ? createConversationPort({ projectId: projectKey, kind: initial.kind === 'template' ? 'template' : 'landing', name: initial.name }) : undefined;
   return { language: options.language || 'en', messages: options.messages || {}, capabilities, dialect: initial.dialect,
-    project, analyzer, preview, lifecycle, ...(initial.previewEnabled ? { livePreview } : {}), ...(capabilities.ai ? { ai } : {}), async dispose() { await livePreview.dispose(); if (run) await finish().catch(() => {}); } };
+    project, analyzer, preview, lifecycle, ...(initial.previewEnabled ? { livePreview } : {}), ...(capabilities.ai ? { ai, conversations } : {}), async dispose() { await livePreview.dispose(); if (run) await finish().catch(() => {}); } };
 }

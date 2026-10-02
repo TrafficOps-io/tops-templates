@@ -211,6 +211,13 @@ run. The host returns `{ started: true }` only once. Reloads can pass the same p
 with `autoStart: false` and `mode: 'edit'` for manual recovery. The server owns request
 identity and project access; client settings do not authorize a paid run by themselves.
 
+When the payload enables AI, `HttpHost` also provides `host.conversations` backed by the
+browser's IndexedDB (key `embed:<endpoint path>`), so the embedded editor uses the same
+conversation chat as Studio. Embedded dialogues are stored in the user's browser only: they
+are not synced to the server and are not visible to teammates (open question 2, a separate
+PWApps specification). Chat portals (mention menus, dialogs) mount inside the editor's
+shadow root through `StudioUiProvider`'s `portalContainer`.
+
 Page payloads can set `canSaveTemplate: true` to expose **Save as team template**.
 The named action submits all current editor state and `templateName` to
 `POST {endpoint}/save-template`. The response includes the saved page state and an

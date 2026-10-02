@@ -55,26 +55,53 @@ try {
   const page = await browser.newPage({ viewport: { width: 1500, height: 1100 } }), errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://127.0.0.1:${server.address().port}`);
-  // The embedded host gets a conversations port in plan V Task 9; until then the AI tab shows
-  // "This host does not support persistent conversations." and the kickoff cannot run (T7_SKIP_TASK9).
-  if (!process.env.T7_SKIP_TASK9) {
-    const chat = studioChat(page.locator('#editor'));
-    await chat.status('failed').waitFor();
-    await chat.status('failed').getByText('Mock provider unavailable').first().waitFor();
-    assert.equal(starts, 1);
-    assert.equal(await page.getByRole('tab', { name: 'Conversations', exact: true }).getAttribute('aria-selected'), 'true');
-    assert.equal(await chat.user.first().innerText(), prompt);
-    assert.equal(await page.getByRole('dialog', { name: 'Create new project', exact: true }).count(), 0, 'new-page generation needs no replace confirmation');
+  const chat = studioChat(page.locator('#editor'));
+  await chat.status('failed').waitFor();
+  await chat.status('failed').getByText('Mock provider unavailable').first().waitFor();
+  assert.equal(starts, 1);
+  assert.equal(await page.getByRole('tab', { name: 'Conversations', exact: true }).getAttribute('aria-selected'), 'true');
+  assert.equal(await chat.user.first().innerText(), prompt);
+  assert.equal(await page.getByRole('dialog', { name: 'Create new project', exact: true }).count(), 0, 'new-page generation needs no replace confirmation');
 
-    await page.reload();
-    await chat.status('failed').waitFor();
-    assert.equal(starts, 1, 'reload must not restart paid generation');
-    assert.equal(await chat.user.first().innerText(), prompt, 'failed prompt survives reload for recovery');
-    await chat.status('failed').getByRole('button', { name: 'Continue generation', exact: true }).click();
-    for (let tries = 0; tries < 100 && starts < 2; tries++) await page.waitForTimeout(100);
-    await chat.status('failed').getByText('Mock provider unavailable').first().waitFor();
-    assert.equal(starts, 2, 'manual retry remains available');
-  } // T7_SKIP
+  await page.reload();
+  await chat.status('failed').waitFor();
+  assert.equal(starts, 1, 'reload must not restart paid generation');
+  assert.equal(await chat.user.first().innerText(), prompt, 'failed prompt survives reload for recovery');
+  await chat.status('failed').getByRole('button', { name: 'Continue generation', exact: true }).click();
+  for (let tries = 0; tries < 100 && starts < 2; tries++) await page.waitForTimeout(100);
+  await chat.status('failed').getByText('Mock provider unavailable').first().waitFor();
+  assert.equal(starts, 2, 'manual retry remains available');
+
+// StudioChat popups (mention menu, menus, confirm dialog) must render inside the editor's shadow root,
+// where the adopted stylesheet applies, and never in the light DOM of the host page.
+const inShadow = locator => locator.evaluate(node => node.getRootNode() === document.getElementById('editor').shadowRoot);
+const lightDomPopups = () => page.evaluate(() => document.querySelectorAll('[role="menu"],[role="listbox"],[role="dialog"],.studio-popover').length);
+await chat.prompt.click(); await chat.prompt.pressSequentially('@');
+const mentions = chat.composer.getByRole('listbox', { name: 'Mention targets', exact: true });
+await mentions.waitFor();
+assert.equal(await inShadow(mentions), true, 'mention menu renders inside the shadow root');
+assert.equal(await lightDomPopups(), 0);
+await chat.prompt.press('Escape'); await chat.prompt.fill('');
+await chat.root.locator('.studio-chat-header').getByRole('button', { name: 'Conversations', exact: true }).click();
+const headerMenu = chat.root.locator('.studio-chat-header').getByRole('menu', { name: 'Conversations', exact: true });
+await headerMenu.waitFor();
+assert.equal(await inShadow(headerMenu), true, 'header menu renders inside the shadow root');
+await page.keyboard.press('Escape'); await headerMenu.waitFor({ state: 'hidden' });
+// The thread list (with its delete confirmation) is shown once the chat is at least 560 px wide.
+await page.setViewportSize({ width: 2400, height: 1100 });
+await chat.threads.waitFor();
+await chat.threads.locator('[aria-haspopup="menu"]').first().click();
+const threadMenu = chat.threads.getByRole('menu');
+await threadMenu.waitFor();
+assert.equal(await inShadow(threadMenu), true, 'thread menu renders inside the shadow root');
+await threadMenu.getByRole('menuitem', { name: 'Delete conversation', exact: true }).click();
+const confirm = page.getByRole('dialog', { name: 'Delete conversation?', exact: true });
+await confirm.waitFor();
+assert.equal(await inShadow(confirm), true, 'confirm dialog renders inside the shadow root');
+assert.equal(await lightDomPopups(), 0);
+await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
+await confirm.waitFor({ state: 'hidden' });
+await page.setViewportSize({ width: 1500, height: 1100 });
 
   await page.getByRole('tab', { name: 'Content', exact: true }).click();
   await page.locator('#setting-title').fill('Unsaved botanical content');
@@ -90,7 +117,7 @@ try {
   assert.equal(lastSaved.translations.en.title, 'Unsaved botanical content');
   await page.getByRole('status').filter({ hasText: 'Saved to your team.' }).waitFor();
   assert.deepEqual(errors, []);
-  console.log((process.env.T7_SKIP_TASK9 ? 'PASS (AI kickoff skipped until Task 9):' : 'PASS: automatic AI kickoff,') + ' no repeat on reload, retained prompt/manual retry, named team template from unsaved state, dialog error recovery.');
+  console.log('PASS: automatic AI kickoff, chat popups inside the shadow root, no repeat on reload, retained prompt/manual retry, named team template from unsaved state, dialog error recovery.');
 } finally {
   await browser?.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
 }

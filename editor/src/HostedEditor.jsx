@@ -1,10 +1,14 @@
 import { createRoot } from 'react-dom/client';
 import EditorShell from '@trafficops/template-editor-shell';
+import { StudioUiProvider } from '@trafficops/studio-ui/i18n';
 import { createHttpHost } from '../embedded/src/HttpHost.js';
 import '../embedded/src/embed.css';
 
-export function HostedEditor({ host }) {
-  return <EditorShell host={host} className="hosted-editor" showExportFooter={false} />;
+// Portals (StudioChat menus, dialogs) mount into the shadow-root container so adopted styles apply.
+export function HostedEditor({ host, portalContainer }) {
+  return <StudioUiProvider language={host.language} messages={host.messages} portalContainer={portalContainer}>
+    <EditorShell host={host} className="hosted-editor" showExportFooter={false} />
+  </StudioUiProvider>;
 }
 
 // Styles finish loading before React mounts, including on a cold Shadow DOM load.
@@ -34,7 +38,7 @@ export function mountEditor(element, options) {
     if (disposed) return;
     host = await createHttpHost({ ...options, signal: controller.signal });
     if (disposed) { await host.dispose?.(); return; }
-    shadow.append(container); root = createRoot(container); root.render(<HostedEditor host={host} />);
+    shadow.append(container); root = createRoot(container); root.render(<HostedEditor host={host} portalContainer={container} />);
   })().catch(error => {
     if (disposed) return;
     container.setAttribute('role', 'alert'); container.textContent = error.message; shadow.append(container);
