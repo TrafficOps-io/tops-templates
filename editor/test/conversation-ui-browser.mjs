@@ -8,6 +8,7 @@ import { openThread, studioChat } from './support/studio-chat.js';
 
 // Production UI and disposable browser storage. No provider or filesystem actions.
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const AxeBuilder = createRequire(import.meta.url)('@axe-core/playwright').default;
 const root = resolve(process.argv[2] || 'editor/dist'), out = '/tmp/studio-conversation-ui-browser';
 await mkdir(out, { recursive: true });
 const source = '@template "Conversation UI"\n@section page "Page"\n@param title String = "Collection" label="Title"\n@endsection\n@layout\n<html><head><link rel="stylesheet" href="styles.css"></head><body><section data-block="Main hero"><h1>{{title}}</h1><p>Neutral collection demo.</p></section><article data-block="Comment">First comment</article><article data-block="Comment">Second comment</article></body></html>\n@endlayout\n';
@@ -33,7 +34,7 @@ const server = createServer(async (request, response) => {
 });
 await new Promise(done => server.listen(0, '127.0.0.1', done));
 let browser;
-const report = { paidRequests: 0, errors: [], widths: [], checks: [] };
+const report = { paidRequests: 0, errors: [], widths: [], checks: [], axe: [] };
 try {
   browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || (process.platform === 'darwin' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : undefined) });
   const origin = `http://127.0.0.1:${server.address().port}`;
@@ -61,6 +62,19 @@ try {
   assert.deepEqual(await chat.feed.locator('[data-role]').evaluateAll(elements => elements.map(element => element.dataset.role)), ['user', 'assistant']);
   assert.equal(await chat.run('run-style').getAttribute('data-run-status'), 'ready');
   await page.screenshot({ path: `${out}/thread-desktop.png`, fullPage: true }); report.checks.push('run actions follow their message without repeating the assistant summary');
+  // axe (WCAG 2 A/AA) on the open chat with cards and run actions, in the light and the dark theme: critical/serious fail.
+  const blocking = [];
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(name => document.documentElement.setAttribute('data-theme', `studio-${name}`), theme); await page.waitForTimeout(400);
+    await page.screenshot({ path: `${out}/chat-${theme}.png` });
+    const { violations } = await new AxeBuilder({ page }).include('[data-testid="studio-chat"]').withTags(['wcag2a', 'wcag2aa']).analyze();
+    for (const violation of violations) {
+      const line = `[${theme}] ${violation.id} (${violation.impact}) ${violation.help} — ${violation.nodes.map(node => node.target.join(' ')).slice(0, 6).join(' | ')}`;
+      report.axe.push(line); if (['critical', 'serious'].includes(violation.impact)) blocking.push(line);
+    }
+  }
+  await page.evaluate(() => document.documentElement.removeAttribute('data-theme'));
+  assert.deepEqual(blocking, [], 'axe: no critical/serious violations in the open chat'); report.checks.push('axe on the open chat in both themes');
   const removed = chat.cards('diff').filter({ hasText: 'removed.txt' }); assert.equal(await removed.count(), 1);
   await removed.getByRole('button', { name: 'Show full changes', exact: true }).click(); assert.ok((await removed.locator('.studio-card-diff').innerText()).includes('Neutral collection note 100'));
   const layout = await panel.evaluate(element => { const stream = element.querySelector('[data-testid="studio-chat-feed"]'), composer = element.querySelector('[data-testid="studio-chat-composer"]'), before = composer.getBoundingClientRect().top; stream.scrollTop = 0; const after = composer.getBoundingClientRect().top; return { scrolls: stream.scrollHeight > stream.clientHeight, stays: Math.abs(after - before) < 1, contained: composer.getBoundingClientRect().bottom <= element.getBoundingClientRect().bottom + 1 }; }); assert.deepEqual(layout, { scrolls: true, stays: true, contained: true }); report.checks.push('long conversation scrolls independently from composer');
