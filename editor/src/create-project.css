@@ -53,5 +53,5 @@
 .brief-ideas > div { display: flex; flex-wrap: wrap; gap: .25rem; }
 
 .template-choices button.template-choice { text-align: left; }
-.template-choices .template-choice[aria-pressed="true"] { border-color: var(--ui-accent); }
-.template-choices .template-choice[aria-pressed="true"] .template-choice-check { opacity: 1; }
+.template-choices .template-choice[aria-pressed="true"] { border-color: var(--ui-accent); background: color-mix(in srgb, var(--ui-accent) 6%, var(--ui-surface)); }
+.template-choices .template-choice[aria-pressed="true"] .template-choice-check { display: grid; }
