@@ -1,0 +1,31 @@
+{
+  "checks": 28,
+  "pageErrors": [],
+  "seriousOrCriticalAccessibility": [],
+  "screenshots": "/Users/igorolshevsky/.codex/visualizations/2026/10/02/01a0fca6-8aa0-7d91-8d89-5d05275f13bb/templates-redesign-v2/final",
+  "studio": {
+    "units": {
+      "studio": 464,
+      "shell": 200,
+      "ui": 77
+    },
+    "builds": [
+      "docs",
+      "editor",
+      "embed"
+    ],
+    "hostsCheck": "PASS",
+    "rootFinalStudio": "PASS",
+    "rootCrossSurface": "PASS",
+    "workspaceAxe": "PASS",
+    "finalExportAxe": "PASS",
+    "visualStates": 48,
+    "widths": [
+      320,
+      390,
+      1024,
+      1440
+    ],
+    "livePaidCalls": 0
+  }
+}
