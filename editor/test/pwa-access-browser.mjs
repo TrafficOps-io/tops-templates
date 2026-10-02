@@ -162,7 +162,7 @@ try {
   await assertNoPrivilegedControls(tab);
   await tab.getByRole('button', { name: 'Close new project', exact: true }).click();
   await createStarter(tab, 'Browser editor');
-  await tab.getByRole('button', { name: 'Your message', exact: true }).click();
+  await tab.getByRole('tablist', { name: 'Sections' }).getByRole('tab', { name: 'Your message', exact: true }).click();
   await tab.getByLabel('Image path', { exact: false }).waitFor();
   await assertNoPrivilegedControls(tab);
 
@@ -215,7 +215,7 @@ try {
   await pwa.getByRole('button', { name: 'With AI', exact: true }).waitFor();
   await pwa.getByRole('button', { name: 'Close new project', exact: true }).click();
   await createStarter(pwa, 'Installed PWA editor');
-  await pwa.getByRole('button', { name: 'Your message', exact: true }).click();
+  await pwa.getByRole('tablist', { name: 'Sections' }).getByRole('tab', { name: 'Your message', exact: true }).click();
   await pwa.getByRole('button', { name: 'Generate image with AI', exact: true }).waitFor();
   await pwa.getByRole('button', { name: 'Save to folder', exact: true }).waitFor();
   await pwa.getByRole('tab', { name: /^(?:AI assistant|Conversations)$/ }).click();
