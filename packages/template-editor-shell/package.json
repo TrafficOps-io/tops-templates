@@ -6,6 +6,7 @@
   "exports": {
     "./ConversationComposer": "./src/ConversationComposer.jsx",
     "./conversation-runtime": "./src/conversation-runtime.js",
+    "./chat-port": "./src/chat-port.js",
     "./conversation-changes": "./src/conversation-changes.js",
     "./block-edit-scope": "./src/block-edit-scope.js",
     "./block-ai-workflow": "./src/block-ai-workflow.js",
