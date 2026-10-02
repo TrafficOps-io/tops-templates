@@ -46,14 +46,14 @@ async function paste(target, files = [], text = '', copies = 1) {
     return { prevented: event.defaultPrevented, images: [...data.files].filter(file => file.type.startsWith('image/')).length };
   }, { files, text, copies });
 }
-// Composer attachments are StudioChat chips; New project (library) keeps its own list until Task 8.
-const chipsOf = scope => scope.locator('.studio-chip-attachment, .ai-attachment-list li');
+// Composer attachments are StudioComposer chips (project chat and the New project brief).
+const chipsOf = scope => scope.locator('.studio-chip-attachment');
 async function expectAttachments(scope, count) {
   await chipsOf(scope).nth(count ? count - 1 : 0).waitFor({ state: count ? 'attached' : 'detached' });
   assert.equal(await chipsOf(scope).count(), count);
 }
 async function removeAll(scope) {
-  const remove = scope.locator('.studio-chip-attachment .studio-chip-remove, .ai-attachment-list button');
+  const remove = scope.locator('.studio-chip-attachment .studio-chip-remove');
   while (await remove.count()) await remove.first().click();
   await expectAttachments(scope, 0);
 }
@@ -194,12 +194,12 @@ try {
   await page.getByRole('button', { name: 'New project', exact: true }).first().click();
   const create = page.getByRole('dialog', { name: 'New project', exact: true });
   await create.getByRole('button', { name: 'With AI', exact: true }).click();
-  const createPrompt = create.locator('textarea'); // the home brief composer moves to StudioComposer in plan V Task 8
+  const createPrompt = create.locator('[data-testid="studio-chat-composer"] textarea');
   await createPrompt.fill('Create a page matching my clipboard reference.');
   await checkTextPaste(create, createPrompt, await createPrompt.inputValue());
   assert.equal((await paste(createPrompt, [image('new-project-reference.png')])).prevented, true);
   await expectAttachments(create, 1);
-  await create.getByRole('button', { name: 'Remove reference new-project-reference.png', exact: true }).click();
+  await create.getByRole('button', { name: 'Remove new-project-reference.png', exact: true }).click();
   await expectAttachments(create, 0);
   await create.getByRole('button', { name: 'Cancel', exact: true }).click();
   report.states.push('New project AI brief: text/image paste, preview and removal');
@@ -212,7 +212,7 @@ try {
 } catch (error) {
   report.passed = false; report.error = error.message;
   if (page && !page.isClosed()) {
-    report.diagnostics = await page.evaluate(() => ({ requests: window.clipboardQa?.requests.length, attachments: [...document.querySelectorAll('.studio-chat-composer-attachments, .ai-attachment-list')].map(list => list.innerText), alerts: [...document.querySelectorAll('[role="alert"]')].map(element => element.innerText) }));
+    report.diagnostics = await page.evaluate(() => ({ requests: window.clipboardQa?.requests.length, attachments: [...document.querySelectorAll('.studio-chat-composer-attachments')].map(list => list.innerText), alerts: [...document.querySelectorAll('[role="alert"]')].map(element => element.innerText) }));
     await page.screenshot({ path: `${out}/failure.png`, fullPage: true });
   }
   await writeFile(`${out}/report.json`, JSON.stringify(report, null, 2)); throw error;

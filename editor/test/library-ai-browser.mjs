@@ -84,12 +84,13 @@ async function createAiProject(page, name, prompt, withAttachment = false) {
   await dialog.getByRole('button', { name: 'With AI', exact: true }).click();
   await dialog.getByText('Project options', { exact: true }).click();
   await dialog.getByRole('textbox', { name: 'Project name (optional)', exact: true }).fill(name);
-  await dialog.getByRole('combobox', { name: 'Message to assistant', exact: true }).fill(prompt);
+  const composer = dialog.locator('[data-testid="studio-chat-composer"]');
+  await composer.getByRole('textbox', { name: 'Message to assistant', exact: true }).fill(prompt);
   if (withAttachment) {
-    await dialog.getByLabel('Reference files', { exact: true }).setInputFiles({ name: 'brand-reference.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4n+DwHwAGoAKfr+/eKAAAAABJRU5ErkJggg==', 'base64') });
-    await dialog.getByRole('checkbox', { name: 'Use on page', exact: true }).check();
+    await composer.locator('input[type=file]').setInputFiles({ name: 'brand-reference.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4n+DwHwAGoAKfr+/eKAAAAABJRU5ErkJggg==', 'base64') });
+    await composer.getByRole('checkbox', { name: 'Use attached images on the page', exact: true }).check();
   }
-  await dialog.getByRole('button', { name: 'Create project', exact: true }).click();
+  await composer.locator('button[type=submit]').click();
   await dialog.waitFor({ state: 'hidden' });
   await showLatestThread(page);
   assert.equal(await page.getByRole('button', { name: 'Collapse editor', exact: true }).count(), 0, 'the installed app keeps the editor open');

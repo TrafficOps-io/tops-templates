@@ -7,11 +7,12 @@
 .home-chat-kind button { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; padding: .6rem .85rem; border: 1px solid transparent; border-radius: 999px; color: var(--ui-muted); font-size: .78rem; line-height: 1.3; transition: background .15s, color .15s; }
 .home-chat-kind button[aria-pressed=true] { color: var(--color-base-content); background: var(--ui-surface); border-color: var(--ui-border); }
 .home-chat-kind button:hover:not(:disabled), .home-chat-ideas button:hover:not(:disabled) { color: var(--color-base-content); background: var(--ui-surface); border-color: var(--ui-border); }
-.home-project-chat .conversation-composer { padding: 1rem; border-radius: 1.25rem; box-shadow: 0 .75rem 2rem rgb(0 0 0 / 5%); transition: border-color .15s, box-shadow .15s; }
-.home-project-chat .conversation-composer:focus-within { border-color: color-mix(in srgb, var(--color-primary) 55%, var(--ui-border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 7%, transparent); }
-.home-project-chat .conversation-composer > textarea { min-height: 7rem; max-height: 18rem; padding: .35rem .4rem; font-size: 1rem; line-height: 1.7; }
-.home-project-chat .conversation-send { border-radius: 50%; padding: 0; }
-.home-project-chat .conversation-send > svg { flex-shrink: 0; }
+.home-project-chat .studio-chat-composer { padding: 1rem; border-radius: 1.25rem; box-shadow: 0 .75rem 2rem rgb(0 0 0 / 5%); transition: border-color .15s, box-shadow .15s; }
+.home-project-chat .studio-chat-composer:focus-within { border-color: color-mix(in srgb, var(--color-primary) 55%, var(--ui-border)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 7%, transparent); }
+.home-project-chat .studio-chat-composer-input { min-height: 7rem; max-height: 18rem; padding: .35rem .4rem; font-size: 1rem; line-height: 1.7; }
+.home-project-chat .studio-chat-composer-send { border-radius: 50%; }
+.studio-chat-composer-extra:has(.ai-use-on-page) { flex-wrap: wrap; gap: .25rem .75rem; }
+.home-brief-loading { min-height: 148px; }
 .home-chat-ideas { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .4rem; margin-top: 1rem; }
 .home-chat-ideas > span { color: var(--ui-muted); font-size: .72rem; margin-right: .15rem; }
 .home-chat-ideas button { font-size: .72rem; line-height: 1.35; padding: .5rem .7rem; color: var(--ui-muted); border: 1px solid var(--ui-border); border-radius: 999px; transition: background .15s, color .15s; }
@@ -26,8 +27,7 @@
   .home-project-chat { margin: .75rem auto 2.5rem; }
   .home-chat-intro { margin-bottom: 1.25rem; }
   .home-chat-intro p { font-size: .8rem; }
-  .home-project-chat .conversation-composer { padding: .7rem; border-radius: 1rem; }
-  .home-project-chat .conversation-composer > textarea { min-height: 7rem; }
+  .home-project-chat .studio-chat-composer { padding: .7rem; border-radius: 1rem; }
   .home-chat-kind button { min-height: 44px; padding-inline: .75rem; }
   .home-chat-ideas { gap: .35rem; }
   .home-chat-ideas > span { width: 100%; margin: 0 0 .15rem; text-align: center; }

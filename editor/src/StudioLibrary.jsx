@@ -1,11 +1,9 @@
-import ConversationComposer from '@trafficops/template-editor-shell/ConversationComposer';
-import { resolveImageGeneration } from '@trafficops/template-editor-shell/ai-image-choice';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, Copy, FileCode2, FolderOpen, LayoutTemplate, Plus, Search, Sparkles, Trash2, Upload, X } from 'lucide-react';
 import { generateProject } from '@trafficops/template-runtime';
 import { buildPreview } from '@trafficops/template-editor-shell/preview';
 import { studioStarters } from './studio-catalog.js';
-import HomeProjectChat from './HomeProjectChat.jsx';
+import HomeProjectChat, { BRIEF_REQUIRED, BriefComposer, briefAttachments } from './HomeProjectChat.jsx';
 
 function Thumbnail({ project }) {
   const [visible, setVisible] = useState(false), root = useRef(null);
@@ -36,12 +34,10 @@ export default function StudioLibrary({ projects, busy, aiEnabled = false, aiSet
 
 export function CreateProjectDialog({ initial = {}, templates, busy, aiEnabled = false, aiSettings, onCreate, onClose }) {
   const [kind, setKind] = useState(initial.kind || 'landing'), [mode, setMode] = useState(initial.mode === 'ai' && !aiEnabled ? 'template' : initial.mode || (aiEnabled ? 'ai' : 'template'));
-  const [readingAttachments, setReadingAttachments] = useState(false);
-  const [attachments, setAttachments] = useState([]), [imageChoice, setImageChoice] = useState(initial.generateImages), [settings, setSettings] = useState(null);
-  const generateImages = resolveImageGeneration(imageChoice, settings);
+  const [attachments, setAttachments] = useState([]), [useOnPage, setUseOnPage] = useState(false), [imageChoice, setImageChoice] = useState(initial.generateImages), [settings, setSettings] = useState(null);
   const [name, setName] = useState(initial.source ? `${initial.source.name} landing` : ''), [prompt, setPrompt] = useState('');
   const [sourceId, setSourceId] = useState(initial.source?.id || studioStarters[0].id), [error, setError] = useState('');
-  const dialog = useRef(null), choices = [...templates, ...studioStarters];
+  const dialog = useRef(null), formId = useId(), choices = [...templates, ...studioStarters];
   useEffect(() => { dialog.current.showModal(); }, []);
   useEffect(() => { if (!aiEnabled) setMode(value => value === 'ai' ? 'template' : value); }, [aiEnabled]);
   useEffect(() => {
@@ -53,19 +49,22 @@ export function CreateProjectDialog({ initial = {}, templates, busy, aiEnabled =
     load(); window.addEventListener('trafficops-ai-settings', load);
     return () => { alive = false; window.removeEventListener('trafficops-ai-settings', load); };
   }, [aiEnabled, aiSettings]);
-  async function submit(event) {
-    event.preventDefault(); if (busy || readingAttachments || (mode === 'ai' && settings === null)) return; setError('');
+  // Template/blank submit through the hidden form (the composer is a form of its own, forms cannot nest);
+  // the AI brief submits through BriefComposer with its File[] attachments.
+  async function create(brief) {
+    if (busy || (mode === 'ai' && settings === null)) return false; setError('');
+    if (brief && !brief.text.trim()) { setError(BRIEF_REQUIRED); return false; }
     // Resolve the default at generation time: the user may connect an image
     // model in the editor after creating this project's initial brief.
-    try { await onCreate({ kind, mode, name: name.trim(), prompt: prompt.trim(), attachments, generateImages: imageChoice, source: choices.find(item => item.id === sourceId) }); }
-    catch (cause) { setError(cause.message); }
+    try { await onCreate({ kind, mode, name: name.trim(), prompt: (brief?.text ?? prompt).trim(), attachments: brief ? await briefAttachments(brief.attachments, brief.useOnPage) : [], generateImages: imageChoice, source: choices.find(item => item.id === sourceId) }); }
+    catch (cause) { setError(cause.message); return false; }
   }
-  return <dialog ref={dialog} className="modal" aria-labelledby="create-project-title" onCancel={event => { if (busy) event.preventDefault(); else onClose(); }}><form className="modal-box create-project-modal" onSubmit={submit}><div className="dialog-heading"><div><span className="section-kicker">START SOMETHING</span><h2 id="create-project-title">New project</h2></div><button type="button" className="btn btn-ghost btn-sm btn-square" aria-label="Close new project" disabled={busy} onClick={onClose}><X size={18} /></button></div><fieldset disabled={busy}>
+  return <dialog ref={dialog} className="modal" aria-labelledby="create-project-title" onCancel={event => { if (busy) event.preventDefault(); else onClose(); }}><div className="modal-box create-project-modal"><form id={formId} hidden onSubmit={event => { event.preventDefault(); create(); }} /><div className="dialog-heading"><div><span className="section-kicker">START SOMETHING</span><h2 id="create-project-title">New project</h2></div><button type="button" className="btn btn-ghost btn-sm btn-square" aria-label="Close new project" disabled={busy} onClick={onClose}><X size={18} /></button></div><fieldset disabled={busy}>
     <div className={`creation-mode ${aiEnabled ? '' : 'manual-only'}`} role="group" aria-label="Creation method">{[['template', 'From template', LayoutTemplate], ['blank', 'From scratch', FileCode2], ...(aiEnabled ? [['ai', 'With AI', Sparkles]] : [])].map(([value, label, Icon]) => <button type="button" key={value} aria-pressed={mode === value} onClick={() => { setMode(value); setError(''); }}><Icon size={16} />{label}</button>)}</div>
-    {mode !== 'ai' && <label className="field"><span>Project name</span><input className="input w-full" autoFocus required maxLength={120} value={name} placeholder="My next idea" onChange={event => setName(event.target.value)} /></label>}
-    {mode === 'template' && <label className="field"><span>Starting template</span><select className="select w-full" value={sourceId} onChange={event => setSourceId(event.target.value)}>{choices.map(item => <option key={item.id} value={item.id}>{item.name}{item.builtin ? ' · Starter' : ' · Your template'}</option>)}</select><small>Creates an independent copy, including content and assets.</small></label>}
+    {mode !== 'ai' && <label className="field"><span>Project name</span><input form={formId} className="input w-full" autoFocus required maxLength={120} value={name} placeholder="My next idea" onChange={event => setName(event.target.value)} /></label>}
+    {mode === 'template' && <label className="field"><span>Starting template</span><select form={formId} className="select w-full" value={sourceId} onChange={event => setSourceId(event.target.value)}>{choices.map(item => <option key={item.id} value={item.id}>{item.name}{item.builtin ? ' · Starter' : ' · Your template'}</option>)}</select><small>Creates an independent copy, including content and assets.</small></label>}
     {mode === 'blank' && <p className="create-explanation">Start with a minimal editable page. Add files and make it yours.</p>}
-    {mode === 'ai' && <><ConversationComposer prompt={prompt} onPromptChange={setPrompt} attachments={attachments} onAttachmentsChange={setAttachments} onBusyChange={setReadingAttachments} disabled={busy || settings === null} onSubmit={() => submit({ preventDefault() {} })} submitLabel={busy ? 'Creating…' : 'Create project'} placeholder="Describe your landing page" settings={settings} generateImages={generateImages} onGenerateImagesChange={setImageChoice} autoFocus /><p className="field-help">A new project and its first conversation open after you send the brief. You can connect your AI key in the editor.</p></>}
+    {mode === 'ai' && <><BriefComposer value={prompt} onChange={setPrompt} attachments={attachments} onAttachmentsChange={setAttachments} settings={settings} imageChoice={imageChoice} onImageChoiceChange={setImageChoice} useOnPage={useOnPage} onUseOnPageChange={setUseOnPage} disabled={busy || settings === null} onSubmit={create} placeholder="Describe your landing page" autoFocus /><p className="field-help">A new project and its first conversation open after you send the brief. You can connect your AI key in the editor.</p></>}
     <details className="create-project-options" open={mode !== 'ai'}><summary>{mode === 'ai' ? 'Project options' : 'Project type'}</summary>{mode === 'ai' && <label className="field"><span>Project name (optional)</span><input className="input w-full" maxLength={120} value={name} placeholder="Named from your brief" onChange={event => setName(event.target.value)} /></label>}<div className="create-kind" role="group" aria-label="Project type">{[['landing', 'Landing page', 'A page ready to customize and export.'], ['template', 'Reusable template', 'A starting point for future landing pages.']].map(([value, title, text]) => <button type="button" key={value} aria-pressed={kind === value} onClick={() => setKind(value)}><strong>{title}</strong><span>{text}</span></button>)}</div></details>
-    </fieldset>{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-action"><button type="button" className="btn btn-ghost" disabled={busy} onClick={onClose}>Cancel</button>{mode !== 'ai' && <button className="btn btn-primary" disabled={busy || readingAttachments}>{busy ? 'Creating…' : `Create ${kind === 'template' ? 'template' : 'landing'}`}</button>}</div></form></dialog>;
+    </fieldset>{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-action"><button type="button" className="btn btn-ghost" disabled={busy} onClick={onClose}>Cancel</button>{mode !== 'ai' && <button form={formId} className="btn btn-primary" disabled={busy}>{busy ? 'Creating…' : `Create ${kind === 'template' ? 'template' : 'landing'}`}</button>}</div></div></dialog>;
 }
