@@ -24,7 +24,7 @@ const priceText = (price, t) => [price?.input && t('In {price}', { price: price.
 // reachable but not selectable and shows its reason.
 export default function ModelPicker({ value = null, options = NONE, onChange, recentIds = NONE, recommendedIds = NONE, inherit, placeholder, disabled = false, compact = false, label, portalContainer, className = '' }) {
   const t = useStudioText(), id = useId(), listId = `${id}-list`;
-  const root = useRef(null), trigger = useRef(null), popup = useRef(null), list = useRef(null);
+  const root = useRef(null), trigger = useRef(null), popup = useRef(null), list = useRef(null), search = useRef(null);
   const [open, setOpen] = useState(false), [query, setQuery] = useState(''), [filters, setFilters] = useState([]), [limit, setLimit] = useState(PAGE);
   const [active, setActive] = useState(-1), [position, setPosition] = useState(null);
   const name = label || t('Model');
@@ -62,6 +62,10 @@ export default function ModelPicker({ value = null, options = NONE, onChange, re
     win.addEventListener('scroll', measure, true);
     return () => { win.removeEventListener('resize', measure); win.removeEventListener('scroll', measure, true); };
   }, [open]);
+
+  // Focus the search only once the popover is placed, and without scrolling: autoFocus on mount scrolled the
+  // chat column towards a popover that had not been positioned yet.
+  useEffect(() => { if (open && position) search.current?.focus({ preventScroll: true }); }, [open, Boolean(position)]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep the active option visible inside the list without scrolling the page.
   useLayoutEffect(() => {
@@ -141,7 +145,7 @@ export default function ModelPicker({ value = null, options = NONE, onChange, re
     data-portal={portalContainer ? '' : undefined} style={style ?? undefined} onKeyDown={keyDown}>
     <div className="studio-model-search">
       <Search size={14} aria-hidden="true" />
-      <input type="search" autoFocus value={query} placeholder={t('Search models')} aria-label={t('Search models')}
+      <input ref={search} type="search" value={query} placeholder={t('Search models')} aria-label={t('Search models')}
         role="combobox" aria-expanded="true" aria-autocomplete="list" aria-controls={listId} aria-activedescendant={rows[active] ? optionId(active) : undefined}
         onChange={event => { setQuery(event.target.value); setLimit(PAGE); }} />
     </div>
