@@ -15,7 +15,7 @@ export interface Scope { kind: ScopeKind; targetId?: string; label?: string }
 export type RunStatus = 'queued' | 'running' | 'ready' | 'completed' | 'failed' | 'interrupted' | 'cancelled' | 'applied' | 'discarded';
 export interface RunState { id: string; status: RunStatus; progress?: number; etaSeconds?: number; step?: { current: number; total: number }; cost?: number; message?: string }
 
-export type ResultCardType = 'diff' | 'values' | 'image' | 'audio' | 'video' | 'file' | 'operation' | 'question';
+export type ResultCardType = 'diff' | 'values' | 'image' | 'audio' | 'video' | 'file' | 'operation' | 'question' | 'step';
 export interface DiffCard { type: 'diff'; path: string; added: number; removed: number; before: string; after: string }
 export interface ValuesCard { type: 'values'; section: string; changes: { path: string; before: unknown; after: unknown }[] }
 export interface ImageCard { type: 'image'; name: string; before?: string; after: string; variants?: string[]; width?: number; height?: number; cost?: number }
@@ -27,7 +27,13 @@ export interface FileCard { type: 'file'; name: string; bytes: number; url?: str
 export interface OperationCard { type: 'operation'; label: string; target: MentionTarget; before?: string; after?: string }
 /** kind 'conflict' с options ['reviewed', 'rebase'] — ворота применения (landing); references — затронутые пути/цели. */
 export interface QuestionCard { type: 'question'; questionId: string; text: string; options?: string[]; answered?: boolean; kind?: 'conflict'; references?: string[] }
-export type ResultCard = DiffCard | ValuesCard | ImageCard | AudioCard | VideoCard | FileCard | OperationCard | QuestionCard;
+/**
+ * Шаг агента (как в Claude Code): компактная строка «✓ Прочитал сцену 2», «⟳ Подагент storyboard: раскадровка»,
+ * «✗ edit_track: durationMs должен быть > 0 (исправляю)». label — что делает шаг; detail — приглушённое пояснение
+ * (ошибка инструмента, итог); agent — имя подагента, если шаг выполняет он. Не черновик: Apply/Discard от него не зависят.
+ */
+export interface StepCard { type: 'step'; label: string; status: 'running' | 'done' | 'error'; detail?: string; agent?: string }
+export type ResultCard = DiffCard | ValuesCard | ImageCard | AudioCard | VideoCard | FileCard | OperationCard | QuestionCard | StepCard;
 
 /**
  * Правила контракта:
@@ -37,7 +43,16 @@ export type ResultCard = DiffCard | ValuesCard | ImageCard | AudioCard | VideoCa
  * - RunState.id равен id сообщения ассистента (иначе stop/apply/discard(runId) не находят сообщение).
  */
 export type MessagePart = { type: 'text'; text: string } | { type: 'tool-call'; toolCallId: string; toolName: ResultCardType; result: ResultCard };
-export interface Message { id: string; role: 'user' | 'assistant'; createdAt: string; parts: MessagePart[]; status?: RunState; mentions?: MentionTarget[]; attachments?: Attachment[]; cost?: number }
+/**
+ * Положение сообщения среди соседей — сообщений с тем же parentId (ответы на одно сообщение, правки одного вопроса).
+ * index — с нуля; count — число соседей вместе с этим сообщением; siblingIds — id соседей по порядку, siblingIds[index] === id.
+ */
+export interface MessageBranch { index: number; count: number; siblingIds: string[] }
+/**
+ * parentId — родитель в дереве диалога (null у первого сообщения). Дерево хранит порт: messages(threadId) отдаёт
+ * видимый путь — линейный список от корня до текущего листа; StudioChat показывает переключатель веток при branch.count > 1.
+ */
+export interface Message { id: string; role: 'user' | 'assistant'; createdAt: string; parts: MessagePart[]; status?: RunState; mentions?: MentionTarget[]; attachments?: Attachment[]; cost?: number; parentId?: string | null; branch?: MessageBranch }
 /** cost — итог за диалог (ChatHeader), считает порт. */
 export interface Thread { id: string; title: string; createdAt: string; updatedAt: string; archived?: boolean; cost?: number }
 
@@ -55,8 +70,11 @@ export interface SendInput { text: string; mentions: MentionTarget[]; attachment
  * keepDraft — landing: «Keep draft in editor» для failed/interrupted ранов; conflictReview — порт присылает QuestionCard kind 'conflict';
  * clarifyWhileRunning — порт принимает send() во время рана как уточнение этого рана (тот же тред): композер не блокируется.
  * discardStopped — порт принимает discard() для failed/interrupted/cancelled ранов: «Discard» у такого рана, если у сообщения есть карточки черновика (diff/values/image/file).
+ * regenerate, edit, branches — порт поддерживает повтор ответа, правку сообщения пользователя и переключение веток. Кнопки
+ * показываются, когда порт реализует метод (regenerate, editMessage, switchBranch) и флаг не равен false; false скрывает их
+ * при наличии метода (например, тред только для чтения).
  */
-export interface ChatCapabilities { scopes: ScopeKind[]; cost: boolean; previewDraft: boolean; generateImages: boolean; conflictReview?: boolean; keepDraft?: boolean; clarifyWhileRunning?: boolean; discardStopped?: boolean }
+export interface ChatCapabilities { scopes: ScopeKind[]; cost: boolean; previewDraft: boolean; generateImages: boolean; conflictReview?: boolean; keepDraft?: boolean; clarifyWhileRunning?: boolean; discardStopped?: boolean; regenerate?: boolean; edit?: boolean; branches?: boolean }
 
 /** Продуктовые методы (например registerBlockScope) в контракт не входят — они остаются на объекте адаптера. */
 export interface ChatPort {
@@ -73,6 +91,18 @@ export interface ChatPort {
   continueRun?(runId: string, prompt?: string): Promise<void>;
   /** Перенести черновик рана в редактор без применения (landing). */
   keepDraft?(runId: string): Promise<void>;
+  /**
+   * Повторить ответ: messageId — сообщение ассистента. Порт создаёт соседа-ассистента (тот же parentId), делает его ветку
+   * видимой и запускает ран. Это же «Повторить» у упавшего, остановленного или прерванного рана.
+   */
+  regenerate?(threadId: string, messageId: string): Promise<void>;
+  /**
+   * Изменить сообщение пользователя: создаёт соседа-пользователя (тот же parentId, упоминания и вложения исходного,
+   * новый текст), делает его ветку видимой и запускает новый ран после него.
+   */
+  editMessage?(threadId: string, messageId: string, input: { text: string }): Promise<void>;
+  /** Сделать видимой ветку, содержащую messageId: порт идёт от него до самого свежего листа и обновляет messages(threadId). */
+  switchBranch?(threadId: string, messageId: string): Promise<void>;
   createThread(): Promise<Thread>;
   renameThread(threadId: string, title: string): Promise<void>;
   archiveThread(threadId: string, archived: boolean): Promise<void>;

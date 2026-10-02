@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useExternalStoreRuntime } from '@assistant-ui/react';
-import { addStreamedText, appendMessageText, applyChatEvent, isActiveRun, mergeStreamedText, sendToPort, toThreadMessage } from './chat-model.js';
+import { addStreamedText, appendMessageText, applyChatEvent, canEdit, canRegenerate, isActiveRun, mergeStreamedText, resolveEdit, resolveReloadTarget, sendToPort, toThreadMessage } from './chat-model.js';
 
 export { applyChatEvent, toThreadMessage, RUN_STATUS } from './chat-model.js';
 
@@ -9,7 +9,10 @@ const PROJECT_SCOPE = { kind: 'project' };
 // assistant-ui external-store runtime over a ChatPort (chat/port.d.ts).
 // threadId empty — a new conversation: on the first message the port's createThread() returns a real thread,
 // onThreadCreated(id) lets StudioChat switch to it, and the message is sent into that thread.
-export function useChatRuntime(port, threadId, { scope = PROJECT_SCOPE, mentions = [], attachments = [], generateImages, onSent, onThreadCreated, onRestore, onError } = {}) {
+// onEdit (the message edit composer) → port.editMessage and onReload (ActionBarPrimitive.Reload) → port.regenerate are
+// passed only when the port offers them (canEdit / canRegenerate), so assistant-ui hides Edit and Reload otherwise.
+// Their rejections go to onActionError (falls back to onError); they never reach assistant-ui as unhandled rejections.
+export function useChatRuntime(port, threadId, { scope = PROJECT_SCOPE, mentions = [], attachments = [], generateImages, onSent, onThreadCreated, onRestore, onError, onActionError } = {}) {
   // base: the port's snapshot plus idempotent events (status, part-*); streamed: text-delta segments kept beside it.
   // Keyed by threadId so a thread switch renders the new snapshot at once, without an empty frame.
   const read = id => ({ threadId: id, base: id ? port.messages(id).get() : [], streamed: {} });
@@ -41,6 +44,8 @@ export function useChatRuntime(port, threadId, { scope = PROJECT_SCOPE, mentions
 
   const messages = useMemo(() => mergeStreamedText(state.base, state.streamed), [state]);
   const threadMessages = useMemo(() => messages.map(toThreadMessage), [messages]);
+  const failed = onActionError ?? onError;
+  const portCall = async call => { try { await call(); } catch (error) { failed?.(error); } };
   return useExternalStoreRuntime({
     messages: threadMessages,
     isRunning: messages.some(isActiveRun),
@@ -53,5 +58,17 @@ export function useChatRuntime(port, threadId, { scope = PROJECT_SCOPE, mentions
       if (!run) return;
       try { await port.stop(run.id); } catch (error) { onError?.(error); }
     },
+    ...(canEdit(port) && threadId ? {
+      async onEdit(message) {
+        const edit = resolveEdit(messages, message);
+        if (edit) await portCall(() => port.editMessage(threadId, edit.messageId, { text: edit.text }));
+      },
+    } : {}),
+    ...(canRegenerate(port) && threadId ? {
+      async onReload(parentId, config) {
+        const target = resolveReloadTarget(messages, parentId, config?.sourceId);
+        if (target) await portCall(() => port.regenerate(threadId, target));
+      },
+    } : {}),
   });
 }

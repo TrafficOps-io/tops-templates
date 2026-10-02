@@ -27,6 +27,43 @@ export const canDiscardRun = (port, status, hasDrafts) => typeof port?.discard =
 
 export const isActiveRun = message => ['queued', 'running'].includes(message?.status?.status);
 
+// Regenerate, edit and branches (port.regenerate / editMessage / switchBranch). An action is offered when the port
+// implements the method and the matching capability is not false (false hides it, e.g. for a read-only thread).
+const offered = (port, method, flag) => typeof port?.[method] === 'function' && port.capabilities?.[flag] !== false;
+export const canRegenerate = port => offered(port, 'regenerate', 'regenerate');
+export const canEdit = port => offered(port, 'editMessage', 'edit');
+/** The branch picker needs port.switchBranch and a message with more than one sibling. */
+export const canSwitchBranch = (port, branch) => offered(port, 'switchBranch', 'branches') && isBranch(branch);
+const isBranch = branch => Number.isInteger(branch?.count) && branch.count > 1 && Number.isInteger(branch.index)
+  && Array.isArray(branch.siblingIds) && branch.siblingIds.length === branch.count && branch.index >= 0 && branch.index < branch.count;
+/** Id of the sibling step (-1 previous, +1 next) away from the message, or null at the edge or for a malformed branch. */
+export function branchSibling(branch, step) {
+  if (!isBranch(branch)) return null;
+  return branch.siblingIds[branch.index + step] ?? null;
+}
+// "Retry" under a run that ended without a result: failed, interrupted or cancelled, through port.regenerate.
+const RETRY = new Set(['failed', 'interrupted', 'cancelled']);
+export const canRetryRun = (port, status) => RETRY.has(status) && canRegenerate(port);
+
+/**
+ * assistant-ui onReload(parentId, { sourceId }) → the assistant message to regenerate. sourceId is the assistant message
+ * the reload came from (ActionBarPrimitive.Reload); without it, the first assistant message after parentId in the visible
+ * list (parentId null — from the start). Returns its id or null.
+ */
+export function resolveReloadTarget(messages, parentId, sourceId) {
+  if (sourceId && messages.some(message => message.id === sourceId && message.role === 'assistant')) return sourceId;
+  const start = parentId == null ? 0 : messages.findIndex(message => message.id === parentId) + 1;
+  if (parentId != null && start === 0) return null;
+  return messages.slice(start).find(message => message.role === 'assistant')?.id ?? null;
+}
+
+/** assistant-ui onEdit(AppendMessage) → { messageId, text } for port.editMessage: sourceId is the edited user message. */
+export function resolveEdit(messages, message) {
+  const source = message?.sourceId && messages.find(item => item.id === message.sourceId);
+  if (!source || source.role !== 'user') return null;
+  return { messageId: source.id, text: appendMessageText(message) };
+}
+
 // ChatPort message → ThreadMessageLike. Result cards become tool-call parts, toolName = card type;
 // StudioChat renders them with its own card components. assistant-ui ignores status on user messages.
 export function toThreadMessage(message) {
@@ -39,7 +76,7 @@ export function toThreadMessage(message) {
       ? { type: 'text', text: part.text }
       : { type: 'tool-call', toolCallId: part.toolCallId, toolName: part.toolName, args: {}, result: part.result }),
     status: message.role === 'assistant' && run ? RUN_STATUS[run.status] ?? { type: 'complete', reason: 'unknown' } : undefined,
-    metadata: { custom: { run, mentions: message.mentions, attachments: message.attachments, cost: message.cost } },
+    metadata: { custom: { run, mentions: message.mentions, attachments: message.attachments, cost: message.cost, parentId: message.parentId, branch: message.branch } },
   };
 }
 

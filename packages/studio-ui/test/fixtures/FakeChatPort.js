@@ -1,6 +1,8 @@
 // In-memory ChatPort (chat/port.d.ts) for Node tests and the browser playground.
 // Test controls: emitText(delta), emitCard(card), updateCard(toolCallId, patch), finish(status?), rejectSend, calls, opened,
-// subscribers(threadId) — number of live events() subscriptions.
+// subscribers(threadId) — number of live events() subscriptions, rejectBranching — regenerate/editMessage/switchBranch reject.
+// The conversation is a tree (Message.parentId): messages(threadId) is the visible path from the root to the head leaf,
+// every message on it carries branch { index, count, siblingIds } among the messages with the same parentId.
 
 const MiB = 1024 * 1024;
 
@@ -56,6 +58,7 @@ export function createFakeChatPort({ now = () => new Date().toISOString() } = {}
   const nextId = prefix => `${prefix}${++sequence}`;
   const threads = createStore([]);
   const messageStores = new Map();
+  const trees = new Map(); // threadId → { all: Message[] in creation order, head: id | null }
   const queues = new Map();
   let active = null; // { threadId, messageId }
 
@@ -63,21 +66,47 @@ export function createFakeChatPort({ now = () => new Date().toISOString() } = {}
     if (!messageStores.has(threadId)) messageStores.set(threadId, createStore([]));
     return messageStores.get(threadId);
   };
+  const tree = threadId => {
+    if (!trees.has(threadId)) trees.set(threadId, { all: [], head: null });
+    return trees.get(threadId);
+  };
+  // Visible path: from the head leaf up through parentId, then each message gets its place among its siblings.
+  const publish = threadId => {
+    const { all, head } = tree(threadId);
+    const byId = new Map(all.map(message => [message.id, message]));
+    const path = [];
+    for (let message = byId.get(head); message; message = byId.get(message.parentId)) path.unshift(message);
+    messagesStore(threadId).set(path.map(message => {
+      const siblingIds = all.filter(item => item.parentId === message.parentId).map(item => item.id);
+      return { ...message, branch: { index: siblingIds.indexOf(message.id), count: siblingIds.length, siblingIds } };
+    }));
+  };
+  const addMessages = (threadId, ...messages) => { const state = tree(threadId); state.all.push(...messages); state.head = messages.at(-1).id; publish(threadId); };
+  // The most recent leaf under a message: follow the newest child down.
+  const latestLeaf = (threadId, id) => {
+    const { all } = tree(threadId);
+    let current = id;
+    for (let child; (child = all.findLast(item => item.parentId === current));) current = child.id;
+    return current;
+  };
+  const findMessage = (threadId, messageId) => tree(threadId).all.find(message => message.id === messageId);
+  const newRun = (parentId, at) => { const id = nextId('m'); return { id, role: 'assistant', createdAt: at, parentId, parts: [], status: { id, status: 'running' } }; };
   const queue = threadId => {
     if (!queues.has(threadId)) queues.set(threadId, createChannel());
     return queues.get(threadId);
   };
   const emit = (threadId, event) => queue(threadId).push(event);
   const findRun = runId => {
-    for (const [threadId, store] of messageStores) {
-      const message = store.get().find(item => item.id === runId);
-      if (message) return { threadId, store, message };
+    for (const [threadId, state] of trees) {
+      const message = state.all.find(item => item.id === runId);
+      if (message) return { threadId, message };
     }
     return null;
   };
   const patchMessage = (threadId, messageId, patch) => {
-    const store = messagesStore(threadId);
-    store.set(store.get().map(message => message.id === messageId ? { ...message, ...patch(message) } : message));
+    const state = tree(threadId);
+    state.all = state.all.map(message => message.id === messageId ? { ...message, ...patch(message) } : message);
+    publish(threadId);
   };
   const setStatus = (runId, status, extra = {}) => {
     const run = findRun(runId);
@@ -108,13 +137,43 @@ export function createFakeChatPort({ now = () => new Date().toISOString() } = {}
       port.calls.push(['send', threadId, input]);
       if (port.rejectSend) throw Object.assign(new Error('AI key is not configured.'), { code: 'policy' });
       const at = now();
-      const user = { id: nextId('m'), role: 'user', createdAt: at, parts: [{ type: 'text', text: input.text }], mentions: input.mentions, attachments: input.attachments.map(file => ({ id: nextId('f'), name: file.name, type: 'document', bytes: file.size })) };
-      const assistantId = nextId('m');
-      const assistant = { id: assistantId, role: 'assistant', createdAt: at, parts: [], status: { id: assistantId, status: 'running' } };
-      const store = messagesStore(threadId);
-      store.set([...store.get(), user, assistant]);
-      active = { threadId, messageId: assistantId };
-      emit(threadId, { type: 'status', messageId: assistantId, status: assistant.status });
+      const user = { id: nextId('m'), role: 'user', createdAt: at, parentId: tree(threadId).head, parts: [{ type: 'text', text: input.text }], mentions: input.mentions, attachments: input.attachments.map(file => ({ id: nextId('f'), name: file.name, type: 'document', bytes: file.size })) };
+      const assistant = newRun(user.id, at);
+      addMessages(threadId, user, assistant);
+      active = { threadId, messageId: assistant.id };
+      emit(threadId, { type: 'status', messageId: assistant.id, status: assistant.status });
+    },
+    // A sibling of the assistant message (same parentId) becomes the head and runs.
+    async regenerate(threadId, messageId) {
+      port.calls.push(['regenerate', threadId, messageId]);
+      if (port.rejectBranching) throw new Error('Regenerate rejected by the port');
+      const source = findMessage(threadId, messageId);
+      if (source?.role !== 'assistant') throw new Error(`Unknown assistant message ${messageId}`);
+      const assistant = newRun(source.parentId, now());
+      addMessages(threadId, assistant);
+      active = { threadId, messageId: assistant.id };
+      emit(threadId, { type: 'status', messageId: assistant.id, status: assistant.status });
+    },
+    // A sibling of the user message with the new text (mentions and attachments of the original) and a new run after it.
+    async editMessage(threadId, messageId, input) {
+      port.calls.push(['editMessage', threadId, messageId, input]);
+      if (port.rejectBranching) throw new Error('Edit rejected by the port');
+      const source = findMessage(threadId, messageId);
+      if (source?.role !== 'user') throw new Error(`Unknown user message ${messageId}`);
+      const at = now();
+      const user = { ...source, id: nextId('m'), createdAt: at, parts: [{ type: 'text', text: input.text }] };
+      delete user.branch;
+      const assistant = newRun(user.id, at);
+      addMessages(threadId, user, assistant);
+      active = { threadId, messageId: assistant.id };
+      emit(threadId, { type: 'status', messageId: assistant.id, status: assistant.status });
+    },
+    async switchBranch(threadId, messageId) {
+      port.calls.push(['switchBranch', threadId, messageId]);
+      if (port.rejectBranching) throw new Error('Switch rejected by the port');
+      if (!findMessage(threadId, messageId)) throw new Error(`Unknown message ${messageId}`);
+      tree(threadId).head = latestLeaf(threadId, messageId);
+      publish(threadId);
     },
     // Text goes one way only (contract rule): this port streams deltas, so emitText sends the event and leaves messages() untouched.
     emitText(delta) {
@@ -148,7 +207,7 @@ export function createFakeChatPort({ now = () => new Date().toISOString() } = {}
     async discard(runId) { port.calls.push(['discard', runId]); setStatus(runId, 'discarded'); },
     async answer(questionId, answer) {
       port.calls.push(['answer', questionId, answer]);
-      for (const [threadId, store] of messageStores) for (const message of store.get()) {
+      for (const [threadId, state] of trees) for (const message of state.all) {
         if (message.parts.some(part => part.type === 'tool-call' && part.result.type === 'question' && part.result.questionId === questionId)) {
           patchMessage(threadId, message.id, current => ({ parts: current.parts.map(part => part.type === 'tool-call' && part.result.questionId === questionId ? { ...part, result: { ...part.result, answered: true } } : part) }));
         }
@@ -163,7 +222,7 @@ export function createFakeChatPort({ now = () => new Date().toISOString() } = {}
     async keepDraft(runId) { port.calls.push(['keepDraft', runId]); },
     async renameThread(threadId, title) { port.calls.push(['renameThread', threadId, title]); threads.set(threads.get().map(thread => thread.id === threadId ? { ...thread, title, updatedAt: now() } : thread)); },
     async archiveThread(threadId, archived) { port.calls.push(['archiveThread', threadId, archived]); threads.set(threads.get().map(thread => thread.id === threadId ? { ...thread, archived, updatedAt: now() } : thread)); },
-    async deleteThread(threadId) { port.calls.push(['deleteThread', threadId]); threads.set(threads.get().filter(thread => thread.id !== threadId)); messageStores.delete(threadId); queues.get(threadId)?.close(); queues.delete(threadId); },
+    async deleteThread(threadId) { port.calls.push(['deleteThread', threadId]); threads.set(threads.get().filter(thread => thread.id !== threadId)); messageStores.delete(threadId); trees.delete(threadId); queues.get(threadId)?.close(); queues.delete(threadId); },
     mentionTargets(query, kind) {
       const needle = query.trim().toLowerCase();
       return MENTION_TARGETS.filter(target => (!kind || target.kind === kind) && (!needle || target.label.toLowerCase().includes(needle)));
