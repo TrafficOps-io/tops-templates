@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fromBase64, sha256Hex, toBase64 } from '@trafficops/template-editor-core';
-import { claimPendingAi, createProjectMeta, preparePendingAi, readProjectMeta, readValues, resolvePendingAi, storePendingAi, updateProjectMeta, writeValues } from '../src/storage/project-meta.js';
+import { claimPendingAi, createProjectMeta, preparePendingAi, readProjectMeta, readValues, rekeyProjectMeta, resolvePendingAi, storePendingAi, updateProjectMeta, writeValues } from '../src/storage/project-meta.js';
 import { createDirectoryConversationStore } from '../src/storage/directory-conversation-store.js';
 import { readFile, readJson, writeFile } from '../src/storage/write.js';
 import { MemoryDirectoryHandle } from './support/fs-access.js';
@@ -200,4 +200,17 @@ test('values round trip; an empty object removes the file and an empty sidecar f
   assert.ok(await readProjectMeta(withMeta), 'project.json survives');
   await writeFile(withMeta, '.trafficops/values.json', '[1]');
   await assert.rejects(readValues(withMeta), /values.json/);
+});
+
+test('rekeyProjectMeta moves the folder to a new projectId, keeping the brief and every other field', async () => {
+  const { root, projectId } = await project({ contentRevision: 3 });
+  await storePendingAi(root, projectId, brief());
+  const before = await readProjectMeta(root);
+  const after = await rekeyProjectMeta(root, projectId, 'fresh-id');
+  assert.deepEqual(after, { ...before, projectId: 'fresh-id' });
+  assert.deepEqual(await readProjectMeta(root), after);
+  await assert.rejects(rekeyProjectMeta(root, projectId, 'again'), conflict, 'the old id no longer owns the folder');
+  await assert.rejects(updateProjectMeta(root, projectId, { name: 'Stale' }), conflict);
+  assert.equal(await claimPendingAi(root, 'fresh-id', 'brief-1'), true);
+  await assert.rejects(rekeyProjectMeta(root, 'fresh-id', ''), /project ID/);
 });

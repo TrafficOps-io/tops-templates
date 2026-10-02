@@ -118,3 +118,25 @@ test('memory indexedDB restores the global', async t => {
   inner.after.forEach(fn => fn());
   assert.equal(globalThis.indexedDB, undefined);
 });
+
+test('memory indexedDB keeps MemoryHandle values by reference, like browsers keep FileSystemHandle', async t => {
+  installMemoryIndexedDB(t);
+  const handle = new MemoryDirectoryHandle('project', { 'index.tpl': 'x' }), file = new MemoryFileHandle('a.txt');
+  const opening = indexedDB.open('handles', 1);
+  opening.onupgradeneeded = () => { opening.result.createObjectStore('projects', { keyPath: 'id' }); };
+  const db = await request(opening);
+  const write = db.transaction(['projects'], 'readwrite');
+  const entry = { id: 'a', handle, nested: { files: [file] }, bytes: new Uint8Array([1, 2]) };
+  write.objectStore('projects').put(entry);
+  await done(write);
+  entry.bytes[0] = 9; entry.nested.files.push('mutated');
+  const read = db.transaction(['projects'], 'readonly');
+  const got = await request(read.objectStore('projects').get('a'));
+  await done(read);
+  assert.equal(got.handle, handle);
+  assert.equal(got.nested.files[0], file);
+  assert.equal(got.nested.files.length, 1);
+  assert.deepEqual(got.bytes, new Uint8Array([1, 2]));
+  assert.equal(await got.handle.isSameEntry(handle), true);
+  assert.equal((await collect(got.handle.keys())).join(), 'index.tpl');
+});

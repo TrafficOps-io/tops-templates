@@ -104,6 +104,17 @@ export async function updateProjectMeta(root, projectId, patch, { locks } = {}) 
   }, locks);
 }
 
+/** Gives the folder a new projectId (make independent), keeping every other field and the brief. Only the current owner
+ *  can rekey; a malformed brief on disk is dropped. */
+export async function rekeyProjectMeta(root, projectId, nextProjectId, { locks } = {}) {
+  return locked(projectId, async () => {
+    const { pendingAiError: _dropped, ...current } = await ownMeta(root, projectId);
+    const stored = { ...current, ...validatePortableMetadata({ ...current, projectId: nextProjectId }) };
+    await writeFile(root, META, json(stored));
+    return stored;
+  }, locks);
+}
+
 /** Validates a brief `{ id, prompt, mode, generateImages, attachments: [{ id, name, mime, dataUrl | text, useOnPage }] }`
  *  with the runtime's attachment rules and writes the attachment bytes to `.trafficops/conversations/blobs/`.
  *  Returns the `pendingAi` value (attachments as blob refs); project.json is not touched. */

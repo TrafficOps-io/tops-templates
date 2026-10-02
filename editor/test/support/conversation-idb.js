@@ -1,5 +1,5 @@
 // Transactional fixture: request success precedes durable commit, with fault injection.
-export function conversationIndexedDB() {
+export function conversationIndexedDB({ clone = structuredClone } = {}) {
   const databases = new Map();
   const control = { nextCommitError: null, holdCommit: false, commit: null, closed: 0 };
   return { control, open(name) {
@@ -22,7 +22,7 @@ export function conversationIndexedDB() {
               const query = {}; pending++;
               const run = () => queueMicrotask(() => {
                 if (stopped) return;
-                try { query.result = structuredClone(operation(view.get(key))); query.onsuccess?.(); }
+                try { query.result = clone(operation(view.get(key))); query.onsuccess?.(); }
                 catch (error) { query.error = tx.error = error; query.onerror?.(); tx.abort(); }
                 pending--; finish();
               });
@@ -32,7 +32,7 @@ export function conversationIndexedDB() {
             return {
               get: id => action(store => store.values.get(id)),
               getAll: () => action(store => [...store.values.values()]),
-              put(value, id) { const saved = structuredClone(value); return action(store => { if (mode !== 'readwrite') throw new Error('Readonly fixture transaction'); const key = store.keyPath ? saved[store.keyPath] : id; store.values.set(key, saved); return key; }); },
+              put(value, id) { const saved = clone(value); return action(store => { if (mode !== 'readwrite') throw new Error('Readonly fixture transaction'); const key = store.keyPath ? saved[store.keyPath] : id; store.values.set(key, saved); return key; }); },
               delete: id => action(store => { store.values.delete(id); }),
             };
           } };
@@ -53,7 +53,7 @@ export function conversationIndexedDB() {
             });
           }
           state.queue.push(() => {
-            view = new Map(keys.map(key => [key, structuredClone(state.stores.get(key))]));
+            view = new Map(keys.map(key => [key, clone(state.stores.get(key))]));
             started = true; waiting.forEach(run => run()); finish();
           });
           queueMicrotask(drain);
@@ -68,9 +68,9 @@ export function conversationIndexedDB() {
   } };
 }
 
-export function installConversationStorage(t) {
+export function installConversationStorage(t, options) {
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB');
-  const fixture = conversationIndexedDB();
+  const fixture = conversationIndexedDB(options);
   Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: fixture });
   t.after(() => { if (descriptor) Object.defineProperty(globalThis, 'indexedDB', descriptor); else delete globalThis.indexedDB; });
   return fixture.control;
