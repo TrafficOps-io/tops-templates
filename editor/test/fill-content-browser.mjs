@@ -52,7 +52,7 @@ try {
   await page.addInitScript(({ png }) => {
     Object.defineProperty(navigator, 'standalone', { configurable: true, value: true });
     const realFetch = window.fetch.bind(window);
-    window.fillAi = { requests: [], writer: 0, reviews: 0, emptyWriter: true, holdReview: true, releaseReview: null };
+    window.fillAi = { requests: [], writer: 0, reviews: 0, holdReview: true, releaseReview: null };
     const response = (name, value) => {
       const payload = { id: name || 'content-response', model: 'test/model', choices: [{ index: 0, delta: name ? { role: 'assistant', tool_calls: [{ index: 0, id: `${name}-${Date.now()}`, type: 'function', function: { name, arguments: JSON.stringify(value) } }] } : { content: 'Content completed.' }, finish_reason: name ? 'tool_calls' : 'stop' }] };
       return new Response(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
@@ -68,15 +68,19 @@ try {
         if (state.holdReview && count === 1) await new Promise((resolve, reject) => { state.releaseReview = resolve; init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true }); });
         return response(stage, { approved: count > 1, summary: count > 1 ? 'Polish article, all images and seven samples verified.' : 'The article is too short.', issues: count > 1 ? [] : ['Expand the article to 2600 characters.'] });
       }
-      if (state.emptyWriter) { state.emptyWriter = false; return response(null); }
+      // One agent loop: it asks the planner subagent, writes, validates, asks the
+      // reviewer subagent, repairs its finding and finishes with a validation.
       const step = state.writer++;
-      if (step === 0) return response('generate_image', { path: 'images/article.png', prompt: 'An editorial illustration for the article.', referenceIds: [] });
-      if (step === 1) {
+      if (step === 0) return response('plan_changes', {});
+      if (step === 1) return response('generate_image', { path: 'images/article.png', prompt: 'An editorial illustration for the article.', referenceIds: [] });
+      if (step === 2) {
         const context = JSON.stringify(body.messages), path = context.match(/images\/reference-[A-Za-z0-9-]+\.png/)?.[0];
         return response('set_values', { values: { title: 'Polski artykuł', article: '<p>A short first draft.</p>', cover: 'images/article.png', portrait: path, reviews: Array.from({ length: 7 }, (_, index) => ({ author: `Przykład ${index + 1}`, text: 'Przykładowa opinia, nie jest prawdziwą rekomendacją.' })) } });
       }
-      if (step === 3) return response('set_values', { values: { article: `<p>${'To jest przykładowy polski tekst artykułu. '.repeat(100).slice(0, 2600)}</p><figure><img src="images/article.png" alt="Ilustracja artykułu"></figure>` } });
-      return response(null);
+      if (step === 3) return response('validate_draft', {});
+      if (step === 4) return response('review_draft', { focus: 'Article length' });
+      if (step === 5) return response('set_values', { values: { article: `<p>${'To jest przykładowy polski tekst artykułu. '.repeat(100).slice(0, 2600)}</p><figure><img src="images/article.png" alt="Ilustracja artykułu"></figure>` } });
+      return response('validate_draft', {});
     };
   }, { png });
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
@@ -120,7 +124,7 @@ try {
   assert.equal((await readRecord()).settings.title, 'Original headline');
   await page.evaluate(() => window.fillAi.releaseReview());
   await chat.status('ready').waitFor();
-  assert.equal(await page.evaluate(() => window.fillAi.reviews), 2, 'review rejection runs a revision and second reviewer');
+  assert.equal(await page.evaluate(() => window.fillAi.reviews), 1, 'the agent repairs the reviewer finding itself; no mandatory second review');
   const preview = () => page.locator('.browser-frame iframe.is-visible').contentFrame();
   await chat.status('ready').getByRole('button', { name: 'Preview draft', exact: true }).click();
   await preview().getByRole('heading', { name: 'Polski artykuł', exact: true }).waitFor();
@@ -143,9 +147,9 @@ try {
   for (const { body } of requests.filter(request => request.url.endsWith('/chat/completions'))) {
     assert.equal(body.tool_choice, 'auto', 'tool-capable providers may not support a named choice');
     assert.equal(Object.hasOwn(body, 'temperature'), false, 'reasoning endpoints may not support sampling parameters');
-    assert.deepEqual(body.provider, { require_parameters: true, data_collection: 'deny' });
+    assert.deepEqual(body.provider, { require_parameters: true, allow_fallbacks: true, data_collection: 'deny' });
   }
-  assert.ok(requests.some(({ body }) => body.messages?.some(message => typeof message.content === 'string' && message.content.includes('only recovery attempt for a response with no changes'))), 'a prose-only writer response receives a bounded request for actual field updates');
+  assert.ok(requests.some(({ body }) => body.messages?.some(message => message.role === 'tool' && JSON.stringify(message.content).includes('Expand the article to 2600 characters.'))), 'reviewer findings return to the agent as a tool result');
   const vision = requests.find(request => request.body.tools?.[0].function.name === 'submit_plan');
   assert.equal(vision.body.messages.flatMap(message => Array.isArray(message.content) ? message.content : []).filter(part => part.type === 'image_url').length, 2, 'attachments reach the real OpenRouter adapter as vision inputs');
   await chat.status('ready').locator('[data-testid="studio-chat-apply"]').click();
@@ -169,5 +173,5 @@ try {
   assert.equal((await frame.locator('article > p').textContent()).length, 2600);
   assert.equal(await frame.getByRole('img', { name: 'Ilustracja artykułu', exact: true }).evaluate(image => image.complete && image.naturalWidth > 0), true, 'inline article image survives Apply, autosave and reload');
   assert.deepEqual(errors, []);
-  console.log('PASS: Content-only scope, streamed tool writes, independent reviewer/revision, 2600-character Polish article, seven sample reviews, vision references, generated images, Apply/Discard, atomic autosave, ZIP assets and reload.');
+  console.log('PASS: Content-only scope, one agent loop with planner/reviewer subagents, streamed tool writes, 2600-character Polish article, seven sample reviews, vision references, generated images, Apply/Discard, atomic autosave, ZIP assets and reload.');
 } finally { await browser?.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }

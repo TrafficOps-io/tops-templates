@@ -59,7 +59,7 @@ for (const [name, payload, code] of [
     ...['images/article.png', 'images/retry.png', 'images/third.png'].map(path => call('generate_image', { path, prompt: 'One article image', referenceIds: [] })),
     call('set_values', { values: { headline: 'Completed content is retained' } }), done(), review(),
   ] });
-  const result = await runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Generate exactly one article image and update the headline.', generateImages: true, apiKey: 'fake', imageModel: 'test/image', languageModel: model, validateDraft, onProgress: event => events.push(event), fetchImpl: async () => { requests++; return Response.json(payload); } });
+  const result = await runStudioAiWorkflow({ staged: true, ...initial, mode: 'content', prompt: 'Generate exactly one article image and update the headline.', generateImages: true, apiKey: 'fake', imageModel: 'test/image', languageModel: model, validateDraft, onProgress: event => events.push(event), fetchImpl: async () => { requests++; return Response.json(payload); } });
   assert.equal(requests, 1, 'retry tool calls cannot repeat a permanently failed paid image request');
   assert.equal(result.valid, false);
   assert.equal(result.imageFailure.code, code);
@@ -77,7 +77,7 @@ test('a transient image provider error still permits the next image tool call', 
     call('generate_image', { path: 'images/article.png', prompt: 'Article image', referenceIds: [] }),
     call('set_values', { values: { image: 'images/article.png', headline: 'Updated content' } }), done(), review(),
   ] });
-  const result = await runStudioAiWorkflow({ ...initial, mode: 'content', prompt: 'Generate one image.', generateImages: true, apiKey: 'fake', imageModel: 'test/image', languageModel: model, validateDraft, fetchImpl: async () => ++requests === 1 ? Response.json({ error: { code: 503, message: 'Temporarily unavailable' } }, { status: 503 }) : Response.json({ data: [{ media_type: 'image/png', b64_json: png }] }) });
+  const result = await runStudioAiWorkflow({ staged: true, ...initial, mode: 'content', prompt: 'Generate one image.', generateImages: true, apiKey: 'fake', imageModel: 'test/image', languageModel: model, validateDraft, fetchImpl: async () => ++requests === 1 ? Response.json({ error: { code: 503, message: 'Temporarily unavailable' } }, { status: 503 }) : Response.json({ data: [{ media_type: 'image/png', b64_json: png }] }) });
   assert.equal(requests, 2);
   assert.equal(result.valid, true);
   assert.equal(result.imageFailure, undefined);

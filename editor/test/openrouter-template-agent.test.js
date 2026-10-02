@@ -96,7 +96,7 @@ for (const stream of [false, true]) test(`OpenRouter ${stream ? 'streaming' : 'c
   assert.equal('response_format' in request.body, false);
   assert.equal(request.body.tools[0].function.name, 'validate_draft');
   assert.equal(request.body.tool_choice, 'auto');
-  assert.deepEqual(request.body.provider, { require_parameters: true, data_collection: 'deny' });
+  assert.deepEqual(request.body.provider, { require_parameters: true, allow_fallbacks: true, data_collection: 'deny' });
 });
 
 test('agent-facing OpenRouter errors never expose the BYOK secret', async () => {
