@@ -9,3 +9,4 @@ export { default as InlineNotice } from './InlineNotice.jsx';
 export { ToastProvider, useToast } from './Toast.jsx';
 export { default as Skeleton } from './Skeleton.jsx';
 export { MentionChip, AttachmentChip, formatBytes } from './Chips.jsx';
+export { default as ModelPicker, formatContextLength } from './ModelPicker.jsx';

@@ -62,8 +62,8 @@ try {
   };
   const focusedInComposer = () => page.evaluate(() => Boolean(document.activeElement?.closest('[data-testid="studio-chat-composer"]')));
 
-  // composerExtra lands in the composer toolbar.
-  await composer.locator('.studio-chat-composer-toolbar [data-composer-extra]', { hasText: 'Gemini Flash' }).waitFor();
+  // composerExtra lands in the composer toolbar (a compact ModelPicker in the playground).
+  await composer.locator('.studio-chat-composer-toolbar .studio-model-picker-compact').getByRole('button', { name: 'Assistant model: GPT-4o mini' }).waitFor();
 
   // Empty thread: the empty state, no toast provider anywhere.
   await feed.getByText('What shall we create?').waitFor();
@@ -348,6 +348,118 @@ try {
   assert.deepEqual(blocked, [], 'no external requests');
   assert.deepEqual(errors, [], 'no page errors');
   await page.close();
+
+  // ModelPicker: 400+ options, sections, search, filters, keyboard, inherit row, disabled rows, compact mode in the composer.
+  {
+    const picking = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+    const pickerErrors = [];
+    picking.on('pageerror', error => pickerErrors.push(error.message));
+    picking.on('console', message => { if (message.type() === 'error') pickerErrors.push(message.text()); });
+    await picking.goto(origin);
+    const demo = picking.locator('#model-picker-demo'), trigger = demo.getByRole('button', { name: 'Assistant model: As in global settings' });
+    await trigger.scrollIntoViewIfNeeded();
+    await assertTarget(trigger, 'model picker trigger');
+    const started = Date.now();
+    await trigger.click();
+    const listbox = demo.getByRole('listbox', { name: 'Assistant model' }), search = demo.getByRole('combobox', { name: 'Search models' });
+    await listbox.waitFor();
+    const openMs = Date.now() - started;
+    assert.ok(openMs < 1500, `opens with 400+ models in ${openMs} ms`);
+    assert.equal(await search.evaluate(element => element === document.activeElement), true, 'focus goes to the search field');
+    assert.equal(await trigger.getAttribute('aria-expanded'), 'true');
+    const options = listbox.getByRole('option');
+    assert.equal(await options.first().getAttribute('aria-selected'), 'true', 'the inherit row (value null) is active');
+    assert.equal(await options.first().getAttribute('data-current'), 'true');
+    assert.ok((await options.first().textContent()).includes('Gemini 2.5 Flash'), 'inherit detail');
+    for (const name of ['Recent', 'Recommended', 'All models', 'OpenAI', 'Google']) assert.ok(await listbox.getByRole('group', { name, exact: true }).count() >= 1, `group ${name}`);
+    const rendered = await options.count();
+    assert.ok(rendered <= 1 + 2 + 2 + 200, `at most 200 options in All are rendered (${rendered})`);
+    const more = demo.getByRole('button', { name: 'Show 200 more' });
+    await more.click();
+    assert.ok(await options.count() > rendered, 'Show more renders the next page');
+    assert.equal(await search.evaluate(element => element === document.activeElement), false, 'Show more took the focus');
+    await search.focus();
+    // Context, price and badges in a row.
+    const flash = listbox.getByRole('group', { name: 'Recommended' }).getByRole('option').first();
+    const flashText = await flash.textContent();
+    for (const token of ['google/gemini-2.5-flash', '1M context', 'In $0.30', 'Out $2.50', 'Tools', 'Vision', 'Audio', 'Reasoning']) assert.ok(flashText.includes(token), token);
+    // Search: Recent and Recommended give way to matches, the first match is active; ↑↓ wrap, Enter picks.
+    await search.fill('gpt-4o');
+    await picking.waitForFunction(() => document.querySelectorAll('#model-picker-demo [role="option"]').length === 1);
+    assert.equal(await listbox.getByRole('group', { name: 'Recent' }).count(), 0, 'no Recent while searching');
+    assert.equal(await options.first().getAttribute('aria-selected'), 'true');
+    await search.fill('model-1');
+    await picking.waitForFunction(() => document.querySelectorAll('#model-picker-demo [role="option"]').length > 3);
+    await picking.keyboard.press('ArrowDown');
+    assert.equal(await options.nth(1).getAttribute('aria-selected'), 'true', 'ArrowDown');
+    assert.equal(await search.getAttribute('aria-activedescendant'), await options.nth(1).getAttribute('id'));
+    await picking.keyboard.press('ArrowUp'); await picking.keyboard.press('ArrowUp');
+    assert.equal(await options.last().getAttribute('aria-selected'), 'true', 'ArrowUp wraps to the last option');
+    await picking.keyboard.press('ArrowDown'); await picking.keyboard.press('ArrowDown');
+    const picked = (await options.nth(1).locator('.studio-model-option-id').textContent()).trim();
+    await picking.keyboard.press('Enter');
+    await listbox.waitFor({ state: 'detached' });
+    assert.deepEqual(await picking.evaluate(() => window.pickerChanges), [picked], 'Enter picks the active option');
+    const pickedName = await picking.evaluate(id => window.models.find(model => model.id === id).name, picked);
+    const pickedTrigger = demo.getByRole('button', { name: `Assistant model: ${pickedName}` });
+    await pickedTrigger.waitFor();
+    assert.equal(await pickedTrigger.evaluate(element => element === document.activeElement), true, 'focus returns to the trigger');
+    // Escape closes and returns focus; ArrowDown on the trigger opens.
+    await picking.keyboard.press('ArrowDown');
+    await listbox.waitFor();
+    await picking.keyboard.press('Escape');
+    await listbox.waitFor({ state: 'detached' });
+    assert.equal(await pickedTrigger.evaluate(element => element === document.activeElement), true, 'Escape returns focus to the trigger');
+    // Filters: every option is free; a disabled row shows its reason and Enter does not pick it.
+    await pickedTrigger.click();
+    await listbox.waitFor();
+    const filters = demo.getByRole('group', { name: 'Model filters' });
+    for (const name of ['Uses tools', 'Sees images', 'Hears audio', 'Free models']) await filters.getByRole('button', { name }).waitFor();
+    await filters.getByRole('button', { name: 'Free models' }).click();
+    assert.equal(await filters.getByRole('button', { name: 'Free models' }).getAttribute('aria-pressed'), 'true');
+    const free = await listbox.locator('[role="option"]').evaluateAll(rows => rows.filter(row => !row.textContent.includes('As in global settings')).map(row => row.querySelector('.studio-model-badge-free') !== null));
+    assert.ok(free.length > 0 && free.every(Boolean), 'only free models with the filter');
+    await filters.getByRole('button', { name: 'Free models' }).click();
+    await search.focus();
+    await search.fill('mistral 7b');
+    await picking.waitForFunction(() => document.querySelectorAll('#model-picker-demo [role="option"]').length === 1);
+    assert.equal(await options.first().getAttribute('aria-disabled'), 'true');
+    assert.ok((await options.first().textContent()).includes('Does not support tools'), 'the reason is shown');
+    await picking.keyboard.press('Enter');
+    await options.first().click({ force: true });
+    assert.equal(await listbox.isVisible(), true, 'a disabled row is not selectable');
+    assert.equal((await picking.evaluate(() => window.pickerChanges)).length, 1);
+    await search.fill('zzzz-no-model');
+    await demo.getByRole('status').filter({ hasText: 'No models match' }).waitFor();
+    // The inherit row returns to null.
+    await search.fill('');
+    await options.first().click();
+    await listbox.waitFor({ state: 'detached' });
+    assert.deepEqual((await picking.evaluate(() => window.pickerChanges)).at(-1), null, 'the inherit row selects null');
+    // A click outside closes the popover.
+    await trigger.click();
+    await listbox.waitFor();
+    await picking.mouse.click(5, 5);
+    await listbox.waitFor({ state: 'detached' });
+
+    // Compact picker in the composer: name only, opens above the composer, keyboard pick.
+    const compact = picking.getByTestId('studio-chat-composer').getByRole('button', { name: 'Assistant model: GPT-4o mini' });
+    assert.equal((await compact.textContent()).trim(), 'GPT-4o mini', 'compact trigger shows only the name');
+    await compact.click();
+    const popover = picking.getByTestId('studio-chat-composer').locator('.studio-model-popover');
+    await popover.waitFor();
+    assert.equal(await popover.getAttribute('data-placement'), 'top', 'opens above the composer');
+    const box = await popover.boundingBox();
+    assert.ok(box.y >= 0, 'the popover stays inside the viewport');
+    if (screenshots) await picking.screenshot({ path: `${screenshots}/model-picker-dark.png` });
+    await picking.evaluate(() => window.setTheme('studio-light'));
+    if (screenshots) await picking.screenshot({ path: `${screenshots}/model-picker-light.png` });
+    await picking.keyboard.type('gemini');
+    await picking.keyboard.press('Enter');
+    await picking.getByTestId('studio-chat-composer').getByRole('button', { name: 'Assistant model: Gemini 2.5 Flash' }).waitFor();
+    assert.deepEqual(pickerErrors, [], 'no page errors in the model picker scenario');
+    await picking.close();
+  }
 
   // Branches, Regenerate, Edit, Retry and step cards (FakeChatPort keeps a tree).
   {

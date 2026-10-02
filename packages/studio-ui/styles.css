@@ -186,6 +186,62 @@
 .studio-card-check { display: flex; align-items: center; gap: var(--ui-space-2); font-size: var(--ui-text-xs); }
 .studio-card-check input { accent-color: var(--ui-accent); }
 
+/* ModelPicker: trigger + popover with search, filter chips and a grouped listbox. Inline (absolute) by default,
+   position: fixed with portalContainer (data-portal); data-placement top opens above the trigger. */
+.studio-model-picker { position: relative; display: inline-flex; min-width: 0; max-width: 100%; }
+.studio-model-trigger { display: inline-flex; align-items: center; gap: var(--ui-space-2); min-width: 0; max-width: 100%; min-height: 36px; padding: var(--ui-space-1) var(--ui-space-3); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); background: var(--ui-surface); color: var(--ui-text); font: inherit; font-size: var(--ui-text-sm); text-align: left; cursor: pointer; }
+.studio-model-trigger:hover:not(:disabled) { border-color: var(--ui-border-strong); background: var(--ui-surface-raised); }
+.studio-model-trigger:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
+.studio-model-trigger:disabled { cursor: not-allowed; opacity: .6; }
+.studio-model-trigger-text { display: grid; min-width: 0; line-height: var(--ui-text-sm--line-height); }
+.studio-model-trigger-name { min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-model-trigger-detail { min-width: 0; color: var(--ui-muted); font-size: var(--ui-text-xs); line-height: var(--ui-text-xs--line-height); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-model-trigger-icon { flex: none; color: var(--ui-muted); }
+.studio-model-picker-compact .studio-model-trigger { min-height: 32px; padding: 0 var(--ui-space-2); border-color: transparent; background: transparent; color: var(--ui-muted); font-size: var(--ui-text-xs); }
+.studio-model-picker-compact .studio-model-trigger:hover:not(:disabled) { color: var(--ui-text); }
+.studio-model-picker-compact .studio-model-trigger-name { max-width: 14rem; font-weight: 500; }
+.studio-model-popover { position: absolute; z-index: var(--ui-z-menu); top: calc(100% + 4px); left: 0; display: flex; flex-direction: column; width: min(26rem, calc(100vw - 1rem)); max-height: 26rem; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); background: var(--ui-surface); color: var(--ui-text); box-shadow: var(--ui-shadow-menu); overflow: hidden; }
+.studio-model-popover[data-placement=top] { top: auto; bottom: calc(100% + 4px); }
+.studio-model-popover[data-align=end] { left: auto; right: 0; }
+.studio-model-popover[data-portal] { right: auto; }
+.studio-model-search { display: flex; align-items: center; gap: var(--ui-space-2); flex: none; min-height: 40px; padding: 0 var(--ui-space-3); border-bottom: 1px solid var(--ui-border); color: var(--ui-muted); }
+.studio-model-search input { flex: 1; min-width: 0; min-height: 36px; border: 0; background: transparent; color: var(--ui-text); font: inherit; font-size: var(--ui-text-sm); }
+.studio-model-search input:focus { outline: none; }
+.studio-model-search:focus-within { box-shadow: inset 0 -2px 0 var(--ui-focus); }
+.studio-model-filters { display: flex; flex-wrap: wrap; flex: none; gap: var(--ui-space-1); padding: var(--ui-space-2) var(--ui-space-3); border-bottom: 1px solid var(--ui-border); }
+.studio-model-filter { display: inline-flex; align-items: center; min-height: 28px; padding: 0 var(--ui-space-2); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-full); background: transparent; color: var(--ui-muted); font: inherit; font-size: var(--ui-text-xs); cursor: pointer; }
+.studio-model-filter:hover { color: var(--ui-text); }
+.studio-model-filter:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; }
+.studio-model-filter[aria-pressed=true] { border-color: color-mix(in srgb, var(--ui-accent) 50%, var(--ui-border)); background: color-mix(in srgb, var(--ui-accent) 12%, transparent); color: var(--ui-text); }
+.studio-model-list { flex: 1; min-height: 0; overflow: auto; padding: var(--ui-space-1); overscroll-behavior: contain; }
+.studio-model-section + .studio-model-section { margin-top: var(--ui-space-1); padding-top: var(--ui-space-1); border-top: 1px solid var(--ui-border); }
+.studio-model-heading { padding: var(--ui-space-1) var(--ui-space-2); color: var(--ui-muted); font-size: var(--ui-text-xs); line-height: var(--ui-text-xs--line-height); font-weight: 600; }
+.studio-model-subheading { padding: var(--ui-space-1) var(--ui-space-2) 0; color: var(--ui-muted); font-size: var(--ui-text-xs); line-height: var(--ui-text-xs--line-height); }
+.studio-model-option { display: flex; align-items: flex-start; gap: var(--ui-space-2); padding: var(--ui-space-1) var(--ui-space-2); border-radius: var(--ui-radius-sm); cursor: pointer; }
+.studio-model-option[aria-selected=true] { background: var(--ui-surface-raised); box-shadow: inset 2px 0 0 var(--ui-accent); }
+.studio-model-option[aria-disabled=true] { cursor: not-allowed; }
+.studio-model-option[aria-disabled=true] .studio-model-option-head { opacity: .6; }
+.studio-model-option-body { display: grid; flex: 1; min-width: 0; gap: 2px; }
+.studio-model-option-head { display: flex; align-items: center; gap: var(--ui-space-2); min-width: 0; }
+.studio-model-option-name { min-width: 0; font-size: var(--ui-text-sm); line-height: var(--ui-text-sm--line-height); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-model-option-meta { display: flex; flex-wrap: wrap; gap: 0 var(--ui-space-2); min-width: 0; color: var(--ui-muted); font-size: var(--ui-text-xs); line-height: var(--ui-text-xs--line-height); font-variant-numeric: tabular-nums; }
+.studio-model-option-id { min-width: 0; font-family: var(--ui-font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-model-option-reason { color: var(--ui-warning); font-size: var(--ui-text-xs); line-height: var(--ui-text-xs--line-height); }
+.studio-model-option-check { flex: none; margin-top: 3px; color: var(--ui-text); }
+.studio-model-badges { display: inline-flex; flex-wrap: wrap; gap: 2px; margin-left: auto; flex: none; }
+.studio-model-badge { padding: 0 var(--ui-space-1); border-radius: var(--ui-radius-sm); background: var(--ui-surface-raised); color: var(--ui-muted); font-size: var(--ui-text-xs); line-height: var(--ui-text-xs--line-height); }
+.studio-model-option[aria-selected=true] .studio-model-badge { background: var(--ui-page); }
+.studio-model-badge-free { background: var(--ui-success-surface); color: var(--ui-text); }
+.studio-model-empty { margin: 0; padding: var(--ui-space-3); color: var(--ui-muted); font-size: var(--ui-text-sm); }
+.studio-model-more { flex: none; min-height: 36px; border: 0; border-top: 1px solid var(--ui-border); background: transparent; color: var(--ui-text); font: inherit; font-size: var(--ui-text-xs); cursor: pointer; }
+.studio-model-more:hover { background: var(--ui-surface-raised); }
+.studio-model-more:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: -2px; }
+@media (pointer: coarse) {
+  .studio-model-picker .studio-model-trigger, .studio-model-more { min-height: 44px; }
+  .studio-model-filter { min-height: 44px; min-width: 44px; justify-content: center; }
+  .studio-model-option { min-height: 44px; }
+}
+
 /* chat: message actions (Copy, Regenerate, Edit, branch picker). Hidden until the message is hovered or holds focus, so
    Tab reaches them; always visible on the last message, with a branch picker, after Copy and on touch screens. */
 .studio-chat-message-actions { display: flex; align-items: center; gap: 2px; min-height: 32px; opacity: 0; transition: opacity var(--ui-motion-fast) var(--ui-ease); }
