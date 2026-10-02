@@ -29,7 +29,7 @@
     "@trafficops/template-editor-shell": "0.1.0",
     "acorn": "^8.18.0",
     "@trafficops/studio-tokens": "0.1.0",
-    "@trafficops/studio-ui": "0.3.0"
+    "@trafficops/studio-ui": "0.3.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.0",
