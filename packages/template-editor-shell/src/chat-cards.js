@@ -1,5 +1,6 @@
 import { conversationChangedFiles, conversationReferenceLabel } from './conversation-diff.js';
 import { retryNotice, stepCard } from './agent-steps.js';
+import { localizeAiErrorText } from './ai-provider-errors.js';
 
 const isImage = path => /\.(?:png|jpe?g|webp|gif|avif|svg)$/i.test(path);
 const phaseLabels = { queued: 'Queued', plan: 'Plan', generate: 'Working…', revise: 'Revise', review: 'Review', stopped: 'Stopped', answered: 'Answered', ready: 'Changes ready' };
@@ -57,7 +58,7 @@ const explained = new Set(['failed', 'interrupted', 'cancelled']);
 export function runToState(run, t, language) {
   const status = run.state === 'ready' ? (applicable(run) ? 'ready' : 'completed') : run.state === 'interrupted' && applicable(run) ? 'ready' : run.state;
   const active = activeStates.has(run.state);
-  const message = explained.has(run.state) && run.error ? run.error : active && run.notice?.kind === 'retry' ? retryNotice(run.notice, { t, language })
+  const message = explained.has(run.state) && run.error ? localizeAiErrorText(run.error, { t, language }) : active && run.notice?.kind === 'retry' ? retryNotice(run.notice, { t, language })
     : run.phase && active ? t(phaseLabels[run.phase] || run.phase) : undefined;
   return { id: run.id, status, ...(message ? { message } : {}) };
 }
@@ -69,7 +70,7 @@ export function stepCards(run, t, language) {
 export function runToParts(run, t, language) {
   // Причина остановки interrupted/cancelled уже в сообщении статуса (runToState) — текстом не дублируется.
   // Пока ран идёт, текст ассистента приходит потоком (text-delta): заглушка в снимке скрыла бы его.
-  const draft = run.result || run.checkpoint, error = ['interrupted', 'cancelled'].includes(run.state) ? '' : run.error;
+  const draft = run.result || run.checkpoint, error = ['interrupted', 'cancelled'].includes(run.state) ? '' : localizeAiErrorText(run.error, { t, language });
   const text = run.result?.summary || error || (draft && !activeStates.has(run.state) ? t('Changes prepared for review.') : '');
   return [...(text ? [{ type: 'text', text }] : []), ...stepCards(run, t, language), ...draftCards(run.id, run.base, draft, run.locale, t)];
 }

@@ -11,6 +11,7 @@ import { assertBlockDraftScope, assertBlockScopeBase, blockValueAt, createBlockE
 import { previewSectionOptions, previewSelectionMatches } from './preview-selection.js';
 import { mentionKey } from './conversation-mentions.js';
 import { createCheckpointWriter } from './checkpoint-writer.js';
+import { earlierImageAttachments } from './image-references.js';
 import { createRunTimings } from './ai-request-diagnostics.js';
 import { runWithAiProviderRecovery } from './ai-provider-recovery.js';
 import { branchHistory, conversationTree, isClarification, nearestRun, newestLeaf, newestRunOf, normalizeThreadTree, visiblePath } from './conversation-tree.js';
@@ -35,7 +36,7 @@ function mergeStep(steps, event) {
   const index = steps.findIndex(step => step.id === event.id), previous = index >= 0 ? steps[index] : {};
   const next = { ...previous, id: event.id, ...(typeof event.tool === 'string' ? { tool: event.tool.slice(0, 60) } : {}), status: ['running', 'done', 'error'].includes(event.status) ? event.status : previous.status || 'running',
     ...(typeof event.path === 'string' ? { path: event.path.slice(0, 300) } : {}), ...(typeof event.fields === 'string' ? { fields: event.fields.slice(0, 300) } : {}),
-    ...(typeof event.detail === 'string' ? { detail: event.detail.slice(0, 300) } : {}) };
+    ...(typeof event.detail === 'string' ? { detail: event.detail.slice(0, 300) } : {}), ...(Number.isSafeInteger(event.references) && event.references > 0 ? { references: Math.min(event.references, 3) } : {}) };
   if (next.status !== 'error') delete next.detail;
   const updated = index >= 0 ? steps.with(index, next) : [...steps, next];
   return updated.length > MAX_STEPS ? updated.slice(-MAX_STEPS) : updated;
@@ -366,7 +367,10 @@ export function createConversationSession(initialHost, { workflows = defaultWork
         const analysis = await abortable(generationHost.analyzer.analyze(frozen, { signal: controller.signal }), controller.signal);
         const effectiveStartingValues = inputValues(analysis.definition, rawValues);
         const values = editScope ? inputValues(analysis.definition, rawValues) : rawValues;
-        let conversationContext = historyContext(branchHistory(conversationTree(thread, doc.runs), message.id), message.mentions || [], message.attachments || []);
+        const history = branchHistory(conversationTree(thread, doc.runs), message.id);
+        let conversationContext = historyContext(history, message.mentions || [], message.attachments || []);
+        // Images attached to earlier messages of this branch stay available to generate_image (listed, not re-sent).
+        const earlierAttachments = earlierImageAttachments(history);
         if (run.originalRequest && run.originalRequest !== message.prompt) conversationContext += `\nFull original request for this continuation:\n${run.originalRequest}`;
         if (run.rebaseFrom) {
           const previous = doc.runs.find(value => value.id === run.rebaseFrom), prior = previous?.result || previous?.checkpoint;
@@ -418,7 +422,7 @@ export function createConversationSession(initialHost, { workflows = defaultWork
         };
         const options = { ...connection, prompt: message.prompt, files: clone(baseline.files), values: clone(values), definition: analysis.definition,
           attachments: modelAttachments, generateImages: run.generateImages, mode: run.mode || 'edit', signal: controller.signal, stream: true, timeout,
-          conversationContext, validateDraft, takeInstructions, onProgress,
+          conversationContext, earlierAttachments, validateDraft, takeInstructions, onProgress,
           fetchImpl: async (...args) => {
             // Requests wait only for a pending generated-image checkpoint; other
             // writes run in the background. A failed checkpoint aborts the run.

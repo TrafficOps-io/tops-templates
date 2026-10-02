@@ -100,3 +100,44 @@ export function isRetryableAiProviderError(error) {
 export function isTerminalImageError(error) {
   return error instanceof AiProviderError ? error.terminalImage : normalizeAiProviderError(error).terminalImage;
 }
+
+const REFERENCE_UNSUPPORTED = 'The image model {model} does not accept reference images. Choose a model that supports input_references (for example, Gemini Flash Image) or generate without a reference.';
+const referenceUnsupportedPattern = /(?:input[_ ]?references?|image[_ ]?inputs?|no endpoints found that support|does not support (?:image|reference|input) (?:input|images?|references?)|reference images? (?:is|are) not supported)/i;
+/**
+ * A request with input_references rejected because the image model cannot take them
+ * (OpenRouter: "No endpoints found that support input_references", 400/404/422) → a clear terminal message.
+ * Other failures → undefined.
+ */
+export function referenceSupportError(failure, { model } = {}) {
+  if (!failure || failure.cancelled || failure.retryable || ![400, 404, 422, undefined].includes(failure.statusCode) || !referenceUnsupportedPattern.test(failure.message)) return undefined;
+  return new AiProviderError(REFERENCE_UNSUPPORTED.replace('{model}', String(model || 'selected').slice(0, 120)), {
+    statusCode: failure.statusCode, code: 'image_references_unsupported', provider: failure.provider, generationId: failure.generationId, retryable: false, terminalImage: true, cancelled: false });
+}
+
+/** English source → [ru, uk]; error texts produced above that the chat shows to the user. */
+export const AI_ERROR_MESSAGES = Object.freeze({
+  [REFERENCE_UNSUPPORTED]: ['Модель изображений {model} не принимает референсы. Выберите модель с поддержкой input_references (например, Gemini Flash Image) или сгенерируйте без референса.',
+    'Модель зображень {model} не приймає референси. Оберіть модель з підтримкою input_references (наприклад, Gemini Flash Image) або згенеруйте без референсу.'],
+});
+const escape = text => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * Replaces known English error sentences inside a stored run error or step detail
+ * (they may be wrapped, e.g. "Image generation could not finish: …"): host t() first, then the dictionary.
+ */
+export function localizeAiErrorText(text, { t, language } = {}) {
+  if (typeof text !== 'string' || !text) return text;
+  let out = text;
+  for (const [key, [ru, uk]] of Object.entries(AI_ERROR_MESSAGES)) {
+    const names = [...key.matchAll(/\{([A-Za-z]+)\}/g)].map(match => match[1]);
+    const pattern = new RegExp(escape(key).replace(/\\\{[A-Za-z]+\\\}/g, '(\\S+)'), 'g');
+    out = out.replace(pattern, (match, ...groups) => {
+      const values = Object.fromEntries(names.map((name, index) => [name, groups[index]]));
+      const fill = template => template.replace(/\{([A-Za-z]+)\}/g, (whole, name) => values[name] ?? whole);
+      const hosted = typeof t === 'function' ? t(key, values) : undefined;
+      if (typeof hosted === 'string' && hosted !== key && hosted !== fill(key)) return hosted;
+      const local = language === 'ru' ? ru : language === 'uk' ? uk : undefined;
+      return local ? fill(local) : match;
+    });
+  }
+  return out;
+}

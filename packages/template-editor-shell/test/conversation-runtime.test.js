@@ -465,3 +465,40 @@ for (const binary of [true, false]) test(`a ${binary ? 'generated image' : 'text
   await session.submit({ prompt: 'Add a hero image', snapshot: state() }); await until(() => session.getSnapshot().runs[0]?.state === 'ready');
   assert.equal(savedBeforeRequest, binary);
 });
+
+test('an image attached in an earlier message reaches generate_image as an input reference', async t => {
+  const { MockLanguageModelV4 } = await import('ai/test');
+  const { simulateReadableStream } = await import('ai');
+  const { runStudioAiWorkflow } = await import('../src/studio-ai-workflow.js');
+  const usage = { inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 5, text: 5, reasoning: 0 } };
+  const toolCall = (toolName, input) => ({ stream: simulateReadableStream({ chunks: [{ type: 'stream-start', warnings: [] }, { type: 'tool-call', toolCallId: `${toolName}-${Math.random()}`, toolName, input: JSON.stringify(input) }, { type: 'finish', finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage }] }) });
+  const text = value => ({ stream: simulateReadableStream({ chunks: [{ type: 'stream-start', warnings: [] }, { type: 'text-start', id: 't' }, { type: 'text-delta', id: 't', delta: value }, { type: 'text-end', id: 't' }, { type: 'finish', finishReason: { unified: 'stop', raw: 'stop' }, usage }] }) });
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4n+DwHwAGoAKfr+/eKAAAAABJRU5ErkJggg==';
+  const photo = { id: '7c9e6679-7425-40de-944b-e07fc1f90ae7', name: 'founder.png', mime: 'image/png', dataUrl: `data:image/png;base64,${png}`, useOnPage: false };
+  const prompts = [], images = [];
+  const languageModel = new MockLanguageModelV4({ doStream: async options => {
+    prompts.push(JSON.stringify(options.prompt));
+    return languageModel.doStreamCalls.length === 1 ? toolCall('generate_image', { path: 'img/founder-office.png', prompt: 'The same person from the reference, now in an office', references: ['ref1'] }) : text('Done.');
+  } });
+  const local = fixture('earlier-reference');
+  local.host.ai.begin = async () => ({ apiKey: 'sk-or-v1-test-key-0000', model: 'test/model', imageModel: 'google/gemini-2.5-flash-image', languageModel,
+    fetchImpl: async (url, init) => { images.push({ url: String(url), body: JSON.parse(init.body) }); return Response.json({ data: [{ b64_json: png, media_type: 'image/png' }] }); } });
+  let runs = 0;
+  const session = createConversationSession(local.host, { locks: null, sessionId: 'owner', workflows: basicWorkflows(async options => {
+    if (++runs === 1) return { files: options.files, values: options.values, valid: true, discussion: true, summary: 'Nice photo.' };
+    return runStudioAiWorkflow(options);
+  }) }); t.after(() => session.dispose()); await session.ready;
+  const threadId = await session.submit({ prompt: 'Here is our founder', snapshot: state(), attachments: [photo], scope: { kind: 'content' } });
+  await until(() => session.getSnapshot().runs[0]?.state === 'completed');
+  await session.submit({ threadId, prompt: 'Generate an image from the reference', snapshot: state(), scope: { kind: 'content' }, generateImages: true });
+  await until(() => ['ready', 'failed', 'completed'].includes(session.getSnapshot().runs[1]?.state));
+  assert.equal(images.length, 1, session.getSnapshot().runs[1].error);
+  assert.equal(images[0].url, 'https://openrouter.ai/api/v1/images');
+  assert.deepEqual(images[0].body.input_references, [{ type: 'image_url', image_url: { url: photo.dataUrl } }]);
+  assert.match(prompts[0], /ref1 — founder\.png \(attached earlier in this dialog; not shown again\)/);
+  assert.equal(prompts[0].includes(photo.dataUrl), false, 'an earlier image is listed, not re-sent as a vision part');
+  const step = session.getSnapshot().runs[1].steps.find(item => item.tool === 'generate_image');
+  assert.equal(step.references, 1);
+  assert.equal(session.getSnapshot().runs[1].state, 'ready', session.getSnapshot().runs[1].error);
+  assert.ok(session.getSnapshot().runs[1].result.files['img/founder-office.png'] instanceof Uint8Array);
+});

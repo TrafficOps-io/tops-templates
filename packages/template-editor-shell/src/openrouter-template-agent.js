@@ -6,7 +6,7 @@ import { byteSize, isText, LIMITS, safePath, validateProject } from './project.j
 import { AI_RUN_TIMEOUT_MS, AI_STEP_TIMEOUT_MS, AI_INITIAL_SOURCE_BYTES } from './ai-limits.js';
 import { completedFileInput } from './completed-file-input.js';
 import { attachmentMessage } from './ai-attachments.js';
-import { draftImageTool } from './ai-image-tool.js';
+import { draftImageTool, IMAGE_REFERENCE_GUIDANCE } from './ai-image-tool.js';
 import { runWithAiProviderRecovery } from './ai-provider-recovery.js';
 import { runRetryBudget } from './ai-retry-policy.js';
 import { normalizeAiProviderError } from './ai-provider-errors.js';
@@ -45,7 +45,8 @@ const stepTarget = (name, input = {}) => {
   const paths = name === 'read_files' ? input.paths : name === 'set_files' ? input.files?.map(file => file?.path) : typeof input.path === 'string' ? [input.path] : [];
   const fields = name === 'set_values' && input.values && typeof input.values === 'object' ? Object.keys(input.values) : [];
   const list = (paths || []).filter(path => typeof path === 'string').slice(0, 3);
-  return { ...(list.length ? { path: list.join(', ') } : {}), ...(fields.length ? { fields: fields.slice(0, 4).join(', ') } : {}) };
+  const references = name === 'generate_image' ? [input.references, input.referenceIds].find(value => Array.isArray(value) && value.length)?.length : 0;
+  return { ...(list.length ? { path: list.join(', ') } : {}), ...(fields.length ? { fields: fields.slice(0, 4).join(', ') } : {}), ...(references ? { references } : {}) };
 };
 const transient = error => ['transport', 'abort'].includes(error?.code) || error?.name === 'AbortError';
 const stepFailure = output => output && typeof output === 'object' && (output.ok === false || output.valid === false) ? String(output.error || 'Failed').slice(0, 300) : undefined;
@@ -310,7 +311,7 @@ export function createTemplateDraftAgent({ model, onProgress, initialFiles = {},
   // text-only final response, without losing the working draft or conversation.
   // Omit streamRetries: even 0 enables callback retries and buffers all tool input
   // until the provider finishes when onError is supplied (AI SDK 7).
-  const imageInstructions = generateImage ? '\nImage generation is enabled. Use generate_image with the selected image model for new photos, product images, hero art and raster illustrations explicitly requested in the brief. Create the image before referencing its returned path. Do not substitute SVG drawings, inline SVG, CSS art, text files or placeholders for those requested generated images. SVG remains valid for interface icons, user-requested logos and explicitly requested vector artwork; it does not satisfy a requested generated photo or raster image. Generate only requested images, matching the count in the user brief. Generate no images when none are requested. Failed image calls are not successful assets: report the issue; never invent an image path or hide failure behind an SVG substitute. Attached photos marked Use on page are already local assets. Reference-only screenshots guide layout, not page content.' : '\nImage generation is disabled by this run. Preserve or reuse supplied local assets. Use clearly labeled placeholders for missing art only when necessary; never claim to have generated a photo or completed requested AI imagery. SVG icons, logos and explicitly requested vector artwork remain permitted.';
+  const imageInstructions = generateImage ? `\nImage generation is enabled. Use generate_image with the selected image model for new photos, product images, hero art and raster illustrations explicitly requested in the brief. Create the image before referencing its returned path. Do not substitute SVG drawings, inline SVG, CSS art, text files or placeholders for those requested generated images. SVG remains valid for interface icons, user-requested logos and explicitly requested vector artwork; it does not satisfy a requested generated photo or raster image. Generate only requested images, matching the count in the user brief. Generate no images when none are requested. Failed image calls are not successful assets: report the issue; never invent an image path or hide failure behind an SVG substitute. Attached photos marked Use on page are already local assets. Reference-only screenshots guide layout, not page content. ${IMAGE_REFERENCE_GUIDANCE}` : '\nImage generation is disabled by this run. Preserve or reuse supplied local assets. Use clearly labeled placeholders for missing art only when necessary; never claim to have generated a photo or completed requested AI imagery. SVG icons, logos and explicitly requested vector artwork remain permitted.';
   // Leave sampling parameters unset: reasoning models such as GPT-5 Mini do
   // not accept temperature, and strict routing would exclude every endpoint.
   const agent = new ToolLoopAgent({ model, instructions: `${AGENT_INSTRUCTIONS}\n${agentic ? AGENTIC_INSTRUCTIONS : STAGED_INSTRUCTIONS}${imageInstructions}`, tools, prepareStep: () => ({ activeTools: Object.keys(tools).filter(name => !compactWrites || name !== 'set_files') }), stopWhen: stepCountIs(1), maxOutputTokens: 16000, maxRetries: 0, telemetry: { isEnabled: false } });

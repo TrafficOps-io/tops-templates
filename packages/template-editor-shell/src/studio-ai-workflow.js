@@ -5,7 +5,8 @@ import { createOpenRouterTemplateModel, generateTemplateWithOpenRouterAgent, wit
 import { generateImageWithOpenRouter } from './openrouter-images.js';
 import { normalizeGeneratedImagePng } from './generated-image-png.js';
 import { attachmentAssets, attachmentMessage, validateAttachments } from './ai-attachments.js';
-import { draftImageTool } from './ai-image-tool.js';
+import { draftImageTool, IMAGE_REFERENCE_GUIDANCE } from './ai-image-tool.js';
+import { imageReferenceCatalog } from './image-references.js';
 import { byteSize, validateProject } from './project.js';
 import { AI_RUN_TIMEOUT_MS, AI_STEP_TIMEOUT_MS } from './ai-limits.js';
 import { aiProjectContext } from './ai-context.js';
@@ -213,7 +214,7 @@ export async function generateContentDraft(options) {
     tools[name] = definition;
   }
   Object.assign(tools, withToolSteps(tools, notify));
-  const images = options.generateImage ? 'Use generate_image with the selected image model for new photos and raster art explicitly requested by the user, then use its returned path in the content. Never substitute SVG, CSS art or a placeholder for a requested generated raster image. Reference IDs from the brief can guide generation. Follow the count in the user brief and generate no images when none are requested. Do not generate unrequested images or pretend an unsuccessful image generation produced an asset.' : 'Image generation is disabled; preserve existing images or use attached page assets.';
+  const images = options.generateImage ? `Use generate_image with the selected image model for new photos and raster art explicitly requested by the user, then use its returned path in the content. Never substitute SVG, CSS art or a placeholder for a requested generated raster image. ${IMAGE_REFERENCE_GUIDANCE} Follow the count in the user brief and generate no images when none are requested. Do not generate unrequested images or pretend an unsuccessful image generation produced an asset.` : 'Image generation is disabled; preserve existing images or use attached page assets.';
   const agent = new ToolLoopAgent({ model: options.languageModel, instructions: (agentic ? CONTENT_INSTRUCTIONS_AGENTIC : CONTENT_INSTRUCTIONS_STAGED) + '\n' + images, tools, stopWhen: stepCountIs(1), maxRetries: 0, maxOutputTokens: 12000, telemetry: { isEnabled: false } });
   const messages = [{ role: 'user', content: attachmentMessage(`${options.prompt}\n\nTemplate and current content:\n${aiProjectContext({ files, values, definition: options.definition })}`, options.attachments) }];
   for (let step = 1; step <= 12 && callBudget.remaining > 0; step++) {
@@ -274,12 +275,15 @@ function prepareRun(options) {
   const model = options.languageModel || createOpenRouterTemplateModel({ ...options, diagnosticFetch });
   const prompt = String(options.prompt || '').trim();
   if (!prompt || prompt.length > 6000) throw new Error('Describe the request in 1–6,000 characters.');
-  const generateImage = options.generateImages ? async ({ prompt, referenceIds = [], signal }) => {
-    if (referenceIds.some(id => !attachments.some(item => item.id === id))) throw new Error('Unknown attached reference image.');
-    const file = await generateImageWithOpenRouter({ ...options, fetchImpl: diagnosticFetch, prompt, references: attachments.filter(item => referenceIds.includes(item.id)).map(item => item.dataUrl), signal });
+  // Images of this message plus those attached earlier on the visible branch (earlierAttachments, listed only).
+  const catalog = imageReferenceCatalog({ attachments, earlier: options.earlierAttachments || [] });
+  const generateImage = options.generateImages ? async ({ prompt, references = [], signal }) => {
+    const resolved = references.every(item => typeof item?.dataUrl === 'string') ? references : catalog.resolve(references.map(item => typeof item === 'string' ? item : item?.name));
+    const file = await generateImageWithOpenRouter({ ...options, fetchImpl: diagnosticFetch, prompt, references: resolved.map(item => item.dataUrl), signal });
     const png = await normalizeGeneratedImagePng(file, { signal });
     return new Uint8Array(await png.arrayBuffer());
   } : undefined;
+  if (generateImage) generateImage.resolveReferences = (tokens, files) => catalog.resolve(tokens, files);
   if (generateImage && !options.imageModel?.trim()) throw new Error('Choose an image model in AI connection settings before enabling image generation.');
   const images = { pending: new Set(), generated: new Set(), terminalFailure: undefined };
   const notify = event => {
@@ -291,7 +295,7 @@ function prepareRun(options) {
   };
   const initialFiles = { ...(options.mode === 'create' ? {} : options.files), ...assets };
   if (Object.keys(initialFiles).length) validateProject(initialFiles);
-  const references = `Attached reference IDs: ${JSON.stringify(attachments.map(({ id, name, useOnPage }) => ({ id, name, useOnPage })))}\nImage generation: ${generateImage ? 'enabled for explicitly requested images only; follow the count in the user brief and generate none when no images are requested' : 'disabled'}`;
+  const references = `${generateImage ? catalog.describe() : `Attached images: ${JSON.stringify(attachments.map(({ name, useOnPage }, index) => ({ handle: `ref${index + 1}`, name, useOnPage })))}`}\nImage generation: ${generateImage ? 'enabled for explicitly requested images only; follow the count in the user brief and generate none when no images are requested' : 'disabled'}`;
   const context = `${options.conversationContext ? `Conversation reference context:\n${options.conversationContext}\n\n` : ''}${references}`;
   return { options, attachments, assets, model, prompt, generateImage, images, notify, initialFiles, context, brief: `${prompt}\n\n${context}`,
     // Missing imageRequests used to bypass the deterministic completion check.

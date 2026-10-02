@@ -1,6 +1,8 @@
 // Agent activity labels for `step` cards (spec 2.3) and the retry status line.
 // The host translator (t) wins when it knows a key; otherwise the shell's own
 // Russian/Ukrainian strings below are used, then the English source text.
+import { localizeAiErrorText } from './ai-provider-errors.js';
+
 const interpolate = (text, values = {}) => text.replace(/\{([A-Za-z]+)\}/g, (match, key) => values[key] ?? match);
 
 /** English source → [ru, uk]. */
@@ -19,6 +21,7 @@ export const STEP_MESSAGES = Object.freeze({
   'Updating fields': ['Меняю поля', 'Змінюю поля'],
   'Checking the draft': ['Проверяю черновик', 'Перевіряю чернетку'],
   'Generating image {path}': ['Генерирую изображение {path}', 'Генерую зображення {path}'],
+  'Generating image {path} from {count} reference(s)': ['Генерирую {path} по референсам: {count}', 'Генерую {path} за референсами: {count}'],
   'Generating an image': ['Генерирую изображение', 'Генерую зображення'],
   'Subagent planner: plan of changes': ['Подагент planner: план изменений', 'Підагент planner: план змін'],
   'Subagent review: checking the draft': ['Подагент review: проверка черновика', 'Підагент review: перевірка чернетки'],
@@ -55,9 +58,10 @@ const AGENTS = { plan_changes: 'planner', review_draft: 'reviewer' };
 export function stepCard(step, options = {}) {
   const [withPath, plain] = TOOL_LABELS[step.tool] || [null, 'Using a tool'];
   const label = step.tool === 'set_values' && step.fields ? stepText('Updating fields: {fields}', { fields: step.fields }, options)
+    : step.tool === 'generate_image' && step.path && step.references > 0 ? stepText('Generating image {path} from {count} reference(s)', { path: step.path, count: step.references }, options)
     : withPath && step.path ? stepText(withPath, { path: step.path }, options) : stepText(plain, {}, options);
   return { type: 'step', label, status: ['running', 'done', 'error'].includes(step.status) ? step.status : 'running',
-    ...(step.status === 'error' && step.detail ? { detail: step.detail } : {}), ...(AGENTS[step.tool] ? { agent: AGENTS[step.tool] } : {}) };
+    ...(step.status === 'error' && step.detail ? { detail: localizeAiErrorText(step.detail, options) } : {}), ...(AGENTS[step.tool] ? { agent: AGENTS[step.tool] } : {}) };
 }
 
 /** Status line while a provider retry waits (spec 2.2). */
