@@ -170,6 +170,29 @@ test('a repeated response with no content changes stops after one recovery witho
   assert.equal(events.filter(event => event.type === 'content-recovery').length, 1);
 });
 
+test('an image committed while set_values validates is never dropped by a stale cached validation', async () => {
+  const initial = setup(), bytes = Uint8Array.from(atob(png), c => c.charCodeAt(0)), events = [];
+  let entered, committed, gated = false;
+  const validationEntered = new Promise(resolve => { entered = resolve; }), imageCommitted = new Promise(resolve => { committed = resolve; });
+  const both = { content: [
+    { type: 'tool-call', toolCallId: 'values-1', toolName: 'set_values', input: JSON.stringify({ values: { headline: 'New headline' } }) },
+    { type: 'tool-call', toolCallId: 'image-1', toolName: 'generate_image', input: JSON.stringify({ path: 'images/new.png', prompt: 'A new hero photo' }) },
+  ], finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage, warnings: [] };
+  const model = new MockLanguageModelV4({ doGenerate: [both, call('set_values', { values: { headline: 'New headline' } }), call('validate_draft', {}), done()] });
+  const result = await generateContentDraft({ ...initial, prompt: 'Fill content and add a hero photo.', languageModel: model,
+    validateDraft: async input => {
+      if (!gated) { gated = true; entered(); await imageCommitted; }
+      return validateDraft(input);
+    },
+    generateImage: async () => { await validationEntered; return bytes; },
+    onProgress: event => { events.push(event); if (event.type === 'file-set') committed(); } });
+  assert.equal(result.valid, true);
+  assert.ok(result.files['images/new.png'] instanceof Uint8Array, 'the paid image survives the final validation');
+  assert.equal(result.values.headline, 'New headline');
+  const first = model.doGenerateCalls[1].prompt.flatMap(message => Array.isArray(message.content) ? message.content : []).find(part => part.type === 'tool-result' && part.toolCallId === 'values-1');
+  assert.match(JSON.stringify(first.output), /changed during the field update/);
+});
+
 test('exhausting the output token budget before any content changes reports the limit without a blind retry', async () => {
   const initial = setup();
   const model = new MockLanguageModelV4({ doGenerate: [{ ...done(), content: [], finishReason: { unified: 'length', raw: 'length' } }] });

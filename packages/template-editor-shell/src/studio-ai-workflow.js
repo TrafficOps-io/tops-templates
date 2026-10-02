@@ -183,8 +183,12 @@ export async function generateContentDraft(options) {
         if (JSON.stringify(next) === JSON.stringify(values)) return { ok: false, error: 'These fields are unchanged. Complete the requested updates before validating.' };
         if (byteSize(JSON.stringify(next)) > 200000) throw new Error('Content exceeds the 200 KiB AI limit.');
         checkContentImages(options.definition, next, files);
+        // generate_image commits outside this queue. A result validated against
+        // older files must not be cached under a newer revision (it would drop the image).
+        const startRevision = revision;
         const checked = await options.validateDraft({ files, values: next, mode: 'edit', signal: options.signal });
         options.signal?.throwIfAborted();
+        if (revision !== startRevision) throw new Error('The draft changed during the field update (an image was added). Retry set_values with the same fields.');
         values = checked.values; revision++;
         checkedAt = { revision, result: checked };
         notify({ type: 'values-set', files, values });
