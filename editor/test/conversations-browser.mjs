@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { readZipProject } from '@trafficops/template-editor-core';
+import { studioChat } from './support/studio-chat.js';
 
 const require = createRequire(import.meta.url), { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = resolve(process.argv[2] || 'editor/dist');
@@ -79,15 +80,27 @@ try {
     while (Date.now() < deadline) { const documents = await docs(); if (predicate(documents)) return documents; await page.waitForTimeout(60); }
     throw new Error(`Timed out waiting for ${label}: ${JSON.stringify(await docs())}`);
   }
+  const chat = studioChat(page);
+  // Opens a conversation whose title contains `text`: from the list when shown, otherwise from the header menu (chat narrower than 560 px).
+  async function openThreadWith(text) {
+    if (await chat.threads.isVisible()) return chat.threads.locator('.studio-chat-threads-open').filter({ hasText: text }).click();
+    await chat.root.locator('.studio-chat-header').getByRole('button', { name: 'Conversations', exact: true }).click();
+    await chat.root.locator('.studio-chat-header').getByRole('menuitem').filter({ hasText: text }).click();
+  }
+  async function newConversation() {
+    if (await chat.threads.isVisible()) return chat.threads.getByRole('button', { name: 'New conversation', exact: true }).click();
+    await chat.root.locator('.studio-chat-header').getByRole('button', { name: 'Conversations', exact: true }).click();
+    await chat.root.locator('.studio-chat-header').getByRole('menuitem', { name: 'New conversation', exact: true }).click();
+  }
   await newBlank('Parallel project');
   assert.equal(await page.getByRole('button', { name: 'Collapse editor', exact: true }).count(), 0);
-  await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Message to assistant', exact: true }).fill('TASK_A Add a.css and leave the page intact.');
-  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  await page.getByRole('tab', { name: 'Conversations', exact: true }).click(); await chat.root.waitFor();
+  await chat.prompt.fill('TASK_A Add a.css and leave the page intact.');
+  await chat.send.click();
   await page.waitForFunction(() => Boolean(window.mockAi.release.TASK_A));
-  await page.getByRole('button', { name: 'New conversation', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Message to assistant', exact: true }).fill('TASK_B Add b.css and leave the page intact.');
-  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  await newConversation(); await chat.root.getByRole('heading', { name: 'New conversation', exact: true }).waitFor();
+  await chat.prompt.fill('TASK_B Add b.css and leave the page intact.');
+  await chat.send.click();
   await page.waitForFunction(() => Boolean(window.mockAi.release.TASK_B));
   await waitDoc(list => list[0].runs.filter(run => run.state === 'running').length === 2, 'two concurrent runs');
   const originalId = (await records())[0].id;
@@ -102,19 +115,19 @@ try {
   await waitDoc(list => list.find(doc => doc.projectId === originalId).runs.every(run => run.state === 'ready'), 'independent completed drafts');
   await page.getByRole('combobox', { name: 'Switch project', exact: true }).selectOption(originalId);
   await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
-  await page.getByRole('button', { name: 'Conversation history', exact: true }).click(); await page.locator('.conversation-history button').filter({ hasText: 'TASK_A' }).click();
-  await page.getByRole('button', { name: 'Review changes', exact: true }).click();
+  await chat.root.waitFor(); await openThreadWith('TASK_A');
+  await chat.status('ready').waitFor(); await chat.cards('diff').filter({ hasText: 'a.css' }).waitFor();
   assert.equal((await records()).find(record => record.id === originalId).files['a.css'], undefined);
-  await page.getByRole('button', { name: 'Apply to project', exact: true }).click();
+  await chat.apply.click();
   await page.getByRole('checkbox', { name: 'I reviewed the current files', exact: true }).waitFor();
   await page.getByRole('checkbox', { name: 'I reviewed the current files', exact: true }).check();
   await page.getByRole('button', { name: 'Apply after reviewing updated context', exact: true }).click();
   await waitDoc(list => list.find(doc => doc.projectId === originalId).runs.some(run => run.state === 'applied'), 'first apply');
   let saved = (await records()).find(record => record.id === originalId);
   assert.equal(saved.files['a.css'], 'h1 { color: red; }'); assert.equal(saved.settings.title, 'Manual title while AI runs');
-  await page.getByRole('button', { name: 'Conversation history', exact: true }).click(); await page.locator('.conversation-history button').filter({ hasText: 'TASK_B' }).click();
-  await page.getByRole('button', { name: 'Review changes', exact: true }).click();
-  await page.getByRole('button', { name: 'Apply to project', exact: true }).click();
+  await openThreadWith('TASK_B');
+  await chat.status('ready').waitFor(); await chat.cards('diff').filter({ hasText: 'b.css' }).waitFor();
+  await chat.apply.click();
   await page.getByRole('checkbox', { name: 'I reviewed the current files', exact: true }).check();
   await page.getByRole('button', { name: 'Apply after reviewing updated context', exact: true }).click();
   await waitDoc(list => list.find(doc => doc.projectId === originalId).runs.every(run => run.state === 'applied'), 'second merge apply');
@@ -130,10 +143,10 @@ try {
   await page.getByLabel('Import project ZIP', { exact: true }).setInputFiles({ name: 'continued-source.zip', mimeType: 'application/zip', buffer: Buffer.from(bytes) });
   await page.getByRole('dialog', { name: 'Continue this project or create a copy?', exact: true }).getByRole('button', { name: 'Continue project', exact: true }).click();
   assert.equal((await records()).length, 2); assert.equal((await records()).find(record => record.id === originalId).kind, 'landing');
-  await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
-  await page.getByRole('button', { name: 'New conversation', exact: true }).click();
-  await page.getByRole('combobox', { name: 'Message to assistant', exact: true }).fill('TASK_RELOAD Add a stylesheet and wait.');
-  await page.getByRole('button', { name: 'Send message', exact: true }).click(); await page.waitForFunction(() => Boolean(window.mockAi.release.TASK_RELOAD));
+  await page.getByRole('tab', { name: 'Conversations', exact: true }).click(); await chat.root.waitFor();
+  await newConversation(); await chat.root.getByRole('heading', { name: 'New conversation', exact: true }).waitFor();
+  await chat.prompt.fill('TASK_RELOAD Add a stylesheet and wait.');
+  await chat.send.click(); await page.waitForFunction(() => Boolean(window.mockAi.release.TASK_RELOAD));
   await page.reload();
   await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
   await waitDoc(list => list.find(doc => doc.projectId === originalId).runs.at(-1).state === 'interrupted', 'reload interruption');
