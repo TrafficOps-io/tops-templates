@@ -158,8 +158,25 @@ test('a transient blob read failure keeps the previous version visible until a l
   await b.save(fromB, { expectedRevision: fromB.revision }); await settle();
   assert.equal(failNext, false, 'the refresh hit the failure');
   assert.ok(seen.every(document => document.threads.some(thread => thread.id === 't1')), 'the dialogue is never hidden');
+  assert.deepEqual(seen.at(-1)?.threads.map(thread => [thread.id, thread.revision]), [['t1', 1]]);
+  assert.match(seen.at(-1).storageWarning, /Dialogue t1 could not be refreshed; an older version is shown/);
   await writeRaw(inner, 'other', 0); await settle();
   assert.deepEqual(seen.at(-1).threads.map(thread => [thread.id, thread.title, thread.revision]), [['t1', 'B edit', 2], ['other', 'other', 1]]);
+  assert.equal(seen.at(-1).storageWarning, undefined);
+});
+
+test('a dialogue never seen whose read fails once appears on the next watch event, though the listing is unchanged', async () => {
+  const inner = createMemoryConversationStore(); let failNext = false, poke;
+  const store = { ...inner, async getBlob(sha) { if (failNext) { failNext = false; throw new Error('EIO'); } return inner.getBlob(sha); },
+    watch(listener) { poke = listener; return inner.watch(listener); } };
+  const a = port(store), seen = []; a.subscribe(document => seen.push(document));
+  await a.load();
+  const b = port(inner); failNext = true;
+  await b.save(addThread(await b.load(), 'from-b'), { expectedRevision: 1 }); await settle();
+  assert.equal(failNext, false, 'the refresh hit the failure');
+  assert.deepEqual(seen.at(-1).threads, []); assert.match(seen.at(-1).storageWarning, /from-b: EIO/);
+  poke(); await settle();
+  assert.deepEqual(seen.at(-1).threads.map(thread => [thread.id, thread.revision]), [['from-b', 1]]);
   assert.equal(seen.at(-1).storageWarning, undefined);
 });
 

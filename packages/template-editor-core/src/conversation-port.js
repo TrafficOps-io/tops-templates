@@ -46,9 +46,8 @@ export function createStoreConversationPort(store, { projectId, hashBlob = sha25
 
   /** Re-reads the listed files into `current`, reusing every dialogue whose revision is unchanged. */
   async function read(files) {
-    const blobs = new Map(), next = new Map(), seeded = createSplitCache(), skipped = [];
+    const blobs = new Map(), next = new Map(), seeded = createSplitCache(), skipped = [], stale = [];
     const getBlob = sha => { if (!blobs.has(sha)) blobs.set(sha, store.getBlob(sha)); return blobs.get(sha); };
-    let failures = false;
     for (const file of files) {
       const id = fileId(file), known = id === null ? undefined : current.get(id);
       if (id !== null && next.has(id)) { skipped.push(`${id}: duplicate dialogue ID`); continue; }
@@ -59,8 +58,8 @@ export function createStoreConversationPort(store, { projectId, hashBlob = sha25
         next.set(id, { revision: file.revision, hash: await threadHash(file), refs: blobReferences(file), joined, split: file });
         seedSplitCache(seeded, file);
       } catch (error) {
-        // A newer version that cannot be opened (possibly a transient read error) keeps the older one visible and is retried.
-        if (known) { next.set(id, known); seedSplitCache(seeded, known.split); failures = true; }
+        // A newer version that cannot be opened (possibly a transient read error) keeps the older one visible.
+        if (known) { next.set(id, known); seedSplitCache(seeded, known.split); stale.push(id); }
         else skipped.push(`${id ?? 'unknown'}: ${error.message}`);
       }
     }
@@ -69,9 +68,15 @@ export function createStoreConversationPort(store, { projectId, hashBlob = sha25
     const ordered = new Map();
     for (const id of current.keys()) if (next.has(id)) ordered.set(id, next.get(id));
     for (const [id, entry] of next) if (!ordered.has(id)) ordered.set(id, entry);
-    current = ordered; cache = seeded; failed = failures;
+    // Any failure is retried on the next watch event, even when the listing is unchanged: unchanged files are reused,
+    // so only the failed ones are read again.
+    current = ordered; cache = seeded; failed = skipped.length > 0 || stale.length > 0;
     listing = files.map(file => [fileId(file), file?.revision]); signature = signatureOf(listing);
-    warning = skipped.length ? `Some dialogues could not be opened and were left untouched (${skipped.join('; ').slice(0, 1000)}).` : undefined;
+    const notes = [
+      ...(stale.length ? [`${stale.length === 1 ? 'Dialogue' : 'Dialogues'} ${stale.join(', ').slice(0, 1000)} could not be refreshed; an older version is shown.`] : []),
+      ...(skipped.length ? [`Some dialogues could not be opened and were left untouched (${skipped.join('; ').slice(0, 1000)}).`] : []),
+    ];
+    warning = notes.length ? notes.join(' ') : undefined;
   }
 
   function load() {
