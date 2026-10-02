@@ -8,6 +8,7 @@ import { httpServer } from './support/http-server.js';
 
 import { thirdHost } from './support/third-host.js';
 import { createStudioAiPort } from '../src/hosts/StudioAiPort.js';
+import { createConversationSession } from '@trafficops/template-editor-shell/conversation-runtime';
 const knownIds = ['safe-html-v1', 'fast-landings-v1'];
 const source = '@layout\n<h1>Local project</h1>\n@endlayout';
 test('StudioHost conforms using the actual File System Access adapter', async () => {
@@ -36,13 +37,44 @@ test('third host conforms without inheriting safe HTML or server lifecycle assum
 test('AI-enabled StudioHost and HttpHost conform with a conversations port; dropping it is rejected', async () => {
   const ai = () => createStudioAiPort({ storage: { load: async () => ({ apiKey: '', model: '', imageModel: '' }), save: async value => value, remove: async () => {} } });
   const studio = () => createStudioHost({ directory: new MemoryDirectoryHandle('Local', { 'index.tpl': source }), ai: ai() });
-  const http = () => createHttpHost({ endpoint: 'https://app.test/project', aiEndpoint: 'https://app.test/ai', csrf: 'csrf', fetchImpl: httpServer({ aiEnabled: true }).fetchImpl });
+  const http = () => createHttpHost({ endpoint: 'https://app.test/project', aiEndpoint: 'https://app.test/ai', csrf: 'csrf', fetchImpl: httpServer({ aiEnabled: true, conversationsEnabled: true }).fetchImpl });
   for (const factory of [studio, http]) {
     const sample = await factory();
     assert.equal(sample.capabilities.ai, true); assert.equal(typeof sample.conversations.load, 'function'); await sample.dispose?.();
     assert.ok((await runHostConformance(factory, { knownIds })).checks.includes('concurrency'));
     await assert.rejects(runHostConformance(async () => { const { conversations, ...rest } = await factory(); return rest; }, { knownIds }), /conversations port/);
   }
+});
+test('HttpHost without host conversation endpoints exposes no AI chat and still conforms', async () => {
+  for (const conversationsEnabled of [undefined, false, 'yes']) {
+    const factory = () => createHttpHost({ endpoint: 'https://app.test/project', aiEndpoint: 'https://app.test/ai', csrf: 'csrf', fetchImpl: httpServer({ aiEnabled: true, conversationsEnabled }).fetchImpl });
+    const host = await factory();
+    assert.equal(host.capabilities.ai, false); assert.equal(Object.hasOwn(host, 'ai'), false); assert.equal(Object.hasOwn(host, 'conversations'), false);
+    assert.equal((await host.project.open()).availability.ai, false);
+    await runHostConformance(factory, { knownIds });
+  }
+});
+test('HttpHost AI history persists through the host conversation endpoints and reloads in a fresh host', async t => {
+  const server = httpServer({ aiEnabled: true, conversationsEnabled: true });
+  const options = { endpoint: 'https://app.test/project', aiEndpoint: 'https://app.test/ai', csrf: 'csrf', fetchImpl: server.fetchImpl };
+  const host = await createHttpHost(options), opened = await host.project.open(), large = 'a'.repeat(5000);
+  assert.equal(opened.availability.ai, true);
+  const project = async value => ({ files: { ...value.files, 'styles.css': 'body { color: green; }' }, values: value.values, valid: true, summary: 'Styled' });
+  const workflows = { intent: async () => ({ intent: 'source' }), project, file: project, block: project, discussion: project };
+  const session = createConversationSession(host, { workflows, locks: null, sessionId: 'owner' }); t.after(() => session.dispose());
+  await session.ready;
+  const threadId = await session.submit({ prompt: 'Make it green', snapshot: { ...opened, files: { ...opened.files, 'large.css': large } } });
+  for (let tick = 0; tick < 400 && session.getSnapshot().runs[0]?.state !== 'ready'; tick++) await new Promise(resolve => setTimeout(resolve, 5));
+  assert.equal(session.getSnapshot().runs[0]?.state, 'ready');
+  const written = server.calls.filter(call => call.init.method === 'PUT');
+  assert.ok(written.some(call => call.url.startsWith('https://app.test/project/conversations/')));
+  assert.ok(written.some(call => call.url.startsWith('https://app.test/project/conversation-blobs/')), 'a large snapshot file is uploaded as a blob');
+  const loaded = await (await createHttpHost(options)).conversations.load();
+  assert.equal(loaded.projectId, 'embed:/project');
+  assert.deepEqual(loaded.threads.map(thread => thread.id), [threadId]);
+  assert.equal(loaded.threads[0].messages[0].prompt, 'Make it green');
+  assert.equal(loaded.runs[0].state, 'ready'); assert.equal(loaded.runs[0].result.files['styles.css'], 'body { color: green; }');
+  assert.equal(loaded.runs[0].base.files['large.css'], large);
 });
 test('conformance rejects null optional ports rather than treating them as absent', async () => {
   await assert.rejects(runHostConformance(() => ({ ...thirdHost(), ai: null }), { knownIds }), /ai port/);
@@ -70,7 +102,7 @@ test('HTTP lifecycle keeps save+publish atomic and restore preserves unsaved fil
   assert.equal(restored.persisted, false); assert.equal(restored.state.files['styles.css'], 'unsaved');
 });
 test('host-managed AI exposes read/check/URL only and proxies the browser tool loop transport', async () => {
-  const server = httpServer({ aiEnabled: true }), host = await createHttpHost({ endpoint: 'https://app.test/project', aiEndpoint: 'https://app.test/ai', aiSettingsUrl: '/team/ai', csrf: 'csrf', fetchImpl: server.fetchImpl });
+  const server = httpServer({ aiEnabled: true, conversationsEnabled: true }), host = await createHttpHost({ endpoint: 'https://app.test/project', aiEndpoint: 'https://app.test/ai', aiSettingsUrl: '/team/ai', csrf: 'csrf', fetchImpl: server.fetchImpl });
   assert.equal(host.ai.settings.owner, 'host'); assert.equal(host.ai.settings.url, '/team/ai');
   assert.equal('save' in host.ai.settings, false); assert.equal('remove' in host.ai.settings, false);
   const connection = await host.ai.begin();
@@ -82,7 +114,7 @@ test('host-managed AI exposes read/check/URL only and proxies the browser tool l
 });
 
 test('host-managed AI retains the safe provider error from the server proxy', async () => {
-  const server = httpServer({ aiEnabled: true });
+  const server = httpServer({ aiEnabled: true, conversationsEnabled: true });
   const host = await createHttpHost({ endpoint: 'https://app.test/project', aiEndpoint: 'https://app.test/ai', csrf: 'csrf', fetchImpl: server.fetchImpl });
   const connection = await host.ai.begin();
   server.fail({ status: 422, body: { error: { message: 'The AI provider returned an error (503). Try again.' } } });
@@ -138,7 +170,7 @@ test('HTTP template copy sends unsaved files and a separate template name, then 
 });
 
 test('initial AI requests are claimed with page revision before provider work and retain the prompt on failures', async () => {
-  const server = httpServer({ aiEnabled: true });
+  const server = httpServer({ aiEnabled: true, conversationsEnabled: true });
   const initialAiRequest = { id: 'request-1', prompt: 'Build a botanical landing', mode: 'create', autoStart: true };
   const host = await createHttpHost({ endpoint: 'https://app.test/project', csrf: 'csrf', aiEndpoint: 'https://app.test/ai', fetchImpl: server.fetchImpl, initialAiRequest });
   assert.equal(host.ai.initialRequest.prompt, initialAiRequest.prompt);
