@@ -13,7 +13,8 @@ const CONTINUE = new Set(['failed', 'interrupted', 'cancelled']);
 
 // Run-level actions under an assistant message. Apply/Preview only for 'ready' — the port reports 'ready'
 // only when the run is applicable, otherwise 'completed' (contract rule, README). Discard for 'ready' and for a
-// failed/interrupted/cancelled run whose message has draft cards (hasDrafts: diff/values/image/file), see canDiscardRun. Keep draft (failed/interrupted,
+// failed/interrupted/cancelled run whose message has draft cards (hasDrafts: diff/values/image/file) when the port declares
+// capabilities.discardStopped, see canDiscardRun. Keep draft (failed/interrupted,
 // capabilities.keepDraft + port.keepDraft) and Continue generation (failed/interrupted/cancelled + port.continueRun)
 // appear only when the port offers them; Continue passes the composer text as the prompt and clears the composer. Errors are inline notices, never toasts.
 export default function RunActions({ port, run, hasDrafts = false }) {

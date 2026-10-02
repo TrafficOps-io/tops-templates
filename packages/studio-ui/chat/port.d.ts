@@ -54,8 +54,9 @@ export interface SendInput { text: string; mentions: MentionTarget[]; attachment
 /**
  * keepDraft — landing: «Keep draft in editor» для failed/interrupted ранов; conflictReview — порт присылает QuestionCard kind 'conflict';
  * clarifyWhileRunning — порт принимает send() во время рана как уточнение этого рана (тот же тред): композер не блокируется.
+ * discardStopped — порт принимает discard() для failed/interrupted/cancelled ранов: «Discard» у такого рана, если у сообщения есть карточки черновика (diff/values/image/file).
  */
-export interface ChatCapabilities { scopes: ScopeKind[]; cost: boolean; previewDraft: boolean; generateImages: boolean; conflictReview?: boolean; keepDraft?: boolean; clarifyWhileRunning?: boolean }
+export interface ChatCapabilities { scopes: ScopeKind[]; cost: boolean; previewDraft: boolean; generateImages: boolean; conflictReview?: boolean; keepDraft?: boolean; clarifyWhileRunning?: boolean; discardStopped?: boolean }
 
 /** Продуктовые методы (например registerBlockScope) в контракт не входят — они остаются на объекте адаптера. */
 export interface ChatPort {

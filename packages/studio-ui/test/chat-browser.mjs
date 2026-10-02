@@ -194,24 +194,22 @@ try {
   await feed.locator('[data-role="assistant"][data-run-status="discarded"]').waitFor();
   assert.ok(await lastCall('discard'));
 
-  // A failed run that left draft cards offers Discard (the broken draft must not travel into the next send).
+  // Without capabilities.discardStopped a failed run with draft cards offers no Discard (Media Studio accepts discard for ready only).
   await send('Broken idea');
   await page.evaluate(() => { window.fake.emitCard({ type: 'diff', path: 'index.tpl', added: 1, removed: 0, before: '', after: '<p>Half</p>' }); window.fake.finish('failed', { message: 'Model timed out' }); });
-  await feed.locator('[data-role="assistant"][data-run-status="failed"]').waitFor();
-  await assistant().getByTestId('studio-chat-discard').click();
-  await feed.locator('[data-role="assistant"][data-run-status="discarded"]').nth(1).waitFor();
-  assert.equal((await lastCall('discard'))[1], await assistant().getAttribute('data-run-id'), 'discard gets the failed run');
+  await assistant().and(page.locator('[data-run-status="failed"]')).waitFor();
+  assert.equal(await assistant().getByTestId('studio-chat-discard').count(), 0, 'no Discard without capabilities.discardStopped');
 
   // Failed → Keep draft and Continue generation.
   await send('Third idea');
   await page.evaluate(() => window.fake.finish('failed', { message: 'Render failed' }));
-  await feed.locator('[data-role="assistant"][data-run-status="failed"]').waitFor();
+  await assistant().and(page.locator('[data-run-status="failed"]')).waitFor();
   assert.equal(await assistant().getByTestId('studio-chat-discard').count(), 0, 'no Discard for a failed run without draft cards');
-  await page.getByTestId('studio-chat-keep-draft').click();
+  await assistant().getByTestId('studio-chat-keep-draft').click();
   await page.waitForFunction(() => window.fake.calls.some(([name]) => name === 'keepDraft'));
   // Continue generation sends the composer text as the prompt and clears the composer.
   await input.fill('Use a warmer tone');
-  await page.getByTestId('studio-chat-continue').click();
+  await assistant().getByTestId('studio-chat-continue').click();
   await feed.locator('[data-role="assistant"][data-run-status="running"]').waitFor();
   assert.equal((await lastCall('continueRun'))[2], 'Use a warmer tone', 'continueRun gets the composer text');
   await page.waitForFunction(() => document.querySelector('[data-testid="studio-chat-composer"] textarea[role="combobox"]').value === '');
@@ -346,6 +344,29 @@ try {
   assert.deepEqual(blocked, [], 'no external requests');
   assert.deepEqual(errors, [], 'no page errors');
   await page.close();
+
+  // capabilities.discardStopped: a failed run that left draft cards offers Discard; a failed run without cards does not.
+  {
+    const stopped = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+    await stopped.goto(`${origin}/?discardStopped=1`);
+    const box = stopped.getByTestId('studio-chat').getByTestId('studio-chat-composer'), field = box.getByRole('combobox');
+    const last = () => stopped.getByTestId('studio-chat-feed').locator('[data-role="assistant"]').last();
+    const submit = async (text, cards) => {
+      const before = await stopped.evaluate(() => window.fake.calls.filter(([name]) => name === 'send').length);
+      await field.click(); await field.fill(text); await stopped.keyboard.press('Enter');
+      await stopped.waitForFunction(count => window.fake.calls.filter(([name]) => name === 'send').length > count, before);
+      await stopped.getByTestId('studio-chat-feed').locator('[data-run-status="running"]').waitFor();
+      await stopped.evaluate(withCards => { if (withCards) window.fake.emitCard({ type: 'values', section: 'Hero', changes: [{ path: 'title', before: 'Old', after: 'Half' }] }); window.fake.finish('failed', { message: 'Model timed out' }); }, cards);
+      await last().and(stopped.locator('[data-run-status="failed"]')).waitFor();
+    };
+    await submit('Plain failure', false);
+    assert.equal(await last().getByTestId('studio-chat-discard').count(), 0, 'no Discard for a failed run without draft cards');
+    await submit('Broken idea', true);
+    await last().getByTestId('studio-chat-discard').click();
+    await last().and(stopped.locator('[data-run-status="discarded"]')).waitFor();
+    assert.equal((await stopped.evaluate(() => window.fake.calls.filter(([name]) => name === 'discard').at(-1)))[1], await last().getAttribute('data-run-id'), 'discard gets the failed run');
+    await stopped.close();
+  }
 
   // capabilities.clarifyWhileRunning: the composer sends during a run into the same thread (a clarification).
   {

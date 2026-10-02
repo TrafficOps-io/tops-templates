@@ -240,17 +240,19 @@ test('deltas for a message missing from the snapshot are buffered until it appea
   assert.equal(addStreamedText(many, [], { type: 'text-delta', delta: 'a' }), many, 'no messageId');
 });
 
-test('Discard: ready always, failed/interrupted/cancelled only with draft cards, never without port.discard', () => {
-  const port = { discard: async () => {} };
+test('Discard: ready always; failed/interrupted/cancelled only with draft cards and capabilities.discardStopped; never without port.discard', () => {
+  const port = { discard: async () => {}, capabilities: { discardStopped: true } }, plain = { discard: async () => {}, capabilities: {} };
   const card = toolName => ({ type: 'tool-call', toolCallId: `r:${toolName}`, toolName, result: {} });
   for (const type of ['diff', 'values', 'image', 'file']) assert.equal(hasDraftCards([{ type: 'text', text: 'x' }, card(type)]), true, type);
   for (const type of ['question', 'operation', 'audio', 'video']) assert.equal(hasDraftCards([card(type)]), false, type);
   assert.equal(hasDraftCards(undefined), false);
-  assert.equal(canDiscardRun(port, 'ready', false), true);
+  assert.equal(canDiscardRun(port, 'ready', false), true); assert.equal(canDiscardRun(plain, 'ready', false), true, 'ready needs no capability');
+  assert.equal(canDiscardRun({}, 'ready', true), false, 'ready without port.discard');
   for (const status of ['failed', 'interrupted', 'cancelled']) {
     assert.equal(canDiscardRun(port, status, true), true, `${status} with drafts`);
     assert.equal(canDiscardRun(port, status, false), false, `${status} without drafts`);
-    assert.equal(canDiscardRun({}, status, true), false, `${status} without port.discard`);
+    assert.equal(canDiscardRun({ capabilities: { discardStopped: true } }, status, true), false, `${status} without port.discard`);
+    assert.equal(canDiscardRun(plain, status, true), false, `${status} with drafts but without discardStopped`);
   }
   for (const status of ['queued', 'running', 'completed', 'applied', 'discarded']) assert.equal(canDiscardRun(port, status, true), false, status);
 });

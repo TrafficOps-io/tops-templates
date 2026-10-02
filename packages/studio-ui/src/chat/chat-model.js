@@ -19,10 +19,11 @@ export const RUN_STATUS = {
 export const DRAFT_CARD_TYPES = new Set(['diff', 'values', 'image', 'file']);
 export const hasDraftCards = parts => (parts ?? []).some(part => part?.type === 'tool-call' && DRAFT_CARD_TYPES.has(part.toolName));
 const DISCARD_STOPPED = new Set(['failed', 'interrupted', 'cancelled']);
-/** Discard is offered for a ready run, and for a failed/interrupted/cancelled run that left draft cards (otherwise the
- *  runtime may carry the broken draft into the next send). Both require port.discard. */
+/** Discard is offered for a ready run, and — only when the port declares capabilities.discardStopped — for a
+ *  failed/interrupted/cancelled run that left draft cards (otherwise a runtime may carry the broken draft into the next
+ *  send). Both require port.discard. */
 export const canDiscardRun = (port, status, hasDrafts) => typeof port?.discard === 'function'
-  && (status === 'ready' || (DISCARD_STOPPED.has(status) && Boolean(hasDrafts)));
+  && (status === 'ready' || (DISCARD_STOPPED.has(status) && port.capabilities?.discardStopped === true && Boolean(hasDrafts)));
 
 export const isActiveRun = message => ['queued', 'running'].includes(message?.status?.status);
 

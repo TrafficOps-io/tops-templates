@@ -21,8 +21,8 @@ const defaultScope = port => ({ kind: port.capabilities?.scopes?.includes('proje
 // port: ChatPort; threadId?: string; onThreadChange?(id) — '' or no threadId is a new conversation, created on the first send;
 // launch?: { id, text?, scope?, mentions?, attachments?: File[] } — external launch: an effect keyed on launch.id resets the composer and fills text, scope, mention targets and files;
 // actions?: { id, label, danger?, onSelect({ text }) }[] — menu items in the thread header (product actions, e.g. "Create the project anew");
-// onScopeChange?(scope) — called whenever the composer scope changes: a scope chip, removing a chip, a launch (including a launch
-// that resets the scope to the default); not called on mount;
+// onScopeChange?(scope) — called on a scope chip change (including its removal) and on every launch, including a launch present
+// at mount and a launch that resets the scope to the default; without a launch it is not called on mount;
 // disabled?: boolean; footer?: ReactNode; emptyState?: ReactNode; className?: string
 // Errors (send, thread and card actions) are inline notices; no ToastProvider is needed.
 export default function StudioChat({ port, threadId = '', onThreadChange, onScopeChange, launch, actions = [], disabled = false, footer, emptyState, className = '' }) {
