@@ -130,7 +130,7 @@ These are the new values for `CONVERSATION_LIMITS` in `template-editor-core`.
 
 | Limit | Value | Enforced in |
 |---|---|---|
-| Threads per project | 100 (unchanged) | adapter, stores |
+| Threads per project | 100 (unchanged) | adapter: only saves that add a dialogue are capped, and an already-persisted overflow is tolerated with a `storageWarning`. Stores do not enforce it |
 | Messages per thread | 500 (unchanged) | format validation |
 | Runs per thread | 100. This replaces the per-document check at `conversation-runtime.js:518, 615` and in `validateConversationDocument` | runtime, format validation |
 | Thread JSON size, encoded, blobs excluded | 16 MiB | stores |
@@ -177,7 +177,7 @@ There is no separate index: `load` needs every thread anyway.
 - **Refresh.** Watch events are coalesced, so at most one refresh is queued. A refresh compares the listing signature first, reuses joined threads whose revision is unchanged, and publishes only when the valid `(id, revision)` set or the warning changed. A file that fails to read while an older valid version is known keeps that version visible, and the next refresh retries it.
 - **Save cost.** Only the expensive part, blob hashing, is cached. Everything else is re-serialized on every save.
   - The blob split of the four snapshot fields of a run (`base`, `starting`, `checkpoint`, `result`) is cached under `(run.id, run.updatedAt)`.
-  - Attachment blobs are cached under `attachment.id`, because attachment content is immutable once it has an id.
+  - Attachment blobs are cached under `attachment.id` + `mime` + `dataUrl` length, because attachment content is immutable once it has an id.
   - All other run fields (`owner`, `state`, `phase` and so on) and every message field, including `status`, are re-serialized on every save. The thread hash is taken over that small split form.
   - So a heartbeat, which changes only `owner.expiresAt` and does not bump `updatedAt` (`conversation-runtime.js:319`), still reaches the store without hashing any snapshot file.
   - This relies on two runtime invariants:
@@ -185,16 +185,16 @@ There is no separate index: `load` needs every thread anyway.
     - `run.updatedAt` strictly increases per run, as `max(now(), previous + 1)`. This is new in phase 1: with plain `now()`, two snapshot mutations in the same millisecond, such as the last checkpoint flush and the final `result` (`:466–471`), would share a cache key.
     
     Both are tested.
-- **Serialization.** All adapter operations run through one queue, so a reload can never swap the snapshot in the middle of a save's diff and I/O. The queued operations are `load`, `save`, the reload triggered by `watch`, and `collectGarbage`.
+- **Serialization.** All adapter operations run through one queue, so a reload can never swap the snapshot in the middle of a save's diff and I/O. The queued operations are `load`, `save` and the coalesced refresh triggered by `watch`. GC is started after the operations already queued, but later operations do not wait for it, so a store that never settles a collection cannot block saves.
 - **Heartbeat-tick conflicts are quiet.** The heartbeat tick is the `setInterval` in `createConversationSession` (`conversation-runtime.js:316–322`): the lease mutate at `:319` plus `recoverOrphans()` at `:321`. When either exhausts its retries on `ConflictError`, it does not call `report` (no `doc.error`), and the next tick retries.
   - The interval is `min(15 s, lease / 3)` against a 60 s lease, so up to 2 consecutive quiet misses are safe.
   - On the 3rd consecutive miss, the error is reported as it is today.
   - With a second window open, heartbeat conflicts can still happen when both windows touch the same dialogue.
 - **Write order per thread.** First `putBlob` for every blob the thread references, then `writeThread`. The new revision is stamped back onto the thread.
-- **Document revision.** `document.revision` is a monotonic counter local to the adapter. It is never persisted, and it increments on every `load` and `save` result and on every `watch` reload. The runtime's checks are therefore satisfied: `receive` accepts `next.revision >= doc.revision`, and `mutate` passes `previous.revision`, which feeds the local CAS level.
+- **Document revision.** `document.revision` is a monotonic counter local to the adapter. It is never persisted, and it increments on every `load` and `save` result and on every refresh that published a change. The runtime's checks are therefore satisfied: `receive` accepts `next.revision >= doc.revision`, and `mutate` passes `previous.revision`, which feeds the local CAS level.
 - **Multi-thread saves are not atomic.** When thread A commits and thread B conflicts, the adapter throws `ConflictError` and the runtime reloads the *whole* document (`conversation-runtime.js:253`) and re-runs `change`. Every mutation must therefore converge, so that re-applying it to a state already holding a partial commit gives the same result. This holds today for the multi-thread mutations `recoverOrphans`, the heartbeat and `reconcileApplied` (set state or owner and mark applied). The spec makes it a tested requirement.
 - **`subscribe`.**
-  - When the store has `watch`, a change triggers `load()`, a counter bump, and delivery to listeners.
+  - When the store has `watch`, a change triggers the coalesced refresh; it bumps the counter and delivers to listeners only when the valid `(id, revision)` set or the warning changed.
   - Without `watch` (HTTP), there is no cross-tab signal, and conflicts surface on the next write.
   - Same-window listeners are notified after every `save`.
 - **GC.** If the store supports `collectGarbage()`, the adapter schedules it in its queue, without awaiting it inside the save and at most once every 5 minutes, after a `save` that deleted threads or dropped blob references and on the first `load`. The store's 10-minute grace period makes the delay safe. The adapter passes no reference set: a store computes references from its own persisted threads, never from an in-memory document that may be stale.
@@ -256,7 +256,7 @@ Paths are relative to the host `endpoint`. Requests carry `X-CSRF-TOKEN` and `cr
 Error mapping in `http-conversation-store`:
 - `409` → `ConflictError`
 - `413` → `Error` with the limit message
-- `422` → `Error` (hash mismatch, or a thread that references a missing blob; the client always uploads blobs first)
+- `422` → `ValidationError` (`code: 'validation'`; the adapter re-uploads all blobs once on this code) (hash mismatch, or a thread that references a missing blob; the client always uploads blobs first)
 - `404` on `GET` blob → `Error('A conversation attachment is missing on the server.')`
 
 Hosts own GC of unreferenced blobs. When `initial` lacks `conversationsEnabled: true`, the embed shows no AI chat. PWApps stays on embed 0.6.x until it implements the contract (sub-project 2).
@@ -340,7 +340,7 @@ Both run on the joined document before the threads are written to the new root.
 
 **Adapter:**
 - A stale-thread save is rejected: two adapters on one store, A writes thread T, then B saves a document whose T has the old revision, and B gets `ConflictError`.
-- A stale-document save is rejected locally: a `watch` reload happens between the runtime taking its copy and calling `save`, and `save` throws `ConflictError` without deleting the newly arrived thread.
+- A stale copy is rebased: a dialogue created elsewhere after the copy is kept and appears in the result; a save from a revision that was never published, or that is older than the last 16, throws `ConflictError` before any I/O.
 - Untouched stale threads are never written.
 - A heartbeat-only mutation reaches the store (another adapter sees the new `owner.expiresAt`) and computes no blob hashes (spy on the hash function).
 - A message `status` change reaches the store.
@@ -388,7 +388,7 @@ Both run on the joined document before the threads are written to the new root.
 - **The directory store's `watch` must pass the contract with a real `openPeer`.** A `BroadcastChannel` never hears its own posts.
 - **GC in the directory store must not run while thread files are unreadable.** If a file cannot be parsed, its references are unknown, so GC must skip that pass instead of deleting the blobs that file may reference.
 - **GC has no follow-up timer.** A deletion that happens inside the 5-minute window is collected on the next qualifying save or load.
-- **Renaming a dialogue that is streaming in another window** can lose all 4 attempts. These are real per-dialogue conflicts, and the error goes to the caller. Consider retrying the rename after the run's next checkpoint.
+- **Renaming, or sending a clarification to, a dialogue that is streaming in another window** can lose all 4 attempts. These are real per-dialogue conflicts, and the error goes to the caller. Consider retrying the rename after the run's next checkpoint.
 - **Dead guards remain.** `recoveredConflict` checks in `conversation-runtime.js`, `useEditorProject.js` and `chat-cards.js`, and the unused "AI recovery" strings in `studio-translations.json`, can be removed together with Studio's `ai.recovery` wiring.
 
 ## Follow-ups (separate specs)
