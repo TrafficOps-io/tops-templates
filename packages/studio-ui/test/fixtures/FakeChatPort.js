@@ -105,14 +105,9 @@ export function createFakeChatPort({ now = () => new Date().toISOString() } = {}
       active = { threadId, messageId: assistantId };
       emit(threadId, { type: 'status', messageId: assistantId, status: assistant.status });
     },
+    // Text goes one way only (contract rule): this port streams deltas, so emitText sends the event and leaves messages() untouched.
     emitText(delta) {
       const { threadId, messageId } = requireActive();
-      patchMessage(threadId, messageId, message => {
-        const parts = [...message.parts];
-        const last = parts[parts.length - 1];
-        if (last?.type === 'text') parts[parts.length - 1] = { ...last, text: last.text + delta }; else parts.push({ type: 'text', text: delta });
-        return { parts };
-      });
       emit(threadId, { type: 'text-delta', messageId, delta });
     },
     emitCard(card) {
