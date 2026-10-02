@@ -1,6 +1,6 @@
 # Landing Studio by TrafficOps
 
-A static application for creating reusable TrafficOps templates and landing pages, with a local project library. The installed PWA also provides an AI code assistant and direct folder access through the File System Access API. Built with React, Vite, Monaco Editor, Tailwind CSS and daisyUI. It uses the shared `@trafficops/template-runtime` workspace, so CLI and editor generation have the same behavior.
+A static application for creating reusable TrafficOps templates and landing pages, where every project is a folder of plain files: a folder you choose on your computer (Chromium browsers) or the browser's private storage (OPFS). It includes an AI code assistant. Built with React, Vite, Monaco Editor, Tailwind CSS and daisyUI. It uses the shared `@trafficops/template-runtime` workspace, so CLI and editor generation have the same behavior.
 
 [Open Landing Studio](https://studio.trafficops.io).
 
@@ -19,36 +19,56 @@ Vite writes the deployable static site to `editor/dist`. The root Netlify config
 
 ## Host capabilities
 
-`App` supplies Studio chrome and a `LibraryHost` for browser projects or a
-`StudioHost` for folder projects to `@trafficops/template-editor-shell`.
-The same shell is mounted by the embedded entry through `HttpHost`. Host ports and
-capabilities come from `@trafficops/template-editor-core`; the shell does not own
-storage, compiler policy, lifecycle rules or credentials. In standalone Studio,
-AI creation, editing, content filling, image generation and BYOK settings are
-available only in the installed PWA, as is File System Access folder access.
-Ordinary browser tabs retain manual library, template, blank-project and ZIP
-workflows. This restriction is specific to Studio's hosts; it does not change the
-embedded PWApps editor's `HttpHost` capabilities. Both text and image requests
-in installed Studio use the user-owned AI port.
+`App` supplies Studio chrome and a `FolderHost` (`src/hosts/FolderHost.js`) for the
+open project to `@trafficops/template-editor-shell`. The host reads and writes the
+project's root directory, either a user-chosen folder or an OPFS directory, in the
+folder-first format below. The same shell is mounted by the embedded entry through
+`HttpHost`. Host ports and capabilities come from `@trafficops/template-editor-core`;
+the shell does not own storage, compiler policy, lifecycle rules or credentials.
+In standalone Studio, AI creation, editing, content filling, image generation and
+BYOK settings are available in ordinary browser tabs and in the installed app alike.
+Installation only changes install and update chrome. This is specific to Studio's
+hosts; it does not change the embedded PWApps editor's `HttpHost` capabilities. Both
+text and image requests use the user-owned AI port.
 
 ## Workflow
 
-1. Open **Projects → New project**, choose **Landing page** or **Reusable template**, then start **From template** or **From scratch**. The installed PWA opens with an AI chat: choose **Landing page** or **Reusable template**, describe the result, optionally attach references, and send the brief to create a project and continue its conversation. The **New project → With AI** dialog is also available. Included starters work offline after the application is cached. Your own templates appear alongside them. Each new project has its own files and field values; using a template creates an independent copy and never modifies the source template.
-2. The library supports search, template/landing filters, duplication, deletion and **Import ZIP**. Imported `.tpl`, `.tpl.html` or HTML projects retain assets and customized values; a common enclosing directory is removed automatically. In a landing editor, **Save as template** copies the current files and values into a new reusable template. Library projects autosave in ordinary browser tabs and the installed PWA.
+1. Open **Projects → New project**, choose **Landing page** or **Reusable template**, then start **From template** or **From scratch**. The home page also offers an AI chat: choose **Landing page** or **Reusable template**, describe the result, optionally attach references, and send the brief to create a project and continue its conversation. The **New project → With AI** dialog is also available. Included starters work offline after the application is cached. Your own templates appear alongside them; each template lives in its own folder, so choosing a template card asks for access to that folder in its own click, and **Create** then opens the folder picker for the new project. Using a template creates an independent copy and never modifies the source template.
+   - **Where projects live.** In Chromium browsers (Chrome, Edge) every project is a folder you choose. Creation asks for the folder: an empty folder is used directly, a folder that already holds a Studio project can be opened instead (never overwritten), and a non-empty folder gets a new subfolder for the project. In browsers without the folder picker (Safari 26+, Firefox 111+) projects live in the browser's private storage (OPFS) and creation needs no picker. Studio asks the browser to keep that storage persistent and shows a backup note; export a source ZIP regularly, because clearing site data removes browser-stored projects. A browser with neither a folder picker nor OPFS (or one that blocks OPFS in private windows) shows an "update your browser" screen.
+2. The library lists the folders and browser projects Studio knows, with search and template/landing filters. Each card shows **Folder** or **In this browser**. A listed folder whose permission lapsed shows **Needs permission**; opening it asks again. A folder that was moved, renamed or deleted shows **Folder unavailable** with **Reconnect** (pick the folder again; it must hold the same project) and **Remove from list**.
+   - **Open folder** (Chromium) opens a folder: a Studio project is opened, a folder of plain files is adopted as a project (Studio adds `.trafficops/`), and an empty folder becomes a blank project that stays untouched until the first save.
+   - **Import ZIP** always creates a new project in a new folder; it never overwrites an existing one. The archive's project ID is kept unless Studio already knows it; then the import becomes a copy with a new ID, remapped history and interrupted runs. Imported `.tpl`, `.tpl.html` or HTML projects retain assets and customized values; a common enclosing directory is removed automatically. When a destination folder must be chosen, **Import ZIP** has an explicit second button so the picker opens in the click.
+   - **Duplicate** copies a project, with its history, into a new folder. If the source needs permission, a second button asks for it first.
+   - **Delete** removes the project from the list; a project folder stays on disk. A project in browser storage is deleted for good, with its dialogue history.
+   - **Save a copy…** (shown when an outside change conflicts or the folder is unavailable) writes the editor's unsaved state and the history to a new root.
+   - In a landing editor, **Save as template** asks for a new folder first, then writes a template there with the current files and values and no history. Projects autosave.
 3. Use **Project files** to create files or folders, upload local files, and drag files or whole folders to a new location in the tree. Select a source file for syntax highlighting and IntelliSense: directives, snippets, project types, parameter paths, blocks and includes. Hover shows references; `@render` calls show argument hints. Use **Hide preview** for more editing space. Moving or renaming files does not rewrite includes or asset paths.
-4. **Content** builds inputs from template declarations, including groups, repeaters, numbers, colors and choices. Image fields support uploads, local assets, crop, positioning and resize, respecting `aspect_ratio` and `sizes`. Load/save settings JSON to reuse values with the CLI. In the installed PWA, **Conversations** holds independent AI dialogues. Describe your task, attach references or mention files and preview sections with **@**. Image mentions show local thumbnails in the file picker, selected references and messages. **Conversation history** opens the searchable list; the conversation scrolls independently while the composer stays in reach. The assistant selects source editing, content changes or discussion; each run keeps a separate draft for review. The installed project workspace has a single project toolbar; its help button opens the quick start guide and documentation.
+4. **Content** builds inputs from template declarations, including groups, repeaters, numbers, colors and choices. Image fields support uploads, local assets, crop, positioning and resize, respecting `aspect_ratio` and `sizes`. Load/save settings JSON to reuse values with the CLI. **Conversations** holds independent AI dialogues. Describe your task, attach references or mention files and preview sections with **@**. Image mentions show local thumbnails in the file picker, selected references and messages. **Conversation history** opens the searchable list; the conversation scrolls independently while the composer stays in reach. The assistant selects source editing, content changes or discussion; each run keeps a separate draft for review. The installed project workspace has a single project toolbar; its help button opens the quick start guide and documentation.
 5. Choose a generated page and desktop/mobile preview. All `.tpl` pages with an `@layout` block are generated; declaration-only files serve as includes. The editor preview runs the page's JavaScript, local modules, links and form handlers. Changes prepare a replacement page while the previous preview stays visible. **Refresh preview** runs the latest source again; **Pause automatic preview** keeps the current page and its interactive state while you edit.
-6. **Export → Landing for hosting** exports generated HTML and assets. **Export → Editable project** retains source, assets, empty folders, values and `.trafficops/project.json` identity. Conversation history is included by default and can be excluded. Reopening a source ZIP with a known identity offers **Continue project** or an independent copy; it preserves the landing/template type. API keys are excluded. Hosting ZIPs contain no Studio sidecars.
-
-For direct disk editing, install the PWA in Chrome or Edge and choose **Save to folder** in an existing project. This copies and verifies its files, values and dialogue history before connecting that folder to the same project ID. No ZIP roundtrip or extra project is needed. **Open folder** opens an existing workspace; empty folders receive an editable starter in memory and stay untouched until the first save. Files autosave to disk and conversations mirror to `.trafficops/conversations.json`, with a device recovery copy. A changed or nonempty destination is reviewed before replacing files. External file changes stop saving until you review or reload. Ordinary browser tabs do not reconnect folder handles.
+6. **Export → Landing for hosting** exports generated HTML and assets. **Export → Editable project** retains source, assets, empty folders, values and `.trafficops/project.json` identity. Conversation history is included by default and can be excluded. Reopening a source ZIP creates a new project (see **Import ZIP**); it preserves the landing/template type. API keys are excluded. Hosting ZIPs contain no Studio sidecars.
 
 Use **Format** in the source toolbar, **Format Document** in the context menu, or **Shift+Alt+F** to format the current file. TPL formatting shares the VS Code extension's standalone formatter, indents declarations and HTML with two spaces by default, and is one undoable edit. Imported files are only reformatted when you request it. Press **Ctrl+Space** to show suggestions; **Tab** accepts a snippet and moves through its placeholders. Enter automatically indents TPL blocks and HTML elements. Ordinary HTML, CSS, JavaScript and JSON files use Monaco's bundled language services. All authoring services and formatting run locally in the browser.
 
 Creating or renaming a file, and creating a folder, suggests existing project folders as you type, including empty and nested folders. Click a suggestion or use **↑/↓**, then **Enter** or **Tab**, to complete the folder path with a trailing `/`. Continue with the new name. **Esc** hides suggestions; a second **Esc** closes the dialog. New paths can still be typed freely.
 
-The library stores separate project records, binary assets, folders, field values and the active selection in IndexedDB. Saves complete only after the transaction commits. Revision checks prevent another tab from silently overwriting newer edits or recreating a deleted project; conflicts keep the editor's changes available for export before reloading. Browser storage is local to this device and browser profile. It is not cloud synchronization, and clearing site data removes the library; keep source ZIP backups.
+A project is the folder itself; there is no separate library database. Studio writes this layout (format v1):
 
-The last project reopens on startup with its folder binding when permission is available. Existing single-workspace sessions and AI drafts migrate without restarting paid generation. If folder access expires, the same project's device copy stays available; **Reconnect folder** lets you review differences before continuing there. A folder is a save location for a project, rather than a separate project type.
+```text
+index.tpl, css/, images/, …            your files, exactly as you see them
+.trafficops/project.json               identity: schema, projectId, name, kind, optional pendingAi
+.trafficops/values.json                saved field values
+.trafficops/conversations/<id>.json    one file per AI dialogue
+.trafficops/conversations/blobs/<sha256>   attachments and file snapshots, content-addressed
+.trafficops/conversation-tombstones.json   keeps dialogue revisions monotonic after a delete
+```
+
+Dialogue ids that are not simple (`a-z`, `0-9`, `_`, `-`, up to 200 characters) are stored as `~<sha256>.json`, so names stay safe on case-insensitive and Windows file systems. Other tools may edit the user files; the `.trafficops/` folder is Studio's. Folders are normalised on save, and after a partial save failure the next open rebuilds from disk.
+
+Files autosave to the folder. Before each write Studio compares the folder with what it last saved. If a file, `project.json` or `values.json` changed outside Studio, saving stops and the editor shows a conflict instead of overwriting: **Save a copy…** keeps your unsaved edits, assets and empty folders in a new root, and **Reload saved project** discards them in favour of the folder. Dialogue files are merged per dialogue, so another window's conversations are picked up without a conflict.
+
+If Studio loses access (permission revoked) or the folder is moved or deleted, the project pauses as **Folder unavailable** and edits stay in the editor. **Reconnect** accepts only a folder holding the same project ID and writes the pending edits; **Save a copy…** and an export remain available. Leaving an unavailable project asks for confirmation. The last project reopens on startup when its permission is still granted.
+
+Studio keeps only a small recent-projects list in the browser (IndexedDB database `trafficops-studio-recent`: project ID, name, kind, folder handle, last opened time) so the library can find your folders; OPFS projects are listed from the browser's private directory instead. No project data lives in IndexedDB, and clearing it does not delete a folder. The OpenRouter connection is stored separately (see below).
 
 Browsers expose the selected directory name, not its absolute filesystem path. **Manage folders & paths** accepts an optional full path label for the project selector. This label is display metadata; it never changes the actual directory handle.
 
@@ -56,7 +76,7 @@ Changed files show a dot and new files show `+` relative to the last saved revis
 
 ## Selected-block AI edits
 
-In the installed PWA, mark complete source elements with static labels such as
+In Studio, mark complete source elements with static labels such as
 `data-block="order_form"` or `data-block="Comment"`. AI-created sections, forms and
 repeated cards are instructed to include these markers. To annotate an existing
 project, ask the ordinary assistant to add markers while preserving the page, then
@@ -94,7 +114,7 @@ the authored `data-block` attributes remain ordinary HTML attributes.
 
 ## Installed app
 
-The production build includes a web app manifest and an offline service worker. The installed **Landing Studio by TrafficOps** launches `/?studio=1` in standalone display mode, restoring the last project or showing the library. Projects open as a permanent workspace with project navigation, creation, save-location and export actions. The installed editor has no collapse control or Escape-to-collapse behavior. Opening `?studio=1` in an ordinary browser tab or entering browser fullscreen does not enable installed-app capabilities. AI and direct folder access require the installed PWA; installing the app does not enable them in ordinary tabs. After the application has been cached, local editing, included starters and ZIP export work offline. AI requests require a network connection.
+The production build includes a web app manifest and an offline service worker. The installed **Landing Studio by TrafficOps** launches `/?studio=1` in standalone display mode, restoring the last project or showing the library. Projects open as a permanent workspace with project navigation, creation and export actions. The installed editor has no collapse control or Escape-to-collapse behavior. Installing changes only the install and update chrome: AI and folder access work the same in ordinary tabs. After the application has been cached, local editing, included starters and ZIP export work offline. AI requests require a network connection.
 
 Studio checks for service-worker updates when connectivity or focus returns and periodically while open. **Update Studio** saves current edits before applying an update and asks before interrupting active AI runs; an update started in another window does not automatically reload this window. Storage, registration and update failures are shown in the interface.
 
@@ -119,17 +139,17 @@ The compact composer accepts text, image and document references and keyboard-ac
 
 Applying uses the run's frozen source and language. Independent file/value changes merge into the current project; overlapping changes require continuing with the current project. Changed read context requires reviewing the updated candidate and explicitly confirming it. Final analysis and rendering run again before the versioned save. Applied-run IDs commit with project content, so a crash cannot apply a run twice. A reload marks orphaned runs interrupted, retains completed work and never repeats a paid request automatically. Continuing is explicit.
 
-History saves use their own IndexedDB revision and folder mirror. Folder errors retain the device copy and show a warning; later access retries the mirror. Runtime ownership uses Web Locks where available and lease/fencing checks as a fallback. The `host.conversations` port keeps these features separate from published version history. Every host with the `ai` capability must provide it (`load` and `save`; `runHostConformance` rejects AI hosts without it); hosts without AI omit it.
+Each dialogue is its own file with its own revision; saves compare that revision, rebase a stale copy per dialogue and never overwrite another window's dialogue. Folder errors keep the history in memory and show a warning; later access retries. Runtime ownership and write serialization use Web Locks where available and an in-process FIFO mutex otherwise. The `host.conversations` port keeps these features separate from published version history. Every host with the `ai` capability must provide it (`load` and `save`; `runHostConformance` rejects AI hosts without it); hosts without AI omit it.
 
 ## OpenRouter BYOK
 
-In the installed PWA, open **Conversations → AI settings** (the conversation header menu), enter an OpenRouter API key, and choose a text model with tool calling. `openrouter/auto` is the text default. Set a separate image model ID from the OpenRouter catalog to enable image generation. The connection is stored in a separate IndexedDB database, outside project folders, recovery snapshots and exports. **Remove key** deletes the connection. Ordinary Studio browser tabs expose neither AI settings nor AI operations, including when a connection or an AI creation brief was saved previously.
+Open **Conversations → AI settings** (the conversation header menu), enter an OpenRouter API key, and choose a text model with tool calling. `openrouter/auto` is the text default. Set a separate image model ID from the OpenRouter catalog to enable image generation. The connection is stored in a separate IndexedDB database, outside project folders and exports. **Remove key** deletes the connection. AI settings are available in ordinary tabs and the installed app.
 
-**New project → With AI** saves a separate project and its brief (up to 6,000 characters), then starts generation if a connection is already configured. The initial request is claimed once before calling the provider. Reloading keeps the brief for a manual retry and never automatically repeats a paid run. Without a configured key, connect in the editor and start the request manually.
+**New project → With AI** saves a separate project and its brief (up to 6,000 characters), then starts generation if a connection is already configured. The initial request is claimed once before calling the provider. Reloading keeps the brief (`pendingAi` in `project.json`) for a manual retry and never automatically repeats a paid run. Without a configured key, connect in the editor and start the request manually.
 
 - **Edit project** seeds the working copy with existing files. The agent reads text files on demand, uses `edit_file` for exact replacements and `delete_file` for requested text-file deletions, writes complete files incrementally, and preserves untouched files and binary assets. The prompt, field values, file manifest and source read through tools reach OpenRouter and the selected provider. Only explicitly attached reference images are sent as image inputs; other binary assets stay local.
 - **Files → Edit file with AI** opens an assistant for the selected file. Enter a prompt and optionally attach images, PDF or UTF-8 text documents. TPL, CSS, HTML, JavaScript, JSON, SVG and other stored text files use the text model; PNG, JPEG and WebP edits use the configured image model with the original image as the first reference. An independent reviewer checks the draft. Compare the original and edited file, then **Apply changes** or **Discard**. Applying replaces only that file, retaining its path and raster format, all other project files and saved field values. Cancellation or failure preserves the original. The selected file and supplied references reach OpenRouter and the provider; attachments stay out of project exports. Image planning and review require a text model that accepts images. Text files are limited to 64 KiB of input and 200 KiB of edited output; raster inputs are limited to 8 MiB and 4096 pixels per side. References support four files, 12 MiB total, with 4 MiB per image/PDF and 256 KiB per text document. Reference images are also bounded to 4096 pixels per side and 16 megapixels. Supported text references are TXT, MD, CSV, TSV, JSON and HTML; Office documents must first be exported as PDF or text.
-- **Create new** inside the assistant starts a replacement working copy for the current project, including disk deletions for a folder project when applied. A confirmation explains this before generation. Use the library's **New project** flow to create a separate project.
+- **Create new** inside the assistant starts a replacement working copy for the current project, including file deletions in the project folder when applied. A confirmation explains this before generation. Use the library's **New project** flow to create a separate project.
 - **Fill content** updates declared fields in small streamed tool calls, retaining template source and validating field types, repeaters and local image paths. It supports long articles and generated illustrations inside rich text or Markdown as well as Image fields. A response without changes gets one announced request for actual field updates within the existing step/time budget; a second empty response stops. Output token exhaustion is reported separately without a blind retry. New fields, sections or additional fixed review slots require **Edit project**.
 - **Generate image with AI** sends the image brief and field description to the dedicated `POST /api/v1/images` endpoint. The returned raster image is opened locally for crop/resize and added to `images/` only after confirmation.
 
@@ -143,7 +163,7 @@ Creating an AI project before connecting an image model leaves the choice automa
 
 Source agents use streamed tool calls, a maximum of 16 steps per writer pass (12 for content), a shared fifteen-minute run budget with five minutes per provider call, and no SDK retries. Each provider request gets up to three announced retries for transient 408/429/5xx or network failures before any output starts. Retries respect Retry-After and the run time budget but do not spend model steps or call limits; a run-wide pool of three retries per allowed call bounds a provider that keeps failing. Authentication, payment, permission and moderation failures are never retried. An upstream idle timeout can instead resume a retained source draft with compact individual file writes, using that same recovery allowance. Their final changes must pass the real parser and renderer after the last mutation. Editing tools limit changed source to 256 KiB per file and 1 MiB total; binary assets are retained but cannot be rewritten by text tools. Stopping generation retains completed work as an unapproved draft; discarding restores the saved project. Validation failures are returned to the model for repair within the run budget, with the last three steps reserved for checks and corrections. Completed writes survive invalid output, provider failures and timeouts as a draft marked as needing attention. Users can continue from that draft in a new run; unfinished file strings are never retained, while strictly complete file objects from an interrupted batch can be recovered after normal path/type/size checks. Independent file tools are enabled in the same response, reducing provider round trips, while validation runs after mutations. During generation or review the user can send up to eight clarifications, each at most 6,000 characters, without cancelling. They reach the next provider step, even if the previous step ended in a final summary, and require validation again within the same run budget. The user can inspect live source/preview, then **Apply changes** or **Discard**. Legacy embedded assistants can still lock source edits during their draft flow; installed Studio conversations keep canonical editing and project switches available.
 
-Completed AI drafts in library projects recover after reload without restarting generation. Recovery preserves accepted files, image bytes, the full brief and user clarifications separately from the saved project. Older-revision drafts remain separate and can be downloaded or discarded. Storage errors show a source ZIP backup action. Recovery clears after the applied project is successfully saved, rather than at the Apply click.
+Completed AI drafts are kept with the dialogue in `.trafficops/conversations/` and recover after reload without restarting generation. Recovery preserves accepted files, image bytes, the full brief and user clarifications separately from the saved project. Older-revision drafts remain separate and can be downloaded or discarded. Storage errors show a source ZIP backup action. A creation brief that has not started yet is stored as `pendingAi` in `.trafficops/project.json`, together with the new project; it is claimed once, so a reload never repeats a paid run. A malformed brief is dropped with a warning instead of blocking the project.
 
 Source edits use `set_values` for saved content: changing a `@param` default alone does not override existing saved values. Successful final validation proceeds directly to independent review without another summary-only provider request. Content updates are serialized and batched by logical sections; planning and Fill Content stages receive field schemas, values and file metadata instead of full source. Requests requiring source edits are reported as needing **Edit project** rather than silently reducing the brief. Review uses the actual updated schema and draft.
 
@@ -169,10 +189,10 @@ The JavaScript runtime deliberately supports a documented portable subset of the
 
 ## Import bounds
 
-- ZIP: at most 20 MiB compressed, 32 MiB expanded, and 500 entries.
-- Files: at most 8 MiB each; editable UTF-8 source: at most 2 MiB each. Generated HTML export permits the runtime’s 8 MiB per-page output budget.
-- Library projects: at most 500 files and folders combined, with JSON field values bounded to 2 MiB. Browser storage quota still applies across projects.
-- Traversal, absolute paths, hidden files/directories (except the exported `.trafficops/values.json` sidecar), control characters, ambiguous paths, duplicate entries, symlinks, encrypted files, multi-volume archives and ZIP64 are rejected.
+- User files: at most 32 MiB expanded and 500 entries outside `.trafficops/`. Files: at most 8 MiB each; editable UTF-8 source: at most 2 MiB each. Generated HTML export permits the runtime’s 8 MiB per-page output budget. JSON field values are bounded to 2 MiB.
+- ZIP: at most 20 MiB compressed without history, and at most 512 MiB with conversation history (`.trafficops/conversations/`). Hosting, template and server-side imports keep the 20 MiB limit.
+- History caps: 100 dialogues per project, 10 000 blobs per archive, 16 MiB per dialogue file and 24 MiB per blob. Limits are checked before any blob is read; Studio packs and unpacks history ZIPs in a worker. Browser storage quota or disk space still applies.
+- Traversal, absolute paths, hidden files/directories (except `.trafficops/project.json`, `.trafficops/values.json` and well-formed history entries under `.trafficops/conversations/`), control characters, ambiguous paths, duplicate entries, symlinks, encrypted files, multi-volume archives and ZIP64 are rejected.
 - Metadata and local ZIP headers are checked before decompression. Import runs in a separate worker with a 15-second timeout.
 
 Source templates have additional parser and rendering limits enforced by the shared runtime. Interactive preview snapshots have a 32 MiB project budget. Static library thumbnails additionally bound encoded asset expansion to 32 MiB and CSS imports to 12 levels. Exceeding a preview budget shows an error while generated ZIP download remains available. Large media projects should be reduced before import.
@@ -197,9 +217,10 @@ from the authoritative server payload. Concurrent editor projects use distinct U
 authorities.
 
 Host contracts and the pure project/archive model live in
-`@trafficops/template-editor-core`. `src/hosts/LibraryHost.js` adapts versioned
-browser projects through `src/studio-library.js`; `src/hosts/StudioHost.js` adapts
-folders and recovery sessions. `embedded/src/HttpHost.js` adapts the existing PWApps protocol.
+`@trafficops/template-editor-core`. `src/hosts/FolderHost.js` adapts a project root
+(a chosen folder or OPFS directory) through `src/storage/*` (roots, project-root, files,
+write, project-meta, locks, recent registry and the directory conversation store);
+`src/folder-choice.js` runs the picker and folder questions. `embedded/src/HttpHost.js` adapts the existing PWApps protocol.
 `npm run check` checks the host implementations against `contract.d.ts`, including
 AI transport/settings and optional ports. The conformance suite uses disposable
 folder handles and a fetch-level protocol mock, plus a third trusted-dialect host.
@@ -341,13 +362,13 @@ against a synthetic persisted Russian project, with every OpenRouter URL
 intercepted. It verifies source edits and actual saved field values together,
 three video placeholders, independent review, Apply/autosave/reload, private
 diagnostic downloads and the rendered page at 390px and 1280px. It never opens
-the user's installed PWA or spends OpenRouter credits.
+the user's installed app or spends OpenRouter credits.
 
 An optional standalone AI harness defaults to the same free synthetic workflow:
 
 ```sh
 node editor/test/ai-live-check.mjs --dry-run --mode edit --out /tmp/studio-ai-check
-node editor/test/ai-live-check.mjs --dry-run --fail-planner-once --out /tmp/studio-ai-recovery-check
+node editor/test/ai-live-check.mjs --dry-run --fail-planner-once --out /tmp/studio-ai-retry-check
 ```
 
 It writes `report.json`, `values.json`, `source/` and `rendered/` under the specified
@@ -376,10 +397,7 @@ threshold; unavailable cost remains unknown, and one call can cross that
 threshold. Inspect the rendered mobile layout and factual sources as well as
 the automated checks before accepting a live result.
 
-The PWA access check verifies that ordinary tabs cannot use AI or remembered
-folder handles, even with saved credentials, a pending AI brief, `?studio=1`,
-browser fullscreen or an `appinstalled` event. It also checks that browser tabs
-preserve folder recovery and that simulated installed mode exposes AI and folders.
+The storage access check (`storage-access-browser.mjs`) verifies that AI and project folders are offered in ordinary tabs, that a browser without the folder picker stores projects in OPFS, that one without OPFS shows the unsupported screen, and that a stored AI key never makes a provider call without a request.
 
 The library browser check covers creation, template copies, saved fields,
 duplication/deletion, source ZIP export, mobile layout and offline editing after
@@ -388,7 +406,4 @@ a real service-worker reload, using an isolated browser profile.
 The autosave browser check exercises pending-save navigation and failed-save
 recovery with a disposable host. It does not use production projects or credentials.
 
-The recovery browser check uses isolated simulated folder handles and real
-IndexedDB transactions to exercise detached saves, unreadable-folder fallback and
-conflict rescue. Set `STUDIO_NATIVE_HANDLES=1` to probe persisted OPFS handles on a
-browser that supports them; `PLAYWRIGHT_CHROMIUM_EXECUTABLE` overrides its executable.
+The folder access check (`folder-access-browser.mjs`) uses real OPFS folders to exercise outside changes (conflict without overwriting), Save a copy…, Reload saved project, revoked access, a moved folder and Reconnect. `storage-contract-browser.mjs` runs the storage contract against real OPFS.
