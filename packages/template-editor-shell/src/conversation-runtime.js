@@ -238,6 +238,8 @@ export function createConversationSession(initialHost, { workflows = defaultWork
   let publishTimer = null;
   function schedulePublish() { if (publishTimer) return; publishTimer = setTimeout(() => { publishTimer = null; if (!disposed) publish(); }, PUBLISH_DELAY_MS); publishTimer.unref?.(); }
   function report(error) { doc = { ...doc, error: String(error.message || error).slice(0, 5000) }; publish(); }
+  // Strictly increasing per run: the conversation store caches snapshot splits under (run.id, updatedAt).
+  const touch = run => { run.updatedAt = Math.max(now(), (Number.isSafeInteger(run.updatedAt) ? run.updatedAt : 0) + 1); };
   function receive(next) { if (next?.revision >= doc.revision) { try { doc = scopedDocument(next); publish(); } catch (error) { report(error); } } }
   function bindPort() { unsubscribePort?.(); unsubscribePort = host.conversations.subscribe?.(receive); }
   async function mutate(change) {
@@ -266,7 +268,7 @@ export function createConversationSession(initialHost, { workflows = defaultWork
     const orphans = new Map(doc.runs.filter(run => active(run) && run.owner?.sessionId !== sessionId && !held?.has(lockName(doc.projectId, run.id)) && (held && !held.has(`trafficops-conversation-owner:${doc.projectId}:${run.owner?.sessionId}`) || !run.owner?.expiresAt || run.owner.expiresAt <= now())).map(run => [run.id, clone(run.owner)]));
     if (!orphans.size) return;
     await mutate(next => { for (const run of next.runs) if (orphans.has(run.id) && active(run) && run.owner?.sessionId !== sessionId && JSON.stringify(run.owner) === JSON.stringify(orphans.get(run.id))) {
-      run.state = 'interrupted'; run.updatedAt = now(); run.error = 'The previous execution stopped. Completed changes are retained; continue explicitly.';
+      run.state = 'interrupted'; touch(run); run.error = 'The previous execution stopped. Completed changes are retained; continue explicitly.';
       const message = next.threads.find(thread => thread.id === run.threadId)?.messages.find(message => message.id === run.messageId); if (message) message.status = 'interrupted';
     } });
   }
@@ -332,7 +334,7 @@ export function createConversationSession(initialHost, { workflows = defaultWork
       const ownedMutation = change => mutate(next => {
         const current = next.runs.find(value => value.id === runId);
         if (!current || current.state !== 'running' || current.owner?.sessionId !== sessionId || current.owner?.fence !== fence) { controller.abort(); return false; }
-        change(current, next); current.updatedAt = now();
+        change(current, next); touch(current);
       });
       let started = false, timer, completed, readSet, credential = '', steps = [], streamText = '', durableImage = null;
       const timings = createRunTimings(now);
@@ -346,7 +348,7 @@ export function createConversationSession(initialHost, { workflows = defaultWork
         const claimed = await mutate(next => {
           const current = next.runs.find(value => value.id === runId);
           if (!current || current.state !== 'queued' || current.owner?.sessionId !== sessionId) return false;
-          current.state = 'running'; current.phase = 'generate'; current.owner = { sessionId, fence, expiresAt: now() + leaseMs }; current.updatedAt = now();
+          current.state = 'running'; current.phase = 'generate'; current.owner = { sessionId, fence, expiresAt: now() + leaseMs }; touch(current);
         });
         if (claimed === false) return;
         const modelAttachments = referenceAttachments(message.mentions || [], message.attachments || [], run.scope);
@@ -645,7 +647,7 @@ export function createConversationSession(initialHost, { workflows = defaultWork
       const run = doc.runs.find(run => run.id === runId);
       requests.get(runId)?.abort(new DOMException('Generation stopped by the user.', 'AbortError'));
       await mutate(next => { const current = next.runs.find(value => value.id === runId); if (!current || !active(current)) return false;
-        current.stopRequested = true; if (current.state === 'queued') current.state = 'cancelled'; current.updatedAt = now(); });
+        current.stopRequested = true; if (current.state === 'queued') current.state = 'cancelled'; touch(current); });
       // Other windows observe stopRequested through the repository subscription.
       if (run?.owner?.sessionId !== sessionId) publish();
     },
@@ -656,14 +658,14 @@ export function createConversationSession(initialHost, { workflows = defaultWork
       if (next.runs.some(run => run.threadId === threadId && active(run))) throw new Error('Stop this dialog’s runs before deleting its history.');
       next.threads = next.threads.filter(thread => thread.id !== threadId); next.runs = next.runs.filter(run => run.threadId !== threadId);
     }); },
-    async discard(runId) { await ready; if (doc.runs.find(run => run.id === runId && active(run))) throw new Error('Stop this run before discarding its result.'); return mutate(next => { const run = next.runs.find(value => value.id === runId); if (!run) throw new Error('This result no longer exists.'); run.state = 'discarded'; delete run.result; delete run.checkpoint; delete run.starting; delete run.changeset; run.updatedAt = now(); }); },
+    async discard(runId) { await ready; if (doc.runs.find(run => run.id === runId && active(run))) throw new Error('Stop this run before discarding its result.'); return mutate(next => { const run = next.runs.find(value => value.id === runId); if (!run) throw new Error('This result no longer exists.'); run.state = 'discarded'; delete run.result; delete run.checkpoint; delete run.starting; delete run.changeset; touch(run); }); },
     async continue(runId, options = {}) { await ready; const run = doc.runs.find(value => value.id === runId); if (!run || active(run)) throw new Error('Wait for this run to stop before continuing.'); const thread = doc.threads.find(value => value.id === run.threadId), message = thread.messages.find(value => value.id === run.messageId);
       if (options.rebase && !(options.snapshot || options.current)) throw new Error('Open the current project before refreshing this draft.');
       return session.submit({ threadId: run.threadId, prompt: options.prompt || (options.rebase ? 'Adapt the previous proposed changes to the current project. Preserve current manual edits and complete the original request.' : 'Continue the original request from the retained draft. Preserve completed work and finish the requested changes.'), attachments: referenceAttachments(message.mentions || [], message.attachments || [], run.scope), mentions: [], scope: run.scope, snapshot: options.snapshot || options.current || run.base, locale: options.locale || run.locale, generateImages: run.generateImages, continuation: runId, rebase: options.rebase === true }); },
     async markApplied(runId, revision) { await ready; return mutate(next => { const run = next.runs.find(value => value.id === runId); if (!run) throw new Error('This result no longer exists.'); if (run.state === 'applied') return false;
       if (!['ready', 'interrupted'].includes(run.state) || !run.result?.valid || run.result.discussion || run.recoveredConflict) throw new Error('This result is not ready to apply. Continue it and review the completed draft first.');
-      run.state = 'applied'; run.appliedRevision = revision; run.updatedAt = now(); }); },
-    async reconcileApplied(ids = []) { await ready; const pending = doc.runs.filter(run => ids.includes(run.id) && run.state !== 'applied'); if (!pending.length) return; return mutate(next => { for (const run of next.runs) if (ids.includes(run.id)) { run.state = 'applied'; run.updatedAt = now(); } }); },
+      run.state = 'applied'; run.appliedRevision = revision; touch(run); }); },
+    async reconcileApplied(ids = []) { await ready; const pending = doc.runs.filter(run => ids.includes(run.id) && run.state !== 'applied'); if (!pending.length) return; return mutate(next => { for (const run of next.runs) if (ids.includes(run.id)) { run.state = 'applied'; touch(run); } }); },
     dispose() { disposed = true; clearInterval(heartbeat); releaseOwner?.(); unsubscribePort?.(); for (const controller of requests.values()) controller.abort(); listeners.clear(); },
   };
   // Stop/fence writes as soon as another window changes ownership or cancels.

@@ -502,3 +502,22 @@ test('an image attached in an earlier message reaches generate_image as an input
   assert.equal(session.getSnapshot().runs[1].state, 'ready', session.getSnapshot().runs[1].error);
   assert.ok(session.getSnapshot().runs[1].result.files['img/founder-office.png'] instanceof Uint8Array);
 });
+
+test('run updatedAt strictly increases whenever a run changes, even with a frozen clock', async t => {
+  const local = fixture('frozen-clock');
+  const session = createConversationSession(local.host, { locks: null, sessionId: 'owner', now: () => 1000, workflows: basicWorkflows(async options => {
+    options.onProgress({ type: 'file-set', path: 'style.css', files: { ...options.files, 'style.css': 'blue' }, values: options.values });
+    return { files: { ...options.files, 'style.css': 'blue' }, values: options.values, valid: true, summary: 'Done' };
+  }) });
+  t.after(() => session.dispose()); await session.ready;
+  await session.submit({ prompt: 'Edit', snapshot: state() });
+  await until(() => local.read().runs[0]?.state === 'ready');
+  const before = session.getSnapshot().runs[0].updatedAt;
+  await session.markApplied(session.getSnapshot().runs[0].id, 4);
+  assert.ok(local.read().runs[0].updatedAt > before, 'markApplied bumps updatedAt');
+  const seen = local.saved.map(document => document.runs[0]).filter(Boolean);
+  for (let index = 1; index < seen.length; index++) {
+    const { owner: _before, updatedAt: before, ...previous } = seen[index - 1], { owner: _after, updatedAt: after, ...current } = seen[index];
+    if (JSON.stringify(previous) !== JSON.stringify(current)) assert.ok(after > before, `save ${index}: updatedAt ${after} must exceed ${before}`);
+  }
+});
