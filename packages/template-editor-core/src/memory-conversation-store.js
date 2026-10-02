@@ -3,12 +3,12 @@ import { CONVERSATION_LIMITS } from './project.js';
 import { blobReferences, sha256Hex, validateThreadFile } from './conversation-format.js';
 
 /** Reference ConversationStore. Blob refresh and GC follow the directory store's grace rules. */
-export function createMemoryConversationStore({ now = Date.now, graceMs = 10 * 60 * 1000 } = {}) {
+export function createMemoryConversationStore({ now = Date.now, graceMs = 10 * 60 * 1000, refreshMs = 5 * 60 * 1000 } = {}) {
   const threads = new Map(), blobs = new Map(), watchers = new Set();
   const emit = () => { for (const watcher of [...watchers]) { try { watcher(); } catch { /* A watcher cannot break a commit. */ } } };
   return {
     async listThreads() { return [...threads.values()].map(value => structuredClone(value)); },
-    async writeThread(thread, { expectedRevision }) {
+    async writeThread(thread, { expectedRevision } = {}) {
       const file = validateThreadFile(structuredClone(thread)), current = threads.get(file.id)?.revision ?? 0;
       if (current !== expectedRevision) throw new ConflictError('The dialogue changed elsewhere. Reload before saving.');
       for (const sha of blobReferences(file)) if (!blobs.has(sha)) throw new ValidationError('The dialogue references a missing attachment.');
@@ -16,7 +16,7 @@ export function createMemoryConversationStore({ now = Date.now, graceMs = 10 * 6
       threads.set(file.id, { ...file, revision }); emit();
       return { revision };
     },
-    async deleteThread(id, { expectedRevision }) {
+    async deleteThread(id, { expectedRevision } = {}) {
       const current = threads.get(id);
       if (!current) return;
       if (current.revision !== expectedRevision) throw new ConflictError('The dialogue changed elsewhere. Reload before deleting it.');
@@ -26,7 +26,7 @@ export function createMemoryConversationStore({ now = Date.now, graceMs = 10 * 6
       if (bytes.byteLength > CONVERSATION_LIMITS.blob) throw new Error('A conversation attachment exceeds 24 MiB.');
       if (await sha256Hex(bytes) !== sha) throw new ValidationError('The conversation attachment does not match its hash.');
       const existing = blobs.get(sha);
-      if (existing) { if (now() - existing.at > graceMs / 2) existing.at = now(); return; }
+      if (existing) { if (now() - existing.at > refreshMs) existing.at = now(); return; }
       blobs.set(sha, { bytes: new Uint8Array(bytes), at: now() });
     },
     async getBlob(sha) {
