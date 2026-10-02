@@ -33,8 +33,8 @@ try {
   await page.getByLabel('Import project ZIP',{exact:true}).setInputFiles({name:'Interactive.zip',mimeType:'application/zip',buffer:Buffer.from(createZip(files))});
   await page.getByRole('dialog',{name:'Import Interactive'}).getByRole('button',{name:'Import as landing',exact:true}).click();
   const visible=()=>page.locator('.browser-frame iframe.is-visible');
-  // Each folder save installs the saved state, which re-renders the preview at the selected page: wait for the save and
-  // that render before navigating inside the frame or capturing it.
+  // Waits for the folder save and an idle preview before navigating inside the frame or capturing it. (An autosave with
+  // unchanged contents no longer re-renders the preview; this only keeps the steps deterministic.)
   const settled=async({saved=true}={})=>{
     if(saved)await page.locator('.studio-toolbar [role="status"]').filter({hasText:/^Saved \d{1,2}:\d{2}/}).waitFor();
     await page.waitForTimeout(400);

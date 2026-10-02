@@ -4,6 +4,7 @@ import { buildPreview } from './preview.js';
 import { createPreviewRenderer } from './preview-renderer.js';
 import { mergeChangeSet } from './conversation-changes.js';
 import { assertBlockDraftScope, assertBlockScopeBase } from './block-edit-scope.js';
+import { stableSavedState } from './stable-state.js';
 
 export function useEditorProject(host, onSnapshot, recovered, externalBusy = false) {
   const [state, setState] = useState(null), [analysis, setAnalysis] = useState(null), [baseline, setBaseline] = useState({});
@@ -79,7 +80,8 @@ export function useEditorProject(host, onSnapshot, recovered, externalBusy = fal
       autosavePaused.current = false; setSavedAt(new Date().toISOString());
       // Local save snapshots may omit analysis. Keep the working form mounted
       // while fresh diagnostics run, preserving rich-text selection and history.
-      if (editVersion.current === version) install(next, { preserveAnalysis: true });
+      // Unchanged contents keep their objects, so an autosave does not re-render (and reset) the preview.
+      if (editVersion.current === version) install(stableSavedState(current.current, next), { preserveAnalysis: true });
       else {
         const buffered = { ...current.current, revision: next.revision, contentRevision: next.contentRevision, appliedAiRuns: next.appliedAiRuns, status: next.status, history: next.history, actions: next.actions };
         current.current = buffered; setState(buffered); setBaseline(next.files);

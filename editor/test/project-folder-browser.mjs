@@ -91,7 +91,7 @@ try {
   assert.equal(meta.kind, 'landing');
   assert.match(await readOpfs(page, 'picker/smoke-1/index.tpl'), /@template "Untitled project"/);
   assert.equal((await listOpfs(page, 'projects'))?.length ?? 0, 0, 'folder mode never creates OPFS project roots');
-  await page.getByText('Saved to folder smoke-1').first().waitFor();
+  await page.getByText('Folder: smoke-1').first().waitFor();
 
   // An edit autosaves into the folder.
   await page.locator('#setting-title').fill('Hello from the smoke test');
@@ -156,7 +156,7 @@ try {
   await page.getByRole('button', { name: 'Switch project', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Second project' }).click();
   await page.getByRole('alert').filter({ hasText: 'Could not open “Second project”' }).waitFor();
-  await page.getByText('Saved to folder plain').first().waitFor();
+  await page.getByText('Folder: plain').first().waitFor();
   assert.deepEqual(await listOpfs(page, 'picker/busy'), ['notes.txt']);
 
   // A seeded folder with binary assets, an empty folder and two dialogues: the editor shows its files, and the editable

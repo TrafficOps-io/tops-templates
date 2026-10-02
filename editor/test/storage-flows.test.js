@@ -129,8 +129,10 @@ test('pendingEditsApply compares the reconnected files with the editor baseline'
 });
 
 test('storageLabels name the folder, or warn that browser storage needs backups (D9)', () => {
-  assert.equal(storageLabels('folder', 'site').summary, 'Saved to folder site');
+  // The location never repeats the editor's save status ("Saved to folder").
+  assert.equal(storageLabels('folder', 'site').summary, 'Folder: site');
   const opfs = storageLabels('opfs');
-  assert.equal(opfs.summary, 'Stored in this browser');
+  assert.equal(opfs.summary, 'In this browser');
+  for (const label of [storageLabels('folder', 'site').summary, opfs.summary]) assert.doesNotMatch(label, /^Saved|Stored/);
   assert.match(opfs.help, /export a backup ZIP regularly/);
 });

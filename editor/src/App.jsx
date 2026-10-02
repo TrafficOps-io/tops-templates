@@ -47,7 +47,7 @@ export default function App() {
   const [installPrompt, setInstallPrompt] = useState(null), [pwa, setPwa] = useState(getPwaState), [online, setOnline] = useState(navigator.onLine);
   const update = pwa.update;
   const archive = useRef(null), snapshot = useRef(null), currentRef = useRef(null), busyRef = useRef(false), lostRef = useRef(null), modeRef = useRef(null), boot = useRef(null);
-  const ai = useRef(null), hosts = useRef(new Map());
+  const ai = useRef(null), hosts = useRef(new Map()), queuedImports = useRef([]), importNext = useRef(null);
   const folders = useFolderChoice(() => modeRef.current), folderChoice = folders.choice;
   // D7: the AI port is always available; installedDisplayMode() only drives install and window chrome.
   function studioAi() { return ai.current ||= createStudioAiPort(); }
@@ -182,7 +182,11 @@ export default function App() {
   async function run(operation) {
     if (busyRef.current) return;
     busyRef.current = true; setBusy(true); setError('');
-    try { return await operation(); } finally { busyRef.current = false; setBusy(false); }
+    try { return await operation(); } finally {
+      busyRef.current = false; setBusy(false);
+      // A ZIP chosen while Studio was busy is imported once it is idle.
+      if (queuedImports.current.length) setTimeout(() => importNext.current?.(queuedImports.current.shift()), 0);
+    }
   }
   function perform(operation) {
     return run(operation).catch(cause => { if (cause?.name !== 'AbortError') setError(cause?.message || String(cause)); });
@@ -322,12 +326,14 @@ export default function App() {
   // D1 + D8: the archive is read first; its "Import {name}" dialog then picks the new root in its own click.
   function importArchive(file) {
     if (!file) return;
+    if (busyRef.current) { queuedImports.current.push(file); return; }
     return perform(async () => {
       if (file.size > LIMITS.portableArchive) throw new Error('Project ZIPs must be 512 MiB or smaller.');
       const imported = await readArchive(new Uint8Array(await file.arrayBuffer()), { history: true });
       return { imported, name: projectName(imported.metadata?.name || file.name.replace(/\.zip$/i, '')) };
     }).then(result => result && confirmImport(result));
   }
+  importNext.current = importArchive;
   async function confirmImport({ imported, name }) {
     const kind = imported.metadata?.kind, history = Boolean(imported.conversationFiles?.threads.length);
     const label = rootSource() === 'opfs' ? 'Import' : 'Choose folder…';

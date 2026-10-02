@@ -112,8 +112,9 @@ export function sameValues(left, right) {
   return JSON.stringify(canonical(left ?? {})) === JSON.stringify(canonical(right ?? {}));
 }
 
-/** Editor storage labels (D9). */
+/** Editor storage labels (D9). `summary` names the location only: the save status ("Saved to folder") is shown by
+ *  the editor, so the location never repeats it. */
 export function storageLabels(source, folderName) {
-  if (source === 'opfs') return { summary: 'Stored in this browser', help: 'Stored in this browser — export a backup ZIP regularly. Clearing site data removes this project.' };
-  return { summary: `Saved to folder ${folderName}`, help: 'Files and dialogue history save to this folder on your computer.' };
+  if (source === 'opfs') return { summary: 'In this browser', help: 'Stored in this browser — export a backup ZIP regularly. Clearing site data removes this project.' };
+  return { summary: `Folder: ${folderName}`, help: 'Files and dialogue history save to this folder on your computer.' };
 }

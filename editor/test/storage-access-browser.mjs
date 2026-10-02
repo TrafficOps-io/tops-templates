@@ -114,7 +114,7 @@ try {
   // Reload: the project reopens from its folder; a stored key still starts nothing.
   await tab.reload();
   await editorReady(tab);
-  await tab.getByText('Saved to folder browser-editor').first().waitFor();
+  await tab.getByText('Folder: browser-editor').first().waitFor();
   assert.deepEqual(errors, []);
   assert.deepEqual(providerCalls, [], 'a stored key never reaches the provider without a request');
   console.log('PASS: plain tab offers the home AI composer, With AI, Open folder (picker), image generation and AI settings; projects save to the picked folder; fullscreen/appinstalled change nothing; no provider calls.');
@@ -141,8 +141,9 @@ try {
   assert.ok(header.height <= 72, `installed header height: ${JSON.stringify(header)}`);
   assert.equal(header.regions, 1, `one save-status live region: ${JSON.stringify(header)}`);
   assert.equal(header.shown, 1, `save status shown once: ${JSON.stringify(header)}`);
-  // The storage label names the folder ("Saved to folder <name>"); it must never be a second copy of the status.
-  assert.ok(header.storage.every(text => text !== header.text), `no storage text repeating the status: ${JSON.stringify(header)}`);
+  // The toolbar storage label names the location only ("Folder: <name>"); it never repeats the save status.
+  assert.deepEqual(header.storage, ['Folder: installed-editor'], `one location label: ${JSON.stringify(header)}`);
+  assert.ok(header.storage.every(text => !/saved|stored/i.test(text) && !text.includes(header.text)), `no storage text repeating the status: ${JSON.stringify(header)}`);
   await pwa.setViewportSize({ width: 1600, height: 1100 });
   await pwa.getByRole('tablist', { name: 'Sections' }).getByRole('tab', { name: 'Your message', exact: true }).click();
   await pwa.getByRole('button', { name: 'Generate image with AI', exact: true }).waitFor();

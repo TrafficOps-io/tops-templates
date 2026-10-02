@@ -154,7 +154,7 @@ try {
   await unavailable.getByRole('button', { name: 'Reconnect', exact: true }).click();
   await until(async () => (await valuesOf(page, revoked.folder)).title === 'Edited without access', 'the pending edit is written after Reconnect');
   await unavailable.waitFor({ state: 'detached' });
-  await page.getByText('Saved to folder revoked-landing').first().waitFor();
+  await page.getByText('Folder: revoked-landing').first().waitFor();
   await contentTab();
   assert.equal(await title().inputValue(), 'Edited without access');
 
@@ -182,7 +182,7 @@ try {
   await usePicker(page, 'moved');
   await unavailable.getByRole('button', { name: 'Reconnect', exact: true }).click();
   await until(async () => (await valuesOf(page, 'picker/moved')).title === 'Edited while the folder was gone', 'the pending edit is written to the moved folder');
-  await page.getByText('Saved to folder moved').first().waitFor();
+  await page.getByText('Folder: moved').first().waitFor();
   assert.equal(await listOpfs(page, 'picker/revoked-landing'), null);
 
   // The folder's files changed while it was unavailable: Reconnect asks before discarding the unsaved edit.
