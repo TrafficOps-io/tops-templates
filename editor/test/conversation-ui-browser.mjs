@@ -3,20 +3,21 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
-import { createStudioProject } from '../src/studio-library.js';
+import { randomUUID } from 'node:crypto';
 import { openThread, studioChat } from './support/studio-chat.js';
+import { installFolderPicker, listOpfs, openProject, readOpfs, seedProjectFolder } from './support/studio-folders.js';
 
-// Production UI and disposable browser storage. No provider or filesystem actions.
+// Production UI over a seeded project folder (real OPFS through the test picker). No provider requests.
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const AxeBuilder = createRequire(import.meta.url)('@axe-core/playwright').default;
 const root = resolve(process.argv[2] || 'editor/dist'), out = '/tmp/studio-conversation-ui-browser';
 await mkdir(out, { recursive: true });
 const source = '@template "Conversation UI"\n@section page "Page"\n@param title String = "Collection" label="Title"\n@endsection\n@layout\n<html><head><link rel="stylesheet" href="styles.css"></head><body><section data-block="Main hero"><h1>{{title}}</h1><p>Neutral collection demo.</p></section><article data-block="Comment">First comment</article><article data-block="Comment">Second comment</article></body></html>\n@endlayout\n';
 const imageBytes = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jp1sAAAAASUVORK5CYII=', 'base64'));
-const fixture = { ...createStudioProject({ name: 'Conversation UI QA', kind: 'landing', files: { 'images/hero.png': imageBytes, 'index.tpl': source, 'styles.css': 'body{font:16px system-ui;padding:24px}', 'removed.txt': Array.from({ length: 100 }, (_, index) => `Neutral collection note ${index + 1}`).join('\n') }, settings: { title: 'Collection' } }), revision: 1 };
+const fixture = { id: randomUUID(), name: 'Conversation UI QA', files: { 'images/hero.png': imageBytes, 'index.tpl': source, 'styles.css': 'body{font:16px system-ui;padding:24px}', 'removed.txt': Array.from({ length: 100 }, (_, index) => `Neutral collection note ${index + 1}`).join('\n') }, settings: { title: 'Collection' } };
 const base = { name: fixture.name, revision: 1, files: fixture.files, folders: [], entrypoint: 'index.html', locale: 'en', translations: { en: fixture.settings } };
 const now = Date.now();
-const document = { schema: 1, projectId: fixture.id, revision: 1, legacyMigrated: true, threads: [
+const document = { schema: 1, projectId: fixture.id, revision: 0, threads: [
   { id: 'thread-style', title: 'Refine collection spacing', archived: false, createdAt: now, updatedAt: now, messages: [{ id: 'message-style', role: 'user', prompt: 'Update the collection spacing.\n\nGive the headline and supporting copy more room, while keeping the page easy to read on phones. Preserve the existing content and make the spacing consistent throughout the layout.', createdAt: now, runId: 'run-style' }, { id: 'answer-style', role: 'assistant', text: 'Updated spacing and removed an obsolete note.', createdAt: now + 1, runId: 'run-style' }] },
   { id: 'thread-plan', title: 'Plan the landing', archived: false, createdAt: now + 1, updatedAt: now + 1, messages: [{ id: 'message-plan', role: 'user', prompt: 'Explain the next steps.', createdAt: now + 1 }, { id: 'answer-plan', role: 'assistant', text: 'Choose content and photos for the collection.', createdAt: now + 2 }] },
 ], runs: [{ id: 'run-style', threadId: 'thread-style', messageId: 'message-style', state: 'ready', phase: 'review', scope: { kind: 'project' }, locale: 'en', base, result: { files: { 'index.tpl': source, 'styles.css': 'body{font:16px system-ui;padding:32px}' }, values: fixture.settings, valid: true, summary: 'Updated spacing and removed an obsolete note.' }, createdAt: now, updatedAt: now + 1 }] };
@@ -40,17 +41,17 @@ try {
   const origin = `http://127.0.0.1:${server.address().port}`;
   const context = await browser.newContext({ viewport: { width: 1280, height: 1000 }, reducedMotion: 'reduce' });
   await context.route('**/*', route => { const url = route.request().url(); return url.startsWith(origin + '/') || url.startsWith(`blob:${origin}/`) || url.startsWith('data:') ? route.continue() : route.abort(); });
+  await installFolderPicker(context);
   const page = await context.newPage(); page.on('pageerror', error => report.errors.push(error.message));
   await page.addInitScript(() => Object.defineProperty(navigator, 'standalone', { configurable: true, value: true }));
   await page.goto(origin); await page.locator('.library').waitFor();
-  await page.evaluate(async ({ fixture, document }) => {
-    const open = (name, initialize) => new Promise((done, reject) => { const request = indexedDB.open(name, 1); request.onupgradeneeded = () => initialize?.(request.result); request.onsuccess = () => done(request.result); request.onerror = () => reject(request.error); });
-    const write = (db, stores, callback) => new Promise((done, reject) => { const tx = db.transaction(stores, 'readwrite'); callback(tx); tx.oncomplete = done; tx.onerror = () => reject(tx.error); });
-    const library = await open('trafficops-studio-library'); await write(library, ['projects', 'preferences'], tx => { fixture.files['images/hero.png'] = Uint8Array.from(Object.values(fixture.files['images/hero.png'])); tx.objectStore('projects').put(fixture); tx.objectStore('preferences').put(fixture.id, 'active-project'); }); library.close();
-    const conversations = await open('trafficops-studio-conversations', db => { db.createObjectStore('documents', { keyPath: 'projectId' }); db.createObjectStore('disk-sync', { keyPath: 'projectId' }); }); await write(conversations, ['documents'], tx => tx.objectStore('documents').put(document)); conversations.close();
-    const settings = await open('trafficops-template-studio-ai', db => db.createObjectStore('settings', { keyPath: 'id' })); await write(settings, ['settings'], tx => tx.objectStore('settings').put({ id: 'openrouter', apiKey: 'mock-no-provider-ui-test', model: 'test/text-model', imageModel: '' })); settings.close();
-  }, { fixture, document });
-  await page.reload(); const chat = studioChat(page), panel = chat.root; await chat.root.waitFor();
+  await page.evaluate(async () => {
+    const db = await new Promise((done, reject) => { const request = indexedDB.open('trafficops-template-studio-ai', 1); request.onupgradeneeded = () => request.result.createObjectStore('settings', { keyPath: 'id' }); request.onsuccess = () => done(request.result); request.onerror = () => reject(request.error); });
+    await new Promise((done, reject) => { const tx = db.transaction('settings', 'readwrite'); tx.objectStore('settings').put({ id: 'openrouter', apiKey: 'mock-no-provider-ui-test', model: 'test/text-model', imageModel: '' }); tx.oncomplete = done; tx.onerror = () => reject(tx.error); }); db.close();
+  });
+  const seeded = await seedProjectFolder(page, { name: fixture.name, projectId: fixture.id, files: fixture.files, values: fixture.settings, conversations: document });
+  await openProject(page, fixture.name);
+  const chat = studioChat(page), panel = chat.root; await chat.root.waitFor();
   const prompt = chat.prompt;
   // Next to the preview the chat is narrower than 560 px: the conversation list is offered by the header menu "Conversations".
   assert.equal(await chat.threads.isVisible(), false);
@@ -173,7 +174,12 @@ try {
   await chat.run('run-broken').and(page.locator('[data-run-status="discarded"]')).waitFor();
   while (await composerMentions.count()) await composerMentions.first().locator('.studio-chip-remove').click();
   await prompt.fill('Tighten the stylesheet again from the current project.'); await chat.send.click();
-  const readConversation = () => page.evaluate(id => new Promise((done, reject) => { const request = indexedDB.open('trafficops-studio-conversations', 1); request.onerror = () => reject(request.error); request.onsuccess = () => { const db = request.result, get = db.transaction('documents', 'readonly').objectStore('documents').get(id); get.onsuccess = () => { db.close(); done(get.result); }; get.onerror = () => { db.close(); reject(get.error); }; }; }), fixture.id);
+  // Persistence is the folder's dialogue file (.trafficops/conversations/<thread>.json, runs included).
+  const readConversation = async () => {
+    const runs = [];
+    for (const name of (await listOpfs(page, `${seeded.folder}/.trafficops/conversations`)) || []) if (name.endsWith('.json')) runs.push(...(JSON.parse(await readOpfs(page, `${seeded.folder}/.trafficops/conversations/${name}`) || '{}').runs || []));
+    return { runs };
+  };
   let brokenRuns = [];
   for (const deadline = Date.now() + 10000; Date.now() < deadline; await page.waitForTimeout(100)) { brokenRuns = (await readConversation()).runs.filter(run => run.threadId === 'thread-broken'); if (brokenRuns.length === 2) break; }
   assert.equal(brokenRuns.length, 2, 'the follow-up creates a run');
