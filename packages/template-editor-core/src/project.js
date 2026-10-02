@@ -8,13 +8,21 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const VALUES_ENTRY = '.trafficops/values.json';
 const METADATA_ENTRY = '.trafficops/project.json';
+// Local revision bookkeeping of a project folder (spec A10): accepted in a zipped folder, never imported.
+const TOMBSTONES_ENTRY = '.trafficops/conversation-tombstones.json';
 // Folder format v1 history: one file per dialogue plus content-addressed blobs.
 const HISTORY_DIR = '.trafficops/conversations/', BLOBS_DIR = `${HISTORY_DIR}blobs/`;
 const THREAD_ENTRY = /^\.trafficops\/conversations\/((?:[a-z0-9_-]{1,200}|~[a-f0-9]{64})\.json)$/, BLOB_ENTRY = /^\.trafficops\/conversations\/blobs\/([a-f0-9]{64})$/;
-const HISTORY_BLOBS = 10000;
+export const HISTORY_BLOBS = 10000;
 const MiB = 1024 * 1024;
 // runs is per dialogue; total/nodes bound the joined in-memory document.
 export const CONVERSATION_LIMITS = Object.freeze({ threads: 100, runs: 100, messages: 500, total: 512 * MiB, nodes: 2000000, depth: 64, threadEncoded: 16 * MiB, blob: 24 * MiB });
+// Shared by every history export path (createZip and a host that checks limits before reading blobs).
+export const HISTORY_LIMIT_MESSAGES = Object.freeze({
+  threads: `A project ZIP holds at most ${CONVERSATION_LIMITS.threads} dialogues.`,
+  blobs: `A project ZIP holds at most ${HISTORY_BLOBS} blobs.`,
+  total: 'Project history exceeds 512 MiB. Export without history or archive older dialogues.',
+});
 
 // A lone surrogate becomes U+FFFD in UTF-8, so two ill-formed ids could share a file name.
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
@@ -167,7 +175,7 @@ export function projectFolders(files, explicit = []) {
   return validateFolders(files, folders);
 }
 
-// user | sidecar (.trafficops/ metadata and the legacy history entry) | thread | blob | historyFolder.
+// user | sidecar (.trafficops/ values, metadata and tombstones) | thread | blob | historyFolder.
 function entryKind(path, directory, history) {
   if (path.startsWith(HISTORY_DIR)) {
     if (!history) throw new Error('This ZIP contains project history. Import it as an editable Studio project.');
@@ -175,7 +183,7 @@ function entryKind(path, directory, history) {
     throw new Error(`Invalid project history entry: ${path.slice(0, 100)}`);
   }
   if (path === '.trafficops/') return 'sidecar';
-  if ([VALUES_ENTRY, METADATA_ENTRY].includes(path)) { if (directory) throw new Error(`Invalid metadata entry: ${path}`); return 'sidecar'; }
+  if ([VALUES_ENTRY, METADATA_ENTRY, TOMBSTONES_ENTRY].includes(path)) { if (directory) throw new Error(`Invalid metadata entry: ${path}`); return 'sidecar'; }
   safePath(directory ? path.slice(0, -1) : path);
   return 'user';
 }
@@ -212,12 +220,12 @@ export function inspectZip(bytes, { history = false } = {}) {
     const directory = path.endsWith('/'), kind = entryKind(path, directory, history);
     if (entries.has(path)) throw new Error(`Duplicate ZIP entry: ${path}`);
     if (++counts[kind] > (kind === 'user' ? LIMITS.count : kind === 'thread' ? CONVERSATION_LIMITS.threads : kind === 'blob' ? HISTORY_BLOBS : Infinity)) {
-      throw new Error(kind === 'user' ? userEntries : kind === 'thread' ? `A project ZIP holds at most ${CONVERSATION_LIMITS.threads} dialogues.` : `A project ZIP holds at most ${HISTORY_BLOBS} blobs.`);
+      throw new Error(kind === 'user' ? userEntries : kind === 'thread' ? HISTORY_LIMIT_MESSAGES.threads : HISTORY_LIMIT_MESSAGES.blobs);
     }
     if ((flags & 1) || ![0, 8].includes(method)) throw new Error(`Encrypted or unsupported ZIP entry: ${path}`);
     if (((view.getUint32(at + 38, true) >>> 16) & 0xf000) === 0xa000) throw new Error(`ZIP symlinks are unsupported: ${path}`);
     const entryLimit = kind === 'thread' ? CONVERSATION_LIMITS.threadEncoded : kind === 'blob' ? CONVERSATION_LIMITS.blob : kind === 'historyFolder' ? 0
-      : path === METADATA_ENTRY ? 64 * 1024 : isText(path) ? LIMITS.text : LIMITS.file;
+      : path === METADATA_ENTRY ? 64 * 1024 : path === TOMBSTONES_ENTRY ? MiB : isText(path) ? LIMITS.text : LIMITS.file;
     if (size > entryLimit || size === 0xffffffff || compressed === 0xffffffff) throw new Error(`ZIP entry is too large: ${path}`);
     if (local + 30 > start || view.getUint32(local, true) !== 0x04034b50) throw new Error(`Invalid local ZIP header: ${path}`);
     const localNameLength = view.getUint16(local + 26, true), localExtraLength = view.getUint16(local + 28, true);
@@ -259,6 +267,7 @@ export function readZipProject(bytes, { history = false } = {}) {
       settings = JSON.parse(decoder.decode(data));
       if (!settings || Array.isArray(settings) || typeof settings !== 'object') throw new Error('Project values must be a JSON object.');
     } else if (path === METADATA_ENTRY) metadata = validatePortableMetadata(JSON.parse(decoder.decode(data)));
+    else if (path === TOMBSTONES_ENTRY) continue;
     else files[path] = isText(path) ? decoder.decode(data) : data;
   }
   const hasHistory = [...entries.values()].some(info => ['thread', 'blob', 'historyFolder'].includes(info.kind));
@@ -321,8 +330,8 @@ function historyEntries({ threads = [], blobs = new Map() }, { metadata }) {
       written.add(sha); entries[`${BLOBS_DIR}${sha}`] = [bytes, { level: 0 }]; total += bytes.byteLength;
     }
   }
-  if (written.size > HISTORY_BLOBS) throw new Error(`A project ZIP holds at most ${HISTORY_BLOBS} blobs.`);
-  if (total > CONVERSATION_LIMITS.total) throw new Error('Project history exceeds 512 MiB. Export without history or archive older dialogues.');
+  if (written.size > HISTORY_BLOBS) throw new Error(HISTORY_LIMIT_MESSAGES.blobs);
+  if (total > CONVERSATION_LIMITS.total) throw new Error(HISTORY_LIMIT_MESSAGES.total);
   return entries;
 }
 

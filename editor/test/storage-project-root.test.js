@@ -4,7 +4,7 @@ import { fromBase64, sha256Hex, toBase64 } from '@trafficops/template-editor-cor
 import { adoptFolder, copyProject, createProjectInRoot, interruptImportedRuns, listKnownProjects, makeIndependent, readProjectSnapshot, remapConversation } from '../src/storage/project-root.js';
 import { readProjectMeta, createProjectMeta } from '../src/storage/project-meta.js';
 import { classifyFolder, createOpfsRoot, deleteOpfsRoot } from '../src/storage/roots.js';
-import { rememberRecent } from '../src/storage/recent.js';
+import { rememberOpfsOpened, rememberRecent } from '../src/storage/recent.js';
 import { fileAt, listDirectory, readFile, readText } from '../src/storage/write.js';
 import { MemoryDirectoryHandle } from './support/fs-access.js';
 import { installMemoryIndexedDB } from './support/memory-idb.js';
@@ -163,6 +163,22 @@ test('listKnownProjects merges recent folders and OPFS roots, deduplicated by pr
   assert.equal(entry.folderName, 'p-c'); assert.equal(entry.handle, moved);
   await deleteOpfsRoot(entry.folderName, { storage });
   assert.equal((await listKnownProjects({ storage })).some(item => item.projectId === rekeyed.projectId), false);
+});
+
+test('an OPFS project opened recently is listed by its open time; its project.json time is the floor', async t => {
+  installMemoryIndexedDB(t);
+  const storage = (() => { const root = new MemoryDirectoryHandle('opfs', {}, { now: () => 500 }); return { getDirectory: async () => root }; })();
+  const items = new Map(), localStorage = { getItem: key => items.get(key) ?? null, setItem: (key, value) => { items.set(key, value); } };
+  const folder = new MemoryDirectoryHandle('folder');
+  await createProjectMeta(folder, { schema: 1, projectId: 'p-folder', kind: 'landing', name: 'Folder' });
+  await rememberRecent({ projectId: 'p-folder', name: 'Folder', kind: 'landing', handle: folder, lastOpenedAt: 1000 });
+  for (const id of ['p-old', 'p-new']) await createProjectMeta(await createOpfsRoot(id, { storage }), { schema: 1, projectId: id, kind: 'landing', name: id });
+  const order = async () => (await listKnownProjects({ storage, localStorage })).map(entry => [entry.projectId, entry.lastOpenedAt]);
+  const before = await order();
+  assert.deepEqual(before[0], ['p-folder', 1000]); assert.deepEqual(before.slice(1).map(([, time]) => time), [500, 500]);
+  rememberOpfsOpened('p-new', { storage: localStorage, now: () => 2000 });
+  rememberOpfsOpened('p-old', { storage: localStorage, now: () => 100 });
+  assert.deepEqual(await order(), [['p-new', 2000], ['p-folder', 1000], ['p-old', 500]]);
 });
 
 test('remapConversation gives every internal id a new value, keeps references consistent and interrupts runs', () => {

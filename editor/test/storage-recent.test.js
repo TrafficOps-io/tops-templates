@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { findSameEntry, forgetRecent, listRecent, rememberRecent } from '../src/storage/recent.js';
+import { OPFS_OPENED_KEY, forgetOpfsOpened, forgetRecent, listRecent, opfsOpenedTimes, rememberOpfsOpened, rememberRecent } from '../src/storage/recent.js';
 import { MemoryDirectoryHandle } from './support/fs-access.js';
 import { installMemoryIndexedDB } from './support/memory-idb.js';
 
@@ -38,23 +38,42 @@ test('rememberRecent rejects entries that cannot be reopened', async t => {
   assert.deepEqual(await listRecent(), []);
 });
 
-test('findSameEntry matches by isSameEntry and skips stale handles', async t => {
-  installMemoryIndexedDB(t);
-  const one = new MemoryDirectoryHandle('one'), two = new MemoryDirectoryHandle('two'), stale = new MemoryDirectoryHandle('stale');
-  stale.isSameEntry = async () => { throw new DOMException('gone', 'NotFoundError'); };
-  await rememberRecent({ projectId: 'stale', name: 'Stale', kind: 'landing', handle: stale, lastOpenedAt: 30 });
-  await rememberRecent({ projectId: 'p-1', name: 'One', kind: 'landing', handle: one, lastOpenedAt: 10 });
-  await rememberRecent({ projectId: 'p-2', name: 'Two', kind: 'landing', handle: two, lastOpenedAt: 20 });
-  assert.equal((await findSameEntry(two)).projectId, 'p-2');
-  assert.equal((await findSameEntry(one)).projectId, 'p-1');
-  assert.equal(await findSameEntry(new MemoryDirectoryHandle('one')), null);
-});
-
 test('without indexedDB the registry is empty and remembering fails loudly', async t => {
   const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB');
   Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: undefined });
   t.after(() => { if (descriptor) Object.defineProperty(globalThis, 'indexedDB', descriptor); else delete globalThis.indexedDB; });
   assert.deepEqual(await listRecent(), []);
-  assert.equal(await findSameEntry(new MemoryDirectoryHandle('x')), null);
   await assert.rejects(rememberRecent({ projectId: 'p', name: 'x', kind: 'landing', handle: new MemoryDirectoryHandle('x') }), /Browser storage is unavailable/);
+});
+
+function memoryStorage() {
+  const items = new Map();
+  return { items, getItem: key => items.get(key) ?? null, setItem: (key, value) => { items.set(key, String(value)); }, removeItem: key => { items.delete(key); } };
+}
+
+test('OPFS opens are recorded in localStorage by projectId; forgetting removes one; bad or blocked storage reads as empty', () => {
+  const storage = memoryStorage();
+  assert.deepEqual(opfsOpenedTimes({ storage }), {});
+  rememberOpfsOpened('p-1', { storage, now: () => 10 });
+  rememberOpfsOpened('p-2', { storage, now: () => 20 });
+  rememberOpfsOpened('p-1', { storage, now: () => 30 });
+  assert.deepEqual(opfsOpenedTimes({ storage }), { 'p-1': 30, 'p-2': 20 });
+  forgetOpfsOpened('p-2', { storage });
+  assert.deepEqual(opfsOpenedTimes({ storage }), { 'p-1': 30 });
+  storage.setItem(OPFS_OPENED_KEY, '{nope');
+  assert.deepEqual(opfsOpenedTimes({ storage }), {});
+  storage.setItem(OPFS_OPENED_KEY, JSON.stringify({ ok: 5, bad: 'x', negative: -1 }));
+  assert.deepEqual(opfsOpenedTimes({ storage }), { ok: 5 });
+  const blocked = { getItem() { throw new DOMException('blocked', 'SecurityError'); }, setItem() { throw new DOMException('blocked', 'SecurityError'); } };
+  assert.deepEqual(opfsOpenedTimes({ storage: blocked }), {});
+  assert.doesNotThrow(() => rememberOpfsOpened('p-1', { storage: blocked }));
+  assert.deepEqual(opfsOpenedTimes({ storage: null }), {});
+});
+
+test('the OPFS open list keeps the most recent 200 projects', () => {
+  const storage = memoryStorage();
+  for (let index = 0; index < 205; index++) rememberOpfsOpened(`p-${index}`, { storage, now: () => index });
+  const times = opfsOpenedTimes({ storage });
+  assert.equal(Object.keys(times).length, 200);
+  assert.equal(times['p-4'], undefined); assert.equal(times['p-5'], 5); assert.equal(times['p-204'], 204);
 });

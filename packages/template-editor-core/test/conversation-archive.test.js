@@ -134,7 +134,7 @@ test('new history is validated: dialogue files, referenced blobs, identity and b
   assert.throws(() => readZipProject(raw(oversized), { history: true }), /too large/);
 });
 
-test('only values.json and project.json are accepted under .trafficops/, and project.json must be valid metadata', () => {
+test('only values.json, project.json and conversation-tombstones.json are accepted under .trafficops/ (outside history), and project.json must be valid metadata', () => {
   for (const options of [undefined, { history: true }]) {
     assert.throws(() => readZipProject(raw({ '.trafficops/key.json': json({ apiKey: 'secret' }) }), options), /Unsafe file path/);
     assert.throws(() => readZipProject(raw({ '.trafficops/project.json/': new Uint8Array() }, { 'index.tpl': strToU8('x') }), options), /Unsafe file path/, 'a folder named like a sidecar');
@@ -144,6 +144,20 @@ test('only values.json and project.json are accepted under .trafficops/, and pro
   }
   assert.throws(() => readZipProject(raw({}, { 'index.tpl': strToU8('x'), '.trafficops/project.json': strToU8('{nope') })));
   assert.deepEqual(readZipProject(raw({})).metadata, metadata);
+});
+
+test('a zipped project folder may contain the conversation tombstones sidecar: ignored, never a user file', async () => {
+  const tombstones = { '.trafficops/conversation-tombstones.json': json({ 'thread-9': 4 }) };
+  const split = await conversationFilesFromDocument(document());
+  const history = Object.fromEntries([...split.threads.map(item => [`${DIR}/${conversationThreadFileName(item.id)}`, json(item)]),
+    ...[...split.blobs].map(([sha, bytes]) => [`${DIR}/blobs/${sha}`, bytes])]);
+  for (const [extra, options] of [[tombstones, undefined], [tombstones, { history: true }], [{ ...tombstones, ...history }, { history: true }]]) {
+    const project = readZipProject(raw(extra), options);
+    assert.deepEqual(Object.keys(project.files), ['index.tpl']);
+    assert.equal(inspectZip(raw(extra), options).get('.trafficops/conversation-tombstones.json').kind, 'sidecar');
+  }
+  assert.throws(() => readZipProject(raw({ '.trafficops/conversation-tombstones.json/': new Uint8Array() })), /Unsafe file path/);
+  assert.throws(() => readZipProject(raw({ '.trafficops/conversation-tombstones.json': new Uint8Array(1024 * 1024 + 1) })), /too large/);
 });
 
 test('generated (hosting) ZIPs never contain history', async () => {

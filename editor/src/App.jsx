@@ -8,7 +8,7 @@ import { installedDisplayMode, watchDisplayMode } from './app-mode.js';
 import { LIMITS, conversationDocumentFromFiles } from '@trafficops/template-editor-core';
 import { readArchive } from './hosts/read-archive.js';
 import { classifyFolder, deleteOpfsRoot, persistStorage, pickFolder, requestAccess, storageMode } from './storage/roots.js';
-import { forgetRecent, rememberRecent } from './storage/recent.js';
+import { forgetOpfsOpened, forgetRecent, rememberOpfsOpened, rememberRecent } from './storage/recent.js';
 import { readProjectTree } from './storage/files.js';
 import { readProjectMeta, readValues } from './storage/project-meta.js';
 import { adoptFolder, copyProject, createProjectInRoot, interruptImportedRuns, listKnownProjects, makeIndependent, remapConversation } from './storage/project-root.js';
@@ -119,11 +119,13 @@ export default function App() {
     if (currentRef.current) setError(`Could not open “${entry.name}”: ${problem.message}`);
     await refreshKnown();
   }
-  // Opens a project root; folder roots are remembered (and their lastOpenedAt refreshed) in the recent registry.
+  // Opens a project root; folder roots are remembered (and their lastOpenedAt refreshed) in the recent registry, OPFS
+  // opens in localStorage, so the opened project moves up the list either way.
   async function enter(root, meta, source) {
     const entry = { projectId: meta.projectId, name: meta.name, kind: meta.kind, source, handle: root };
     if (source === 'folder') await rememberRecent({ projectId: entry.projectId, name: entry.name, kind: entry.kind, handle: root });
     const next = await folderHost(root, meta);
+    else rememberOpfsOpened(entry.projectId);
     setProblems(items => without(items, entry.projectId));
     mount(next, entry); setCreating(null);
     await refreshKnown();
@@ -292,7 +294,7 @@ export default function App() {
   // Forgets a listed project: its conversation session stops; a folder stays on disk, an OPFS root is deleted.
   async function forget(entry) {
     releaseConversationSession(entry.projectId); hosts.current.get(entry.projectId)?.dispose?.(); hosts.current.delete(entry.projectId);
-    if (entry.source === 'opfs') await deleteOpfsRoot(entry.folderName || entry.handle.name); else await forgetRecent(entry.projectId);
+    if (entry.source === 'opfs') { await deleteOpfsRoot(entry.folderName || entry.handle.name); forgetOpfsOpened(entry.projectId); } else await forgetRecent(entry.projectId);
     setProblems(items => without(items, entry.projectId));
     if (lastProject.get() === entry.projectId) lastProject.set(null);
     await refreshKnown();

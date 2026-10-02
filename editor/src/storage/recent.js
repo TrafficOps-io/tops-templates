@@ -1,6 +1,6 @@
 import { ValidationError } from '@trafficops/template-editor-core';
 
-// D3: folders opened in Studio, by projectId. OPFS projects are listed from the OPFS directory instead.
+// Spec A3: folders opened in Studio, by projectId. OPFS projects are listed from the OPFS directory instead.
 const DATABASE = 'trafficops-studio-recent', STORE = 'projects';
 
 function open() {
@@ -67,10 +67,33 @@ export async function forgetRecent(projectId) {
   await transaction('readwrite', store => { store.delete(projectId); });
 }
 
-/** The recent entry whose folder is `handle` (isSameEntry), or null. Stale handles never match. */
-export async function findSameEntry(handle) {
-  for (const entry of await listRecent()) {
-    try { if (await entry.handle.isSameEntry(handle)) return entry; } catch { /* A stale handle is not the selected folder. */ }
-  }
-  return null;
+// OPFS projects are not registered (spec A3), so their opens are kept in localStorage: { projectId: lastOpenedAt }.
+export const OPFS_OPENED_KEY = 'trafficops-studio-opfs-opened';
+const OPFS_OPENED_LIMIT = 200;
+const webStorage = options => Object.hasOwn(options, 'storage') ? options.storage : globalThis.localStorage;
+
+/** { projectId: lastOpenedAt } of OPFS projects opened in this browser. {} when storage is missing, blocked or invalid. */
+export function opfsOpenedTimes(options = {}) {
+  try {
+    const value = JSON.parse(webStorage(options)?.getItem(OPFS_OPENED_KEY) ?? '{}');
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    return Object.fromEntries(Object.entries(value).filter(([, time]) => Number.isSafeInteger(time) && time >= 0));
+  } catch { return {}; }
+}
+
+function writeOpfsOpened(times, options) {
+  const newest = Object.entries(times).sort((left, right) => right[1] - left[1]).slice(0, OPFS_OPENED_LIMIT);
+  try { webStorage(options)?.setItem(OPFS_OPENED_KEY, JSON.stringify(Object.fromEntries(newest))); } catch { /* Storage blocked: the list falls back to project.json times. */ }
+}
+
+/** Records that an OPFS project was opened now, so it moves up the project list. Never throws. */
+export function rememberOpfsOpened(projectId, { now = Date.now, ...options } = {}) {
+  writeOpfsOpened({ ...opfsOpenedTimes(options), [projectId]: now() }, options);
+}
+
+export function forgetOpfsOpened(projectId, options = {}) {
+  const times = opfsOpenedTimes(options);
+  if (!Object.hasOwn(times, projectId)) return;
+  delete times[projectId];
+  writeOpfsOpened(times, options);
 }

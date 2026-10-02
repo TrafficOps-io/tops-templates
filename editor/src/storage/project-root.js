@@ -2,7 +2,7 @@ import { ConflictError, ValidationError, clonePortablePayload, createStoreConver
 import { createDirectoryConversationStore } from './directory-conversation-store.js';
 import { readProjectTree, syncProjectTree } from './files.js';
 import { createProjectMeta, encodePendingAi, readProjectMeta, readValues, rekeyProjectMeta, writePendingAiBlobs, writeValues } from './project-meta.js';
-import { listRecent } from './recent.js';
+import { listRecent, opfsOpenedTimes } from './recent.js';
 import { classifyFolder, listOpfsRoots, queryAccess } from './roots.js';
 import { lastModified } from './write.js';
 
@@ -94,10 +94,11 @@ export async function adoptFolder(root, { name = root.name, kind = 'landing', no
 
 /** Recent folders and OPFS projects: [{ projectId, name, kind, source: 'folder' | 'opfs', handle, lastOpenedAt, access }],
  *  newest first; OPFS entries add `folderName` (for deleteOpfsRoot: a rekeyed project keeps its folder). A projectId
- *  known from both is listed once, as its recent folder. An OPFS project's lastOpenedAt is its project.json
- *  modification time; OPFS folders without readable metadata (an interrupted create) are skipped. */
+ *  known from both is listed once, as its recent folder. An OPFS project's lastOpenedAt is the later of its recorded
+ *  open (rememberOpfsOpened; `localStorage` option for tests) and its project.json modification time; OPFS folders
+ *  without readable metadata (an interrupted create) are skipped. */
 export async function listKnownProjects(options = {}) {
-  const known = new Map();
+  const known = new Map(), opened = opfsOpenedTimes(Object.hasOwn(options, 'localStorage') ? { storage: options.localStorage } : {});
   for (const { projectId, name, kind, handle, lastOpenedAt } of await listRecent()) known.set(projectId, { projectId, name, kind, source: 'folder', handle, lastOpenedAt, access: await queryAccess(handle) });
   let roots = [];
   try { roots = await listOpfsRoots(options); } catch { /* No browser file storage: recent folders only. */ }
@@ -105,7 +106,7 @@ export async function listKnownProjects(options = {}) {
     let meta;
     try { meta = await readProjectMeta(handle); } catch { continue; }
     if (!meta || known.has(meta.projectId)) continue;
-    known.set(meta.projectId, { projectId: meta.projectId, name: meta.name, kind: meta.kind, source: 'opfs', handle, folderName, lastOpenedAt: await lastModified(handle, META) ?? 0, access: await queryAccess(handle) });
+    known.set(meta.projectId, { projectId: meta.projectId, name: meta.name, kind: meta.kind, source: 'opfs', handle, folderName, lastOpenedAt: Math.max(opened[meta.projectId] ?? 0, await lastModified(handle, META) ?? 0), access: await queryAccess(handle) });
   }
   return [...known.values()].sort((left, right) => right.lastOpenedAt - left.lastOpenedAt);
 }

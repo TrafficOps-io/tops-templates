@@ -159,6 +159,8 @@ export function readZip(bytes: Uint8Array, options?: ZipReadOptions): ProjectFil
 export function readZipProject(bytes: Uint8Array, options?: ZipReadOptions): ImportedProject;
 export function inspectZip(bytes: Uint8Array, options?: ZipReadOptions): Map<string, { size: number; directory: boolean; kind: 'user' | 'sidecar' | 'thread' | 'blob' | 'historyFolder' }>;
 export const CONVERSATION_LIMITS: Readonly<{ threads: number; runs: number; messages: number; total: number; nodes: number; depth: number; threadEncoded: number; blob: number }>;
+export const HISTORY_BLOBS: number;
+export const HISTORY_LIMIT_MESSAGES: Readonly<{ threads: string; blobs: string; total: string }>;
 export function clonePortablePayload<T>(value: T): T;
 export function validateConversationDocument(value: unknown, expectedProjectId?: string): ConversationDocument;
 export const BLOB_TAG: '$trafficopsBlob';

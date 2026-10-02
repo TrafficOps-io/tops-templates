@@ -2,7 +2,7 @@
 import { packArchive } from './pack-archive.js';
 import { readArchive } from './read-archive.js';
 import { translateStudio } from '@trafficops/template-editor-shell/translation';
-import { BLOB_TAG, CONVERSATION_LIMITS, ConflictError, LIMITS, PolicyError, ValidationError, byteSize, createZip, createStoreConversationPort, projectFolders, runOperation, validatePortableMetadata, validateProject } from '@trafficops/template-editor-core';
+import { BLOB_TAG, CONVERSATION_LIMITS, ConflictError, HISTORY_BLOBS, HISTORY_LIMIT_MESSAGES, LIMITS, PolicyError, ValidationError, byteSize, createZip, createStoreConversationPort, projectFolders, runOperation, validatePortableMetadata, validateProject } from '@trafficops/template-editor-core';
 import { generateProject, generateEditorPreview } from '@trafficops/template-runtime';
 import { createDirectoryConversationStore } from '../storage/directory-conversation-store.js';
 import { projectSnapshotEqual, readProjectTree, syncProjectTree } from '../storage/files.js';
@@ -17,8 +17,6 @@ const sameJson = (left, right) => JSON.stringify(left) === JSON.stringify(right)
 // The project.json fields Studio owns while a project is open. pendingAi and metadataRevision are excluded: a claimed
 // brief or a store-owned counter is not a change outside Studio.
 const tracked = meta => JSON.stringify([meta.projectId, meta.kind, meta.name, meta.contentRevision ?? 0, meta.appliedAiRuns || [], meta.sourceTemplateId ?? null]);
-/** @param {any} value @returns {any} */
-const HISTORY_BLOBS = 10000, TOO_LARGE = 'Project history exceeds 512 MiB. Export without history or archive older dialogues.';
 const encoder = new TextEncoder(), OS_FILES = new Set(['.DS_Store', 'Thumbs.db', 'desktop.ini']);
 // sha → size, from every blob reference in a split value.
 function blobSizes(value, found = new Map()) {
@@ -157,15 +155,15 @@ export async function createFolderHost({ root, meta, language = 'en', messages =
   async function historyFiles(files) {
     const threads = await store.listThreads();
     if (threads.some(thread => thread.damaged)) throw new ValidationError('A dialogue file in this folder is damaged. Export without history, or repair the folder first.');
-    if (threads.length > CONVERSATION_LIMITS.threads) throw new ValidationError(`A project ZIP holds at most ${CONVERSATION_LIMITS.threads} dialogues.`);
+    if (threads.length > CONVERSATION_LIMITS.threads) throw new ValidationError(HISTORY_LIMIT_MESSAGES.threads);
     const sizes = new Map();
     for (const thread of threads) blobSizes(thread, sizes);
-    if (sizes.size > HISTORY_BLOBS) throw new ValidationError(`A project ZIP holds at most ${HISTORY_BLOBS} blobs.`);
+    if (sizes.size > HISTORY_BLOBS) throw new ValidationError(HISTORY_LIMIT_MESSAGES.blobs);
     let history = 0;
     for (const thread of threads) history += encoder.encode(JSON.stringify(thread)).byteLength;
     for (const size of sizes.values()) history += size;
     const user = Object.values(files).reduce((sum, value) => sum + byteSize(value), 0);
-    if (history > CONVERSATION_LIMITS.total || history + user > LIMITS.portableArchive) throw new ValidationError(TOO_LARGE);
+    if (history > CONVERSATION_LIMITS.total || history + user > LIMITS.portableArchive) throw new ValidationError(HISTORY_LIMIT_MESSAGES.total);
     const blobs = new Map();
     for (const sha of sizes.keys()) blobs.set(sha, await store.getBlob(sha));
     return { threads, blobs };
