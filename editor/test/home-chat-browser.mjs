@@ -39,10 +39,10 @@ async function openPage(installed = true) {
     if (!url.startsWith('https://openrouter.ai/api/v1/')) return route.abort();
     report.providerRequests++;
     if (!url.endsWith('/chat/completions')) return route.fulfill({ json: { data: [] } });
-    const body = route.request().postDataJSON(), stage = body.tools?.length === 1 ? body.tools[0].function.name : null;
-    const call = stage === 'submit_plan' ? ['submit_plan', { summary: 'Create the requested landing.', tasks: ['Create the landing', 'Review it'] }]
-      : stage === 'submit_review' ? ['submit_review', { approved: true, summary: 'The requested landing is ready.', issues: [] }]
-        : ++step === 1 ? ['set_file', { path: 'index.tpl', content: generated }] : ['validate_draft', {}];
+    // One agent loop: no intent, plan or review stage calls (plan_changes/review_draft are optional tools).
+    const body = route.request().postDataJSON();
+    assert.ok(!body.tools?.some(tool => ['select_intent', 'submit_plan', 'submit_review'].includes(tool.function.name)), 'no mandatory stage calls');
+    const call = ++step === 1 ? ['set_file', { path: 'index.tpl', content: generated }] : ['validate_draft', {}];
     const value = { id: `home-${report.providerRequests}`, model: 'test/home-chat', choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: `call-${report.providerRequests}`, type: 'function', function: { name: call[0], arguments: JSON.stringify(call[1]) } }] }, finish_reason: 'tool_calls' }] };
     return route.fulfill({ contentType: 'text/event-stream', body: `data: ${JSON.stringify(value)}\n\ndata: [DONE]\n\n` });
   });
@@ -126,9 +126,9 @@ try {
   await configuredChat.apply.click(); await configuredChat.status('applied').waitFor();
   await configured.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'Home chat launch', exact: true }).waitFor();
   assert.equal((await readStored(configured, 'trafficops-studio-library', 'projects'))[0].kind, 'landing');
-  assert.equal(report.providerRequests, 4, 'home generation follows the normal plan/write/validate/review workflow');
+  assert.equal(report.providerRequests, 2, 'home generation is one agent loop: write, then validate');
   await configured.screenshot({ path: `${out}/chat-desktop.png`, fullPage: true });
-  report.checks.push('home landing brief → mocked generation → review → apply → rendered landing');
+  report.checks.push('home landing brief → mocked generation (write, validate) → apply → rendered landing');
   assert.deepEqual(report.errors, []); await configured.context().close();
 } catch (error) { await page?.screenshot({ path: `${out}/failure.png`, fullPage: true }).catch(() => {}); throw error; }
 finally { await browser?.close(); server.closeAllConnections(); await new Promise(done => server.close(done)); await writeFile(`${out}/report.json`, JSON.stringify(report, null, 2)); }
