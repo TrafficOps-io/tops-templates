@@ -225,6 +225,8 @@ h1 { font-size: clamp(2.25rem, 4.5vw, 4.4rem); line-height: 1.02; letter-spacing
 .library-preview-button { display: block; width: 100%; text-align: left; }
 .library-preview-button:focus-visible { outline-offset: -4px; }
 .library-thumbnail { position: relative; height: 195px; overflow: hidden; background: var(--ui-page); display: grid; place-items: center; pointer-events: none; border-bottom: 1px solid var(--ui-border); }
+.library-thumbnail-skeleton { position: absolute; inset: 0; }
+.library-thumbnail-skeleton > .studio-skeleton { border-radius: 0; }
 .library-thumbnail iframe { position: absolute; left: 0; top: 0; width: calc(100% / .31); height: 690px; transform: scale(.31); transform-origin: top left; border: 0; pointer-events: none; background: white; }
 .library-thumbnail > span { position: absolute; z-index: 1; left: .8rem; bottom: .75rem; font: 600 .55rem ui-monospace, monospace; letter-spacing: .1em; color: var(--color-base-content); background: var(--ui-surface); padding: .3rem .45rem; border: 1px solid var(--ui-border); border-radius: .25rem; }
 .library-card-body { padding: 1.1rem; }.library-card-body h3 { margin: 0 0 .35rem; font-size: .95rem; font-weight: 600; overflow-wrap: anywhere; }.library-card-body p { color: var(--ui-muted); font-size: .75rem; line-height: 1.6; margin: 0 0 1rem; }

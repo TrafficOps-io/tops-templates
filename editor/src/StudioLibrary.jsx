@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ArrowUpRight, Copy, FileCode2, FolderOpen, LayoutTemplate, Plus, Search, Sparkles, Trash2, Upload, X } from 'lucide-react';
 import { generateProject } from '@trafficops/template-runtime';
 import { buildPreview } from '@trafficops/template-editor-shell/preview';
+import { Skeleton } from '@trafficops/studio-ui/primitives';
 import { studioStarters } from './studio-catalog.js';
 import HomeProjectChat, { BRIEF_REQUIRED, BriefComposer, briefAttachments } from './HomeProjectChat.jsx';
 
@@ -16,7 +17,7 @@ function Thumbnail({ project }) {
     try { const files = generateProject(project.files, project.settings || {}); return buildPreview(files, Object.keys(files).find(path => path.endsWith('.html'))); } catch { return null; }
   }, [visible, project.files, project.settings]);
   useEffect(() => () => preview?.dispose(), [preview]);
-  return <div ref={root} className="library-thumbnail" aria-hidden="true">{preview ? <iframe title={`${project.name} thumbnail`} srcDoc={preview.html} sandbox="" tabIndex={-1} /> : <FileCode2 size={38} />}<span>{project.builtin ? 'STARTER' : project.kind === 'template' ? 'TEMPLATE' : 'LANDING'}</span></div>;
+  return <div ref={root} className="library-thumbnail" aria-hidden="true">{preview ? <iframe title={`${project.name} thumbnail`} srcDoc={preview.html} sandbox="" tabIndex={-1} /> : <div className="library-thumbnail-skeleton"><Skeleton shape="card" height="100%" /></div>}<span>{project.builtin ? 'STARTER' : project.kind === 'template' ? 'TEMPLATE' : 'LANDING'}</span></div>;
 }
 
 export default function StudioLibrary({ projects, busy, aiEnabled = false, aiSettings, activity = [], onCreate, onCreateWithAi, onOpen, onDuplicate, onDelete, onImport, onFolder }) {
