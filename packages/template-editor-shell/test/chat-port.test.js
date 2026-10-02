@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { File } from 'node:buffer';
-import { createChatPort } from '../src/chat-port.js';
+import { createChatPort, keptDraft } from '../src/chat-port.js';
 
 function fakeSession() {
   let doc = { projectId: 'p', revision: 0, threads: [], runs: [] }; const listeners = new Set(), calls = [];
@@ -81,7 +81,7 @@ test('send forwards mode to the runtime and rejects without a configured key bef
 
 test('send maps scopes: file path, registered block scope, plain kinds', async () => {
   const session = fakeSession(), adapter = createChatPort(session, context), { port } = adapter, { id } = await port.createThread();
-  const editScope = { version: 1, selectedInstanceIds: ['b1'] }; adapter.registerBlockScope('blocks:1', editScope);
+  const editScope = { version: 1, locale: 'en', selectedInstanceIds: ['b1'], baselineFiles: state.files, baselineRawValues: state.translations.en }; adapter.registerBlockScope('blocks:1', editScope);
   await port.send(id, input({ scope: { kind: 'file', targetId: 'index.tpl' } }));
   await port.send(id, input({ scope: { kind: 'block', targetId: 'blocks:1' } }));
   await port.send(id, input({ scope: { kind: 'discussion' } }));
@@ -190,4 +190,26 @@ test('deleteThread drops the cached message store; refresh re-labels cached snap
   let seen; port.threads.subscribe(value => { seen = value; });
   adapter.refresh();
   assert.equal(seen.find(item => item.id === fresh).title, 'Новый диалог');
+});
+
+test('send rejects an outdated block selection: changed project or another language', async () => {
+  const session = fakeSession(), adapter = createChatPort(session, context), { port } = adapter, { id } = await port.createThread();
+  const fresh = { version: 1, locale: 'en', selectedInstanceIds: ['b1'], baselineFiles: state.files, baselineRawValues: state.translations.en };
+  adapter.registerBlockScope('changed', { ...fresh, baselineFiles: { ...state.files, 'index.tpl': 'old' } });
+  adapter.registerBlockScope('values', { ...fresh, baselineRawValues: { title: 'old' } });
+  adapter.registerBlockScope('locale', { ...fresh, locale: 'ru' });
+  for (const key of ['changed', 'values', 'locale'])
+    await assert.rejects(port.send(id, input({ scope: { kind: 'block', targetId: key } })), error => error.name === 'PolicyError' && error.message === 'The selected preview is outdated. Refresh preview and select the blocks again.', key);
+  assert.equal(session.calls.length, 0, 'the runtime is not called');
+});
+
+test('keptDraft keeps project drafts without validation and refuses invalid block drafts', () => {
+  const t = text => text, files = { 'index.tpl': 'b' };
+  assert.deepEqual(keptDraft({ scope: { kind: 'project' }, locale: 'ru', mode: 'create', result: { files, values: { a: 1 }, valid: false } }, { locale: 'en', t }), { files, values: { a: 1 }, locale: 'ru', mode: 'create' });
+  assert.deepEqual(keptDraft({ scope: { kind: 'project' }, checkpoint: { files, valid: false } }, { locale: 'en', t }), { files, values: {}, locale: 'en', mode: 'edit' });
+  assert.equal(keptDraft({ scope: { kind: 'project' } }, { locale: 'en', t }), null);
+  const message = 'Completed block changes are retained. Continue generation to validate and review them before applying.';
+  assert.throws(() => keptDraft({ scope: { kind: 'block' }, checkpoint: { files, valid: false } }, { locale: 'en', t }), { message });
+  assert.throws(() => keptDraft({ scope: { kind: 'project' }, result: { files, editScope: {}, valid: false } }, { locale: 'en', t }), { message });
+  assert.deepEqual(keptDraft({ scope: { kind: 'block' }, result: { files, valid: true } }, { locale: 'en', t }).files, files);
 });

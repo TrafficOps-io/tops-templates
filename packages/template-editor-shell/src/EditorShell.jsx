@@ -15,6 +15,7 @@ import AiSettings from './AiSettings.jsx';
 import { Button, ConfirmDialog, InlineNotice, Skeleton } from '@trafficops/studio-ui/primitives';
 import { StudioUiProvider, useStudioUi } from '@trafficops/studio-ui/i18n';
 import { useChatPort } from './useChatPort.js';
+import { keptDraft } from './chat-port.js';
 import { getConversationSession } from './conversation-runtime.js';
 import Menu from './Menu.jsx';
 import { fileAiSupport } from './file-ai-workflow.js';
@@ -45,7 +46,7 @@ function Shell({ host, onSnapshot, onNewProject, onImportProject, newProjectCrea
   const [chatLaunch, setChatLaunch] = useState(null), [chatThreadId, setChatThreadId] = useState(null), [aiOpened, setAiOpened] = useState(false);
   const [blockSelectionBusy, setBlockSelectionBusy] = useState(false);
   const [selectionEnabled, setSelectionEnabled] = useState(false), [selectionFrame, setSelectionFrame] = useState(null);
-  const [selectionPage, setSelectionPage] = useState(''), [selectedInstanceIds, setSelectedInstanceIds] = useState([]), [editScope, setEditScope] = useState(null);
+  const [selectionPage, setSelectionPage] = useState(''), [selectedInstanceIds, setSelectedInstanceIds] = useState([]);
   const [exporting, setExporting] = useState(null), [continueUrl, setContinueUrl] = useState(''), [shared, setShared] = useState(null);
   const [historyGroup, setHistoryGroup] = useState(''), [highlightVersions, setHighlightVersions] = useState(false), [nestedModal, setNestedModal] = useState(false);
   const root = useRef(null), workspace = useRef(null), toolbar = useRef(null), archive = useRef(null), data = useRef(null), versions = useRef(null);
@@ -131,14 +132,15 @@ function Shell({ host, onSnapshot, onNewProject, onImportProject, newProjectCrea
   // «Keep draft in editor» для упавшего или прерванного рана: черновик кладётся в проект без валидации
   // (как прежняя кнопка AiRunSummary → OpenRouterPanel.onApplyProject); applyConversationDraft невалидный черновик отвергает.
   const keepDraftInEditor = useCallback(run => {
-    const draft = run.result || run.checkpoint; if (!draft?.files) return;
-    change(previous => applyProjectDraft(previous, draft.files, draft.values || {}, run.locale || localeRef.current, { mode: run.mode === 'create' ? 'create' : 'edit' }));
-    setEditScope(null); setSelectedInstanceIds([]);
-  }, [change]);
+    const draft = keptDraft(run, { locale: localeRef.current, t }); if (!draft) return;
+    change(previous => applyProjectDraft(previous, draft.files, draft.values, draft.locale, { mode: draft.mode }));
+    setSelectedInstanceIds([]);
+  }, [change, t]);
   async function createProjectWithAi() {
     const port = chat.current?.port; if (!port) return;
-    const threadId = chatThreadId || await port.createThread().then(thread => { setChatThreadId(thread.id); return thread.id; });
-    await port.send(threadId, { text: createPrompt.current || t('Create a new project'), mentions: [], attachments: [], scope: { kind: 'project' }, mode: 'create' });
+    // Всегда новый тред: в текущем активный ран превратил бы запрос в уточнение, а готовый — в продолжение черновика.
+    const thread = await port.createThread(); setChatThreadId(thread.id);
+    await port.send(thread.id, { text: createPrompt.current || t('Create a new project'), mentions: [], attachments: [], scope: { kind: 'project' }, mode: 'create' });
   }
   const openSettings = () => { setTab('ai'); setAiView('settings'); };
   const openFile = (path, selection) => { editor.previewConversationDraft?.(null); setActive(path); setTab('files'); setReveal(selection ? { path, selection } : null); };
@@ -303,7 +305,7 @@ function Shell({ host, onSnapshot, onNewProject, onImportProject, newProjectCrea
           {tab === 'content' && <><nav className="hosted-sections">{sections.map(item => <button key={item.id} className={shownSection?.id === item.id ? 'selected' : ''} onClick={() => setSection(item.id)}>{item.label}{issues.some(issue => issue.locale === locale && issue.section === item.id) && ' ⚠'}</button>)}</nav>{shownSection ? <fieldset disabled={locked}><ParameterForm disabled={locked} definition={{ ...analysis.definition, sections: [shownSection] }} values={values} files={files} projectImages={Object.keys(files).filter(path => /\.(?:png|jpe?g|webp|svg|gif|avif)$/i.test(path))} aiEnabled={aiEnabled} onSettings={openSettings} onImageUpload={uploadImage} errors={issues.filter(issue => issue.locale === locale)} onChange={next => mutate(previous => ({ translations: { ...previous.translations, [locale]: next } }))} /></fieldset> : <div className="empty-content-actions"><p>{t('This project has no editable fields.')}</p><p className="field-help">{t('Open the source files or ask the assistant to update the page.')}</p><div className="ai-actions"><button type="button" className="btn btn-outline btn-sm" onClick={() => setTab('files')}>{t('Open files')}</button>{aiEnabled && <button type="button" className="btn btn-primary btn-sm" onClick={() => { setTab('ai'); setAiView('assistant'); }}><Sparkles size={14} />{t('Open AI assistant')}</button>}</div></div>}{shownSection && <div className="settings-actions"><button className="btn btn-ghost btn-xs" disabled={locked} onClick={() => mutate({ translations: { ...state.translations, [locale]: {} } })}>{t('Reset defaults')}</button><button className="btn btn-ghost btn-xs" disabled={locked} onClick={() => data.current.click()}>{t('Load JSON')}</button><button className="btn btn-ghost btn-xs" onClick={() => downloadFile('trafficops-data.json', JSON.stringify(values, null, 2), 'application/json')}>{t('Save JSON')}</button></div>}</>}
           {tab === 'files' && (typeof files[active] === 'string' && (!/\.svg$/i.test(active) || imageSource) ? <Suspense fallback={<div className="source-loading" role="status" aria-label={t('Opening editor…')}><LoaderCircle className="spin" size={24} aria-hidden="true" /></div>}><CodeEditor key={active} dialect={host.dialect} path={active} value={files[active]} files={files} onChange={value => mutate(previous => ({ files: { ...previous.files, [active]: value } }))} reveal={reveal?.path === active ? reveal : null} onOpenFile={openFile} onError={editor.setError} onEditWithAi={openFileAi} aiEditDisabled={!fileAiAvailability.supported} aiEditReason={fileAiAvailability.reason} readOnly={locked} /></Suspense> : <AssetPreview key={active} path={active} value={files[active]} onEditSource={typeof files[active] === 'string' ? () => setImageSource(true) : undefined} onEditWithAi={openFileAi} aiEditDisabled={locked || !fileAiAvailability.supported} aiEditReason={fileAiAvailability.reason} />)}
           {aiEnabled && <><div hidden={tab !== 'ai' || aiView !== 'assistant'} className="conversations-active">{host.conversations
-            ? <ShellChat host={context} chatRef={chat} mounted={aiOpened} threadId={chatThreadId} onThreadChange={setChatThreadId} launch={chatLaunch} disabled={externalBusy || busy} onBlockSelectionBusyChange={setBlockSelectionBusy}
+            ? <ShellChat host={context} chatRef={chat} mounted={aiOpened} threadId={chatThreadId} onThreadChange={setChatThreadId} launch={chatLaunch} disabled={externalBusy || busy} onBlockSelectionBusyChange={setBlockSelectionBusy} previewRunId={editor.conversationDraft?.runId}
               chatContext={{ state, locale, sectionFrame: selectionStale || editor.conversationDraft ? null : selectionFrame, t, language: host.language,
                 onApplyRun: editor.applyConversationDraft, onPreviewDraft: editor.previewConversationDraft, onKeepDraft: keepDraftInEditor, onOpenFile: openFile,
                 onOpenSection: target => { setTab('content'); if (target.kind === 'field') setSection(target.id.replace(/^field:/, '').split('.')[0]); } }}
@@ -328,7 +330,7 @@ function Shell({ host, onSnapshot, onNewProject, onImportProject, newProjectCrea
 }
 
 // Чат вкладки AI: порт над сессией разговоров хоста, StudioChat грузится лениво при первом открытии вкладки.
-function ShellChat({ host, chatRef, mounted, threadId, onThreadChange, launch, disabled, chatContext, onSettings, onCreateProject, onBlockSelectionBusyChange }) {
+function ShellChat({ host, chatRef, mounted, threadId, onThreadChange, launch, disabled, chatContext, onSettings, onCreateProject, onBlockSelectionBusyChange, previewRunId }) {
   const t = chatContext.t, ui = useStudioUi();
   const [aiSettings, setAiSettings] = useState(null);
   useEffect(() => {
@@ -340,9 +342,9 @@ function ShellChat({ host, chatRef, mounted, threadId, onThreadChange, launch, d
   const chat = useChatPort(host, { ...chatContext, settings: aiSettings });
   chatRef.current = chat;
   useEffect(() => () => { if (chatRef.current === chat) chatRef.current = null; }, [chat, chatRef]);
-  // Пока ран с областью «Блок» активен, выделение в превью заблокировано (как раньше в ConversationPanel).
+  // Пока ран с областью «Блок» активен или его черновик в превью, выделение в превью заблокировано (как раньше в ConversationPanel).
   const session = useMemo(() => getConversationSession(host), [host]);
-  const blockBusy = useSyncExternalStore(session.subscribe, () => session.getSnapshot().runs.some(run => run.scope?.kind === 'block' && activeRunStates.has(run.state)));
+  const blockBusy = useSyncExternalStore(session.subscribe, () => session.getSnapshot().runs.some(run => run.scope?.kind === 'block' && (activeRunStates.has(run.state) || run.id === previewRunId)));
   useEffect(() => { onBlockSelectionBusyChange(blockBusy); return () => onBlockSelectionBusyChange(false); }, [blockBusy, onBlockSelectionBusyChange]);
   const actions = [{ id: 'create', label: t('Create a new project'), danger: true, onSelect: ({ text }) => onCreateProject(text) }, { id: 'settings', label: t('AI settings'), onSelect: onSettings }];
   const footer = <>{aiSettings && !aiSettings.configured && <InlineNotice tone="info" actions={<Button variant="ghost" size="sm" onClick={onSettings}>{t('AI settings')}</Button>}>{t('Connect your key in Settings to start.')}</InlineNotice>}

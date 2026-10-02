@@ -1,7 +1,7 @@
 import { PolicyError } from '@trafficops/template-editor-core';
 import { conflictToParts, runToParts, runToState } from './chat-cards.js';
 import { addFileMention, addSectionMention } from './conversation-mentions.js';
-import { previewSectionOptions, previewSelectionMatches } from './preview-selection.js';
+import { blockScopeBaseMatches, previewSectionOptions, previewSelectionMatches } from './preview-selection.js';
 import { FILE_ATTACHMENT_ACCEPT, FILE_ATTACHMENT_LIMITS, readFileAiAttachments } from './file-ai-attachments.js';
 
 const uuid = () => globalThis.crypto?.randomUUID?.() || `t-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -12,6 +12,16 @@ const toMentionTarget = item => item?.kind === 'section'
   ? { kind: 'section', id: `${item.page}:${item.id}`, label: item.label || item.id, detail: item.page }
   : { kind: 'file', id: typeof item === 'string' ? item : item.path, label: typeof item === 'string' ? item : item.path };
 const sectionId = section => `${section.page}:${section.id}`;
+
+/**
+ * Черновик рана для «Keep draft in editor»: кладётся в проект без валидации. Невалидный черновик блочного рана
+ * отвергается — applyProjectDraft заменил бы весь проект снимком момента выделения (как скрывал кнопку AiRunSummary).
+ */
+export function keptDraft(run, { locale, t }) {
+  const draft = run?.result || run?.checkpoint; if (!draft?.files) return null;
+  if ((run.scope?.kind === 'block' || draft.editScope) && draft.valid !== true) throw new Error(t('Completed block changes are retained. Continue generation to validate and review them before applying.'));
+  return { files: draft.files, values: draft.values || {}, locale: run.locale || locale, mode: run.mode === 'create' ? 'create' : 'edit' };
+}
 
 /**
  * ChatPort над сессией conversation-runtime. `context()` возвращает актуальные state, locale, sectionFrame,
@@ -131,6 +141,10 @@ export function createChatPort(session, context) {
       }
       const scope = input.scope?.kind === 'block' ? { kind: 'block', editScope: blockScopes.get(input.scope.targetId) }
         : input.scope?.kind === 'file' ? { kind: 'file', path: input.scope.targetId } : { kind: input.scope?.kind || 'project' };
+      // Выделение блоков сделано по снимку проекта: после правок или смены языка его нужно выделить заново.
+      const editScope = scope.kind === 'block' ? scope.editScope : null;
+      if (editScope && ((editScope.locale && editScope.locale !== locale) || !blockScopeBaseMatches(editScope, { files: state.files, rawValues: state.translations?.[editScope.locale || locale] || {} })))
+        throw new PolicyError(t('The selected preview is outdated. Refresh preview and select the blocks again.'));
       const fieldNotes = (input.mentions || []).filter(target => target.kind === 'field').map(target => `@${target.label}`).join(' ');
       // Рантайм требует непустой prompt; сообщение «только вложения» получает нейтральную формулировку.
       const body = text || t('Use the attached files as reference.');
