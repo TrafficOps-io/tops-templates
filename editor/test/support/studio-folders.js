@@ -195,3 +195,49 @@ export const metaOf = async (page, folder) => JSON.parse(await readOpfs(page, `$
 export async function until(check, message, timeout = 10000) {
   for (const started = Date.now(); !(await check());) { if (Date.now() - started > timeout) throw new Error(`Timed out: ${message}`); await new Promise(done => setTimeout(done, 100)); }
 }
+
+// Values crossing page.evaluate: bytes as { $bytes: base64 } (decoded to Buffers here).
+function decodeBytes(value) {
+  if (Array.isArray(value)) return value.map(decodeBytes);
+  if (value && typeof value === 'object') return Object.keys(value).length === 1 && typeof value.$bytes === 'string' ? Buffer.from(value.$bytes, 'base64') : Object.fromEntries(Object.entries(value).map(([key, item]) => [key, decodeBytes(item)]));
+  return value;
+}
+/** Everything the project folder at an OPFS path holds, read with the production modules (readProjectSnapshot):
+ *  { meta (with pendingAi), files (strings or Buffers), folders, values, conversations (the joined history document,
+ *  blob refs unresolved) }, or null when the folder holds no readable project. */
+export async function readProjectFolder(page, folder) {
+  await loadStorage(page);
+  return decodeBytes(await page.evaluate(async path => {
+    const encode = value => {
+      if (value instanceof Uint8Array) { let text = ''; for (let index = 0; index < value.length; index += 0x8000) text += String.fromCharCode(...value.subarray(index, index + 0x8000)); return { $bytes: btoa(text) }; }
+      if (Array.isArray(value)) return value.map(encode);
+      if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, encode(item)]));
+      return value;
+    };
+    let directory = await navigator.storage.getDirectory();
+    try { for (const part of path.split('/')) directory = await directory.getDirectoryHandle(part); } catch { return null; }
+    // A read can race the App's writes (a file replaced while the tree is listed): retry before reporting.
+    for (let attempt = 0; ; attempt++) {
+      try { return encode(await window.__studioStorage.readProjectSnapshot(directory)); } catch (error) {
+        if (attempt >= 20) return /not a Studio project/.test(error.message) ? null : { $error: `${error.name}: ${error.message}` };
+        await new Promise(done => setTimeout(done, 50));
+      }
+    }
+  }, folder).then(value => { if (value?.$error) throw new Error(`Cannot read the project folder ${folder}: ${value.$error}`); return value; }));
+}
+/** The joined history document of the project folder at an OPFS path (null without a project). */
+export const conversationsOf = async (page, folder) => (await readProjectFolder(page, folder))?.conversations ?? null;
+
+/** Stores OpenRouter settings (the AI settings database, which stays in IndexedDB) and notifies the App. */
+export const configureAi = (page, { apiKey = 'mock-no-paid-requests', model = 'test/model', imageModel = '' } = {}) => page.evaluate(async settings => {
+  const db = await new Promise((done, reject) => { const request = indexedDB.open('trafficops-template-studio-ai', 1); request.onupgradeneeded = () => request.result.createObjectStore('settings', { keyPath: 'id' }); request.onsuccess = () => done(request.result); request.onerror = () => reject(request.error); });
+  try { await new Promise((done, reject) => { const tx = db.transaction('settings', 'readwrite'); tx.objectStore('settings').put({ id: 'openrouter', ...settings }); tx.oncomplete = done; tx.onerror = () => reject(tx.error); }); } finally { db.close(); }
+  window.dispatchEvent(new Event('trafficops-ai-settings'));
+}, { apiKey, model, imageModel });
+
+/** Seeds a project folder (seedProjectFolder) and opens it in the editor (openProject). Returns the seeded meta. */
+export async function seedAndOpen(page, options) {
+  const seeded = await seedProjectFolder(page, options);
+  await openProject(page, options.name);
+  return seeded;
+}

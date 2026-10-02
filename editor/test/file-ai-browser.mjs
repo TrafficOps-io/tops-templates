@@ -5,11 +5,11 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deflateSync } from 'node:zlib';
-import { createStudioProject } from '../src/studio-library.js';
 import { studioChat } from './support/studio-chat.js';
+import { configureAi, installFolderPicker, openProject, readProjectFolder, seedProjectFolder } from './support/studio-folders.js';
 
 // Runs against an existing production build. All provider traffic is intercepted
-// before it reaches the network, and every context owns synthetic IndexedDB data.
+// before it reaches the network, and every context seeds its own project folder (OPFS through the test picker).
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = resolve(process.argv[2] || resolve(dirname(fileURLToPath(import.meta.url)), '../dist'));
 const out = '/tmp/studio-file-ai-browser';
@@ -35,15 +35,15 @@ function png(red, green, blue) {
 const originalPng = png(220, 40, 80), editedPng = png(30, 90, 230), referencePng = png(60, 180, 100);
 const target = 'images/hero.png', stylesheet = 'styles.css', changedCss = 'body{margin:0;padding:24px;background:#234;color:white}\n';
 const vector = 'images/icon.svg', changedSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="12"><rect width="16" height="12" fill="blue"/></svg>\n';
-const fixture = createStudioProject({ kind: 'landing', name: 'Synthetic selected-file AI QA', files: {
+const fixture = { name: 'Synthetic selected-file AI QA', files: {
   'index.tpl': '@template "Single file QA"\n@section page "Page"\n@param headline String = "Original heading" label="Heading" required\n@param cover Image = "images/hero.png" label="Cover"\n@endsection\n@layout\n<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="styles.css"></head><body><h1>{{ headline }}</h1><img src="{{cover}}" alt="Selected image"></body></html>\n@endlayout\n',
   [stylesheet]: 'body{margin:0;padding:24px;background:#eee;color:#234}\n',
   [target]: new Uint8Array(originalPng),
   'images/neighbor.png': new Uint8Array(referencePng),
   [vector]: '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="12"><rect width="16" height="12" fill="red"/></svg>\n',
   'private.txt': 'ORIGINAL_PRIVATE_NEIGHBOR: do not include this unrelated source in selected-file prompts.\n',
-}, settings: { headline: 'Saved field stays unchanged', cover: target, customValue: { count: 7 } } });
-const serializedFixture = { ...fixture, files: Object.fromEntries(Object.entries(fixture.files).map(([path,value]) => [path, typeof value === 'string' ? value : [...value]])) };
+}, settings: { headline: 'Saved field stays unchanged', cover: target, customValue: { count: 7 } } };
+const folder = 'picker/file-ai';
 const model = 'test/file-language-model', imageModel = 'test/file-image-model';
 const referenceText = 'Synthetic reference: keep the existing image framing and use a blue background.';
 const pdf = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\n%%EOF\n');
@@ -52,27 +52,17 @@ const server = createServer(async (request,response) => {
   try {
     const path = decodeURIComponent(new URL(request.url, 'http://localhost').pathname), file = resolve(root, '.' + (path === '/' ? '/index.html' : path));
     if (!file.startsWith(root + '/')) throw new Error('Invalid path');
-    response.writeHead(200, { 'Content-Type': types[extname(file)] || 'application/octet-stream' }); response.end(await readFile(file));
+    const value = await readFile(file); response.writeHead(200, { 'Content-Type': types[extname(file)] || 'application/octet-stream' }); response.end(value);
   } catch { response.writeHead(404); response.end('Not found'); }
 });
 await new Promise((resolve,reject) => { server.once('error',reject); server.listen(0, '127.0.0.1', resolve); });
 let browser, activePage;
 const touchSessions = new WeakMap();
 
+// The project folder as the editor saved it: files (bytes as arrays), folders and values.
 async function snapshot(page) {
-  return page.evaluate(id => new Promise((resolve,reject) => {
-    const open = indexedDB.open('trafficops-studio-library',1);
-    open.onerror = () => reject(open.error);
-    open.onsuccess = () => {
-      const db = open.result, request = db.transaction('projects','readonly').objectStore('projects').get(id);
-      request.onerror = () => { db.close(); reject(request.error); };
-      request.onsuccess = () => {
-        const value = request.result;
-        const files = Object.fromEntries(Object.entries(value.files).map(([path,content]) => [path,typeof content === 'string' ? content : [...content]]));
-        db.close(); resolve({ files, folders: value.folders, settings: value.settings });
-      };
-    };
-  }), fixture.id);
+  const { files, folders, values } = await readProjectFolder(page, folder);
+  return { files: Object.fromEntries(Object.entries(files).map(([path,content]) => [path,typeof content === 'string' ? content : [...content]])), folders, settings: values };
 }
 async function savedFile(page,path,expected) {
   await pollSavedFile(page,path,content=>JSON.stringify(content)===JSON.stringify(expected));
@@ -84,7 +74,7 @@ async function savedFileChanged(page,path,previous) {
 }
 async function pollSavedFile(page,path,matches) {
   // Playwright waitForFunction treats a Promise as an immediate truthy result;
-  // poll completed IndexedDB reads in Node so the 650ms autosave really finishes.
+  // poll completed folder reads in Node so the 650ms autosave really finishes.
   const deadline=Date.now()+15000;
   do { if(matches((await snapshot(page)).files[path]))return; await page.waitForTimeout(100); } while(Date.now()<deadline);
   assert.fail('Selected file was not durably saved: '+path);
@@ -143,8 +133,8 @@ async function capture(page,panel,width,phase) {
     await page.getByText('Conversation draft · Project files unchanged',{exact:true}).waitFor();
     assert.ok(await panel.locator('[data-testid="studio-chat-feed"] [data-role="user"]').count(),'The original request stays visible in its conversation');
     const action=lastRun(panel).locator('[data-testid="studio-chat-apply"]');await action.scrollIntoViewIfNeeded();
-    const reachable=await action.evaluate(element=>{const rect=element.getBoundingClientRect(),hit=document.elementFromPoint(rect.x+rect.width/2,rect.y+rect.height/2);return rect.y>=0 && rect.bottom<=innerHeight && (element===hit || element.contains(hit));});
-    assert.ok(reachable,'Apply can be reached and is unobstructed');
+    const reachable=await action.evaluate(element=>{const rect=element.getBoundingClientRect(),hit=document.elementFromPoint(rect.x+rect.width/2,rect.y+rect.height/2);return rect.y>=-1 && rect.bottom<=innerHeight+1 && (element===hit || element.contains(hit)) || JSON.stringify({y:rect.y,bottom:rect.bottom,innerHeight,hit:hit?.outerHTML.slice(0,200)});});
+    assert.ok(reachable===true,'Apply can be reached and is unobstructed (1px subpixel tolerance, as the layout checks) '+reachable);
   }
   await page.screenshot({path:`${out}/${width}-${phase}.png`,fullPage:true});
   report.states.push({width,phase,...data});
@@ -160,8 +150,10 @@ try {
       const url = route.request().url(); if (url.startsWith(origin+'/')) return route.continue();
       report.blockedExternalRequests.push({width,url:new URL(url).origin+new URL(url).pathname}); return route.abort();
     });
+    await installFolderPicker(context);
     const page = activePage = await context.newPage(); page.on('pageerror',error => report.pageErrors.push({width,message:error.message}));
     await page.addInitScript(({editedBase64,changedCss,stylesheet}) => {
+      // The installed presentation: its conversation panel layout and touch targets are checked below.
       Object.defineProperty(navigator,'standalone',{configurable:true,value:true});
       const realFetch = window.fetch.bind(window);
       window.fileAiTest = {requests:[],holdImage:true,holdText:false,release:null,textPath:stylesheet,textContent:changedCss};
@@ -200,17 +192,16 @@ try {
     },{editedBase64:editedPng.toString('base64'),changedCss,stylesheet});
     await page.goto(origin);
     await page.getByRole('heading',{name:'Ideas become pages.',exact:true}).waitFor();
-    await page.evaluate(async ({fixture,model,imageModel}) => {
-      const open = (name,initialize) => new Promise((resolve,reject) => {const request=indexedDB.open(name,1);request.onupgradeneeded=()=>initialize?.(request.result);request.onerror=()=>reject(request.error);request.onsuccess=()=>resolve(request.result);});
-      const library = await open('trafficops-studio-library');
-      const files=Object.fromEntries(Object.entries(fixture.files).map(([path,value])=>[path,typeof value==='string'?value:new Uint8Array(value)]));
-      const bitmap=await createImageBitmap(new Blob([files['images/hero.png']],{type:'image/png'})), canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;canvas.getContext('2d').drawImage(bitmap,0,0);bitmap.close();
-      for (const [path,mime] of [['images/photo.jpg','image/jpeg'],['images/scene.webp','image/webp']]) {const blob=await new Promise(resolve=>canvas.toBlob(resolve,mime,.9));if(blob.type!==mime)throw new Error('Browser did not encode '+mime);files[path]=new Uint8Array(await blob.arrayBuffer());}canvas.width=0;canvas.height=0;
-      await new Promise((resolve,reject) => {const tx=library.transaction(['projects','preferences'],'readwrite');tx.objectStore('projects').put({...fixture,files,revision:1});tx.objectStore('preferences').put(fixture.id,'active-project');tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);}); library.close();
-      const connection = await open('trafficops-template-studio-ai',db=>db.createObjectStore('settings',{keyPath:'id'}));
-      await new Promise((resolve,reject) => {const tx=connection.transaction('settings','readwrite');tx.objectStore('settings').put({id:'openrouter',apiKey:'mock-file-key-no-paid-requests',model,imageModel});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});connection.close();
-    },{fixture:serializedFixture,model,imageModel});
-    await page.reload();
+    // JPEG and WebP copies of the PNG, encoded by the browser.
+    const encoded = await page.evaluate(async png => {
+      const bitmap=await createImageBitmap(new Blob([Uint8Array.from(atob(png),char=>char.charCodeAt(0))],{type:'image/png'})), canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;canvas.getContext('2d').drawImage(bitmap,0,0);bitmap.close();
+      const result={};
+      for (const [path,mime] of [['images/photo.jpg','image/jpeg'],['images/scene.webp','image/webp']]) {const blob=await new Promise(resolve=>canvas.toBlob(resolve,mime,.9));if(blob.type!==mime)throw new Error('Browser did not encode '+mime);result[path]=[...new Uint8Array(await blob.arrayBuffer())];}canvas.width=0;canvas.height=0;
+      return result;
+    },originalPng.toString('base64'));
+    await seedProjectFolder(page,{name:fixture.name,folder:'file-ai',files:{...fixture.files,...Object.fromEntries(Object.entries(encoded).map(([path,bytes])=>[path,new Uint8Array(bytes)]))},values:fixture.settings});
+    await configureAi(page,{apiKey:'mock-file-key-no-paid-requests',model,imageModel});
+    await openProject(page,fixture.name);
     const initial = await snapshot(page);
     let dialog = await openAssistant(page,target);
     await composer(dialog).prompt.fill('Use my uploaded references to change only this picture to a blue background.');
@@ -316,23 +307,11 @@ try {
     }
     await context.close();
   }
-  const browserContext=await browser.newContext({viewport:{width:1280,height:900}});
-  await browserContext.route('**/*',route=>{const url=route.request().url();if(url.startsWith(origin+'/'))return route.continue();report.blockedExternalRequests.push({width:1280,url:new URL(url).origin+new URL(url).pathname});return route.abort();});
-  const tab=activePage=await browserContext.newPage();tab.on('pageerror',error=>report.pageErrors.push({width:1280,message:error.message}));
-  await tab.goto(origin);await tab.getByRole('heading',{name:'Ideas become pages.',exact:true}).waitFor();
-  await tab.getByRole('button',{name:'New project',exact:true}).click();
-  const create=tab.getByRole('dialog',{name:'New project',exact:true});
-  await create.getByRole('textbox',{name:'Project name',exact:true}).fill('Ordinary browser selected-file QA');
-  await create.getByRole('button',{name:'Create landing',exact:true}).click();
-  await tab.getByRole('tab',{name:'Files',exact:true}).click();
-  assert.equal(await tab.getByRole('button',{name:'Edit file with AI',exact:true}).count(),0,'Ordinary browser tab respects the existing PWA AI gate');
-  assert.equal(await tab.getByRole('dialog',{name:'Edit file with AI',exact:true}).count(),0);
-  report.states.push({width:1280,phase:'ordinary-browser-pwa-gate'});await browserContext.close();
   assert.deepEqual(report.pageErrors,[],'No browser page errors'); assert.deepEqual(report.blockedExternalRequests,[],'No unexpected external requests');
   assert.equal(report.controlIssues.length,0,
    'All touch controls have reachable 44px areas: '+JSON.stringify([...new Map(report.controlIssues.map(issue=>[issue.text,issue])).values()]));
   report.passed=true; await writeFile(`${out}/report.json`,JSON.stringify(report,null,2));
-  console.log('PASS: 390/1280px PNG/JPEG/WebP original first + preserved formats, raster/TXT/PDF references, real image draft, one-file Apply, Discard, Stop, CSS/SVG/TPL source edits, preserved neighbors/values, no overflow, ordinary-browser PWA gate. Zero paid requests.');
+  console.log('PASS: 390/1280px PNG/JPEG/WebP original first + preserved formats, raster/TXT/PDF references, real image draft, one-file Apply, Discard, Stop, CSS/SVG/TPL source edits, preserved neighbors/values in the project folder, no overflow. Zero paid requests.');
 } catch(error) {
   report.passed=false; report.error=error.message;
   if (activePage && !activePage.isClosed()) {

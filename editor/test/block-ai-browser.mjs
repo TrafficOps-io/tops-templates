@@ -3,11 +3,11 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
-import { createStudioProject } from '../src/studio-library.js';
 import { generateEditorPreview } from '@trafficops/template-runtime';
 import { openThread, studioChat } from './support/studio-chat.js';
+import { configureAi, installFolderPicker, readProjectFolder, seedProjectFolder } from './support/studio-folders.js';
 
-// Production PWA, disposable browser storage and fully synthetic providers.
+// Production Studio, a disposable project folder (OPFS through the test picker) and fully synthetic providers.
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = resolve(process.argv[2] || 'editor/dist'), out = '/tmp/studio-block-ai-browser';
 await mkdir(out, { recursive: true });
@@ -42,10 +42,10 @@ const source = `@template "Selected-block QA"
 @endlayout
 `;
 const initialValues = { headline: 'Synthetic block preview', comments: [{ author: 'Ada', body: 'First saved comment' }, { author: 'Ben', body: 'Second saved comment' }, { author: 'Cy', body: 'Third saved comment' }], email: 'original@example.test', legacy: { preserve: 7 } };
-const fixture = { ...createStudioProject({ kind: 'landing', name: 'Synthetic selected blocks QA', files: {
+const fixture = { kind: 'landing', name: 'Synthetic selected blocks QA', files: {
   'index.tpl': source, 'styles.css': 'body{margin:0;padding:20px;font:16px/1.5 system-ui;color:#26334a}article,form{padding:12px;border:1px solid #ccd3de;border-radius:8px;margin:10px 0}h1{font-size:24px}h2{font-size:18px;margin:0}p{margin:8px 0}input{max-width:100%}button{min-height:44px}',
   'private.txt': 'PRIVATE_OUTSIDE_BLOCK: keep this neighboring source untouched.',
-}, settings: initialValues }), revision: 1 };
+}, settings: initialValues };
 assert.equal(generateEditorPreview(fixture.files, initialValues).blockInstances.filter(block => block.label === 'Comment body').length, 3);
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json', '.woff2': 'font/woff2', '.ttf': 'font/ttf', '.webmanifest': 'application/manifest+json' };
 const report = { passed: false, paidRequests: 0, providerRequests: [], screenshots: [], states: [], errors: [], blockedExternalRequests: [] };
@@ -82,29 +82,16 @@ const server = createServer(async (request, response) => {
   try {
     const path = decodeURIComponent(new URL(request.url, 'http://localhost').pathname), file = resolve(root, '.' + (path === '/' ? '/index.html' : path));
     if (!file.startsWith(root + '/')) throw new Error('Invalid path');
-    response.writeHead(200, { 'Content-Type': types[extname(file)] || 'application/octet-stream' }); response.end(await readFile(file));
-  } catch { response.writeHead(404); response.end('Not found'); }
+    const value = await readFile(file); response.writeHead(200, { 'Content-Type': types[extname(file)] || 'application/octet-stream' }); response.end(value);
+  } catch { if (!response.headersSent) response.writeHead(404); response.end('Not found'); }
 });
 await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
 let browser, page;
-const saved = () => page.evaluate(id => new Promise((resolve, reject) => {
-  const open = indexedDB.open('trafficops-studio-library', 1);
-  open.onerror = () => reject(open.error);
-  open.onsuccess = () => {
-    const db = open.result, request = db.transaction('projects', 'readonly').objectStore('projects').get(id);
-    request.onerror = () => { db.close(); reject(request.error); };
-    request.onsuccess = () => { db.close(); resolve({ files: request.result.files, settings: request.result.settings }); };
-  };
-}), fixture.id);
-const savedConversations = () => page.evaluate(id => new Promise((resolve, reject) => {
-  const open = indexedDB.open('trafficops-studio-conversations', 1);
-  open.onerror = () => reject(open.error);
-  open.onsuccess = () => {
-    const db = open.result, request = db.transaction('documents', 'readonly').objectStore('documents').get(id);
-    request.onerror = () => { db.close(); reject(request.error); };
-    request.onsuccess = () => { db.close(); resolve(request.result); };
-  };
-}), fixture.id);
+// The project folder's durable state, read with the production storage modules.
+let folder = null;
+const snapshot = async () => (await readProjectFolder(page, folder)) ?? assert.fail(`The project folder ${folder} is unreadable`);
+const saved = async () => { const { files, values } = await snapshot(); return { files, settings: values }; };
+const savedConversations = async () => (await snapshot()).conversations;
 async function pollSaved(matches, label) {
   const deadline = Date.now() + 15000;
   do { const value = await saved(); if (matches(value)) return value; await page.waitForTimeout(100); } while (Date.now() < deadline);
@@ -189,6 +176,7 @@ try {
   for (const width of [390, 1280]) {
     intent = 'content'; contentValue = 'Second comment edited in selected scope'; failAfterWrite = false; clarifyNextPlan = false;
     const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: 'reduce', locale: 'en-US' });
+    await installFolderPicker(context);
     await context.route('**/*', async route => {
       const request = route.request(), url = request.url();
       if (url.startsWith(origin + '/')) return route.continue();
@@ -198,7 +186,6 @@ try {
     page = await context.newPage(); page.on('pageerror', error => report.errors.push({ width, message: error.message }));
     await page.exposeFunction('blockSyntheticResponse', syntheticResponse);
     await page.addInitScript(() => {
-      Object.defineProperty(navigator, 'standalone', { configurable: true, value: true });
       window.blockBridgeLog = [];
       addEventListener('message', event => { if (event.data?.type?.startsWith('trafficops-preview-') || event.data?.testSelectionControl) window.blockBridgeLog.push({ data: event.data, visible: event.source === document.querySelector('iframe.is-visible')?.contentWindow }); });
       const nativeFetch = window.fetch.bind(window);
@@ -209,14 +196,10 @@ try {
       };
     });
     await page.goto(origin); await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
-    await page.evaluate(async fixture => {
-      const open = (name, initialize) => new Promise((resolve, reject) => { const request = indexedDB.open(name, 1); request.onupgradeneeded = () => initialize?.(request.result); request.onerror = () => reject(request.error); request.onsuccess = () => resolve(request.result); });
-      const library = await open('trafficops-studio-library');
-      await new Promise((resolve, reject) => { const tx = library.transaction(['projects', 'preferences'], 'readwrite'); tx.objectStore('projects').put(fixture); tx.objectStore('preferences').put(fixture.id, 'active-project'); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); }); library.close();
-      const connection = await open('trafficops-template-studio-ai', db => db.createObjectStore('settings', { keyPath: 'id' }));
-      await new Promise((resolve, reject) => { const tx = connection.transaction('settings', 'readwrite'); tx.objectStore('settings').put({ id: 'openrouter', apiKey: 'mock-block-key-zero-paid-requests', model: 'test/block-language-model', imageModel: '' }); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); }); connection.close();
-    }, fixture);
-    await page.reload(); await editorReady();
+    await configureAi(page, { apiKey: 'mock-block-key-zero-paid-requests', model: 'test/block-language-model' });
+    ({ folder } = await seedProjectFolder(page, { name: fixture.name, files: fixture.files, values: fixture.settings }));
+    // The library lists the folder after a reload (openProject's preview wait does not fit the 390px layout).
+    await page.reload(); await page.getByRole('button', { name: `Open ${fixture.name}`, exact: true }).click(); await editorReady();
     const baseline = await saved();
     assert.equal(await page.locator('.preview-selection-toggle').getAttribute('aria-pressed'), 'false');
     await selectBlocks({ multiple: true });
@@ -313,7 +296,8 @@ try {
     await latestRun().and(page.locator('[data-run-status="discarded"]')).waitFor();
     assert.equal(await latestRun().getByRole('button', { name: 'Preview draft', exact: true }).count(), 0, 'Discard clears the latest durable draft');
     assert.equal(report.providerRequests.length, discardedCalls, 'Discarded history never restarts generation on reload');
-    const conversations = await savedConversations();
+    // The folder's joined history lists runs dialogue by dialogue (one file each): order them by creation.
+    const conversations = await savedConversations(); conversations.runs.sort((left, right) => left.createdAt - right.createdAt);
     assert.equal(conversations.runs.length, 5, 'Only explicit submissions and continuations create AI runs');
     assert.ok(conversations.runs.every(run => run.scope.kind === 'block' && run.locale === 'en'), 'All persisted runs retain the original block restriction and language');
     assert.deepEqual(conversations.runs.slice(-3).map(run => run.scope.editScope.selectedInstanceIds), Array(3).fill(conversations.runs.at(-1).scope.editScope.selectedInstanceIds), 'Recovery and clarification keep the exact original selected instance identities');
@@ -324,7 +308,7 @@ try {
   assert.deepEqual(report.errors, []);
   assert.equal(JSON.stringify(report.providerRequests).includes('PRIVATE_OUTSIDE_BLOCK'), false, 'Unrelated file contents do not enter initial scoped context');
   report.passed = true; await writeFile(`${out}/report.json`, JSON.stringify(report, null, 2));
-  console.log('PASS: production PWA block multi-selection, nested @each/@render values, scoped content/source tools, independent review, shared source instances, Apply/autosave/reload, frozen scope retention/recovery/clarification, Discard, and 390/1280px screenshots. Zero paid requests.');
+  console.log('PASS: production Studio block multi-selection, nested @each/@render values, scoped content/source tools, independent review, shared source instances, Apply/autosave/reload, frozen scope retention/recovery/clarification, Discard, and 390/1280px screenshots. Zero paid requests.');
 } catch (error) {
   if (page) { await page.screenshot({ path: `${out}/failure.png`, fullPage: true }); console.error((await page.locator('body').innerText()).slice(-12000)); console.error(JSON.stringify(await page.evaluate(() => ({ bridgeLog: window.blockBridgeLog, frames: [...document.querySelectorAll('.preview-frame-stack,iframe')].map(element => ({ tag: element.tagName, class: element.className, rect: JSON.stringify(element.getBoundingClientRect()), style: ['display','opacity','height','width'].map(key => [key,getComputedStyle(element)[key]]) })) })))); console.error(JSON.stringify(await Promise.all(page.frames().slice(1).map(async frame => ({ url: frame.url(), text: (await frame.locator('body').innerText().catch(String)).slice(0,1000), headings: await frame.locator('h1').evaluateAll(elements => elements.map(element => ({ text:element.textContent, rect:JSON.stringify(element.getBoundingClientRect()), display:getComputedStyle(element).display }))).catch(String) }))))); }
   await writeFile(`${out}/report.json`, JSON.stringify(report, null, 2)); throw error;

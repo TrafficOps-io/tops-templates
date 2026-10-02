@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { unzipSync, strFromU8 } from 'fflate';
-import { createStudioProject } from '../src/studio-library.js';
+import { installFolderPicker, readProjectFolder, seedAndOpen } from './support/studio-folders.js';
 import { studioChat } from './support/studio-chat.js';
 import { parseProject, getDefaults } from '@trafficops/template-runtime';
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -36,8 +36,7 @@ const files = { 'index.tpl': `@template "Article"
 </main></body></html>
 @endlayout
 ` };
-// A persisted library record starts at revision 1; revision 0 is an unsaved draft.
-const fixture = { ...createStudioProject({ kind: 'landing', name: 'Article QA', files, settings: getDefaults(parseProject(files).definition) }), revision: 1 };
+const fixture = { name: 'Article QA', files, values: getDefaults(parseProject(files).definition) };
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml', '.woff2': 'font/woff2', '.ttf': 'font/ttf' };
 const server = createServer(async (request, response) => {
   try { const path = new URL(request.url, 'http://localhost').pathname, file = resolve(root, '.' + (path === '/' ? '/index.html' : path)); if (!file.startsWith(root + '/')) throw Error('path'); response.writeHead(200, { 'Content-Type': types[extname(file)] || 'application/octet-stream' }); response.end(await readFile(file)); }
@@ -47,9 +46,12 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 let browser;
 try {
   browser = await chromium.launch({ headless: true, ...(process.platform === 'darwin' ? { executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' } : {}) });
-  const page = await browser.newPage({ viewport: { width: 1600, height: 1100 } }), errors = [];
+  const context = await browser.newContext({ viewport: { width: 1600, height: 1100 } });
+  await installFolderPicker(context);
+  const page = await context.newPage(), errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(({ png }) => {
+    // The installed presentation: its toolbar holds Export.
     Object.defineProperty(navigator, 'standalone', { configurable: true, value: true });
     const realFetch = window.fetch.bind(window);
     window.fillAi = { requests: [], writer: 0, reviews: 0, holdReview: true, releaseReview: null };
@@ -85,11 +87,7 @@ try {
   }, { png });
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
-  await page.evaluate(async fixture => {
-    const database = await new Promise((resolve, reject) => { const request = indexedDB.open('trafficops-studio-library', 1); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
-    await new Promise((resolve, reject) => { const transaction = database.transaction(['projects', 'preferences'], 'readwrite'); transaction.objectStore('projects').put(fixture); transaction.objectStore('preferences').put(fixture.id, 'active-project'); transaction.oncomplete = resolve; transaction.onerror = () => reject(transaction.error); }); database.close();
-  }, fixture);
-  await page.reload();
+  const seeded = await seedAndOpen(page, { kind: 'landing', ...fixture });
   const collapse = page.getByRole('button', { name: 'Collapse editor', exact: true }); if (await collapse.count()) await collapse.click();
   const chat = studioChat(page); await chat.root.waitFor();
   // Connection settings open from the conversation header menu.
@@ -118,13 +116,14 @@ try {
     assert.equal(await images.getAttribute('aria-pressed'), 'true');
   };
   await compose();
-  const readRecord = () => page.evaluate(id => new Promise((resolve, reject) => { const request = indexedDB.open('trafficops-studio-library', 1); request.onsuccess = () => { const db = request.result, transaction = db.transaction('projects', 'readonly'), get = transaction.objectStore('projects').get(id); get.onsuccess = () => resolve(get.result); transaction.oncomplete = () => db.close(); }; request.onerror = () => reject(request.error); }), fixture.id);
+  // The project folder as saved: { files, values, … }.
+  const readRecord = () => readProjectFolder(page, seeded.folder);
   await chat.send.click();
   await page.waitForFunction(() => typeof window.fillAi.releaseReview === 'function').catch(async error => { console.log(await chat.root.innerText()); console.log(JSON.stringify(await page.evaluate(() => window.fillAi.requests.map(request => ({ url: request.url, tools: request.body.tools?.map(tool => tool.function.name), messages: request.body.messages?.slice(-1).map(message => ({ role: message.role, content: String(message.content).slice(0, 300) })) }))))); await page.screenshot({ path: '/tmp/studio-fill-content-browser-failure.png' }); throw error; });
   await chat.status('running').waitFor();
   assert.equal(await chat.apply.count(), 0, 'cannot apply before reviewer completes');
   assert.deepEqual((await readRecord()).files, fixture.files, 'generation does not autosave source or image assets');
-  assert.equal((await readRecord()).settings.title, 'Original headline');
+  assert.equal((await readRecord()).values.title, 'Original headline');
   await page.evaluate(() => window.fillAi.releaseReview());
   await chat.status('ready').waitFor();
   assert.equal(await page.evaluate(() => window.fillAi.reviews), 1, 'the agent repairs the reviewer finding itself; no mandatory second review');
@@ -157,13 +156,13 @@ try {
   assert.equal(vision.body.messages.flatMap(message => Array.isArray(message.content) ? message.content : []).filter(part => part.type === 'image_url').length, 2, 'attachments reach the real OpenRouter adapter as vision inputs');
   await chat.status('ready').locator('[data-testid="studio-chat-apply"]').click();
   const deadline = Date.now() + 20000;
-  while ((await readRecord()).settings.title !== 'Polski artykuł' && Date.now() < deadline) await page.waitForTimeout(100);
+  while ((await readRecord()).values.title !== 'Polski artykuł' && Date.now() < deadline) await page.waitForTimeout(100);
   const saved = await readRecord();
-  if (saved.settings.title !== 'Polski artykuł') console.log((await page.locator('body').innerText()).slice(-12000));
-  assert.equal(saved.settings.title, 'Polski artykuł', 'wait for the durable autosave transaction');
-  assert.equal(saved.files['index.tpl'], fixture.files['index.tpl']); assert.equal(saved.settings.article.replace(/<[^>]+>/g, '').length, 2600); assert.equal(saved.settings.reviews.length, 7);
+  if (saved.values.title !== 'Polski artykuł') console.log((await page.locator('body').innerText()).slice(-12000));
+  assert.equal(saved.values.title, 'Polski artykuł', 'wait for the durable autosave');
+  assert.equal(saved.files['index.tpl'], fixture.files['index.tpl']); assert.equal(saved.values.article.replace(/<[^>]+>/g, '').length, 2600); assert.equal(saved.values.reviews.length, 7);
   assert.ok(saved.files['images/article.png'] instanceof Uint8Array);
-  assert.ok(saved.files[saved.settings.portrait] instanceof Uint8Array);
+  assert.ok(saved.files[saved.values.portrait] instanceof Uint8Array);
   assert.equal(Object.keys(saved.files).filter(path => path.startsWith('images/reference-')).length, 2, 'both attached images become page assets when the switch is on');
   await page.getByRole('button', { name: 'Export', exact: true }).click();
   await page.getByRole('menuitem').filter({ hasText: 'Editable project' }).click();

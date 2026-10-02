@@ -7,6 +7,7 @@ const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = resolve(process.argv[2] || 'editor/dist');
 const { studioChat } = await import('./support/studio-chat.js');
+const { installFolderPicker, readProjectFolder, usePicker } = await import('./support/studio-folders.js');
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json', '.woff2': 'font/woff2' };
 const server = createServer(async (req, res) => {
   try {
@@ -19,10 +20,11 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 let browser;
 try {
   browser = await chromium.launch({ headless: true, ...(process.platform === 'darwin' ? { executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' } : {}) });
-  const page = await browser.newPage({ viewport: { width: 1600, height: 1200 } }), errors = [];
+  const context = await browser.newContext({ viewport: { width: 1600, height: 1200 } });
+  await installFolderPicker(context);
+  const page = await context.newPage(), errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(() => {
-    Object.defineProperty(navigator, 'standalone', { configurable: true, value: true });
     const realFetch = window.fetch.bind(window);
     window.aiTest = { step: 0, requests: [], outcome: 'success', release: null };
     window.fetch = async (url, options) => {
@@ -66,6 +68,8 @@ try {
     };
   });
   await page.goto(`http://127.0.0.1:${server.address().port}`);
+  // The Create click opens the folder picker: the project is written to picker/browser-test.
+  await usePicker(page, 'browser-test');
   await page.getByRole('button', { name: 'New project', exact: true }).click();
   await page.getByRole('button', { name: 'From template', exact: true }).click();
   await page.getByRole('textbox', { name: 'Project name', exact: true }).fill('Browser test');
@@ -151,6 +155,11 @@ try {
   await page.locator('.file-sidebar').getByTitle('index.tpl', { exact: true }).click();
   await inspectSource('Corrected title');
   assert.equal(await page.getByRole('button', { name: 'styles.css', exact: true }).count(), 0);
+  // The applied changes autosave into the project folder.
+  const deadline = Date.now() + 10000;
+  let saved; while (!(saved = await readProjectFolder(page, 'picker/browser-test'))?.files['index.tpl']?.includes('Corrected title') && Date.now() < deadline) await page.waitForTimeout(100);
+  assert.ok(saved.files['index.tpl'].includes('<h1>Corrected title</h1>'), 'Apply autosaves the edit to the folder');
+  assert.equal(saved.files['styles.css'], undefined, 'Apply removes the deleted file from the folder');
   assert.deepEqual(errors, []);
   console.log('PASS: held tool stream on StudioChat, mid-run clarification, edit/delete, draft preview, discard, stop, provider failure without retries, apply and Monaco inspection.');
 } catch (error) { await browser?.contexts()[0]?.pages()[0]?.screenshot({ path: '/tmp/agent-browser-error.png' }); throw error; }
