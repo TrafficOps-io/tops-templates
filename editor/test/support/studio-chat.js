@@ -78,3 +78,10 @@ export async function saveNow(page) {
   return (await moreMenuItem(page, 'Save now')).click();
 }
 export async function switchProject(page, name) { return (await projectMenuItem(page, name)).click(); }
+
+// Reveal the conversation mode after a manual open or reload; a narrow workspace may currently show Preview.
+export async function revealConversationTab(root) {
+  const page = root.page(), panes = page.locator('.studio-pane-switch');
+  if (await panes.isVisible()) await panes.getByRole('button', { name: 'Edit', exact: true }).click();
+  await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
+}

@@ -26,6 +26,7 @@ try {
   for (const installed of [false, true]) for (const width of [1440, 390]) {
     console.log(`Checking ${installed ? 'installed' : 'browser'} ${width}px`);
     const context = await browser.newContext({ viewport:{width, height:844}, hasTouch:width === 390 });
+    await context.addInitScript(() => { window.showDirectoryPicker = undefined; });
     if (installed) await context.addInitScript(() => Object.defineProperty(navigator, 'standalone', { value:true, configurable:true }));
     await context.route('**/*', route => {
       const url = route.request().url();

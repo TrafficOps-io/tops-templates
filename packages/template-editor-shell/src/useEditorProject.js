@@ -4,8 +4,9 @@ import { buildPreview } from './preview.js';
 import { createPreviewRenderer } from './preview-renderer.js';
 import { mergeChangeSet } from './conversation-changes.js';
 import { assertBlockDraftScope, assertBlockScopeBase } from './block-edit-scope.js';
+import { stableSavedState } from './stable-state.js';
 
-export function useEditorProject(host, onSnapshot, recovered, externalBusy = false) {
+export function useEditorProject(host, onSnapshot, externalBusy = false) {
   const [state, setState] = useState(null), [analysis, setAnalysis] = useState(null), [baseline, setBaseline] = useState({});
   const [locale, setLocale] = useState(''), [busy, setBusy] = useState(false), [dirty, setDirty] = useState(false), [savedAt, setSavedAt] = useState(''), [saveBusy, setSaveBusy] = useState(false);
   const [aiBusy, setAiBusy] = useState(false), [aiDraft, setAiDraft] = useState(null);
@@ -48,7 +49,7 @@ export function useEditorProject(host, onSnapshot, recovered, externalBusy = fal
   }, []);
   useEffect(() => {
     mounted.current = true;
-    operation(signal => host.project.open({ signal })).then(next => { if (mounted.current) { install(next); if (recovered?.dirty) { setDirty(true); dirtyRef.current = true; setBaseline(recovered.sourceBaseline || next.files); } } }).catch(report);
+    operation(signal => host.project.open({ signal })).then(next => { if (mounted.current) install(next); }).catch(report);
     return () => { mounted.current = false; for (const controller of operations.current) controller.abort(); };
   }, [host, install, operation, report]);
   const change = useCallback(patch => {
@@ -79,7 +80,8 @@ export function useEditorProject(host, onSnapshot, recovered, externalBusy = fal
       autosavePaused.current = false; setSavedAt(new Date().toISOString());
       // Local save snapshots may omit analysis. Keep the working form mounted
       // while fresh diagnostics run, preserving rich-text selection and history.
-      if (editVersion.current === version) install(next, { preserveAnalysis: true });
+      // Unchanged contents keep their objects, so an autosave does not re-render (and reset) the preview.
+      if (editVersion.current === version) install(stableSavedState(current.current, next), { preserveAnalysis: true });
       else {
         const buffered = { ...current.current, revision: next.revision, contentRevision: next.contentRevision, appliedAiRuns: next.appliedAiRuns, status: next.status, history: next.history, actions: next.actions };
         current.current = buffered; setState(buffered); setBaseline(next.files);
@@ -102,7 +104,7 @@ export function useEditorProject(host, onSnapshot, recovered, externalBusy = fal
   }, [save]);
   const applyConversationDraft = useCallback(async (run, { allowStaleContext = false } = {}) => {
     if (applying.current) throw new Error('Changes are already being applied.');
-    if (!run?.result?.files || !run.base || !run.result.valid || run.result.discussion || run.recoveredConflict || !['ready', 'interrupted'].includes(run.state)) throw new Error('This conversation has no validated draft ready to apply.');
+    if (!run?.result?.files || !run.base || !run.result.valid || run.result.discussion || !['ready', 'interrupted'].includes(run.state)) throw new Error('This conversation has no validated draft ready to apply.');
     // Autosaving hosts persist pending edits first; explicit-save hosts (PW Apps) must not save the user's unsaved edits implicitly.
     const persists = Boolean(host.capabilities.autosave);
     if (persists) await flush(); else if (savePromise.current) await savePromise.current;

@@ -13,7 +13,7 @@ const cssPath=productionIndex.match(/href="(\/assets\/[^" ]+\.css)"/)?.[1];
 if (!cssPath) throw new Error('Build editor/dist before running the retained-draft browser regression.');
 const sourceStyles=await readFile(resolve(repository,'packages/template-editor-shell/src/shell.css'),'utf8');
 
-// Exercise the actual App, assistant, settings port, persisted project and SDK
+// Exercise the actual folder-first App, assistant, settings port, project folder and SDK
 // workflow. Only PWA update activation and source-editor rendering are replaced:
 // this is a state/retention regression, not a service-worker or Monaco test.
 const entry = `
@@ -21,13 +21,20 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './editor/src/App.jsx';
 import { starterProject } from './editor/src/starter.js';
-import { createStudioProject, saveStudioProject, setActiveStudioProjectId, getStudioProject } from './editor/src/studio-library.js';
+import { createProjectInRoot, readProjectSnapshot } from './editor/src/storage/project-root.js';
+import { rememberRecent } from './editor/src/storage/recent.js';
+import { LAST_PROJECT_KEY } from './editor/src/storage/flows.js';
 import { saveOpenRouterSettings } from './editor/src/openrouter-settings.js';
 Object.defineProperty(navigator, 'standalone', { configurable:true, value:true });
-const original = await saveStudioProject(createStudioProject({ kind:'landing', name:'Retained draft settings QA', files:starterProject(true), settings:{ title:'Original saved title' } }), { expectedRevision:null });
-await setActiveStudioProjectId(original.id);
+// The project is a real folder (an OPFS directory standing in for a picked one), registered in recent and reopened on
+// boot as the last project: the folder-first App opens it without a prompt.
+const folder = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('picker', { create:true })).getDirectoryHandle('retained-draft', { create:true });
+const meta = await createProjectInRoot(folder, { kind:'landing', name:'Retained draft settings QA', files:starterProject(true), values:{ title:'Original saved title' } });
+await rememberRecent({ projectId:meta.projectId, name:meta.name, kind:meta.kind, handle:folder });
+localStorage.setItem(LAST_PROJECT_KEY, meta.projectId);
+const original = { id:meta.projectId };
 await saveOpenRouterSettings({ apiKey:'mock-retained-draft-no-paid-requests', model:'test/first', imageModel:'' });
-const state = window.retainedDraftTest = { calls:[], images:0, pause:true, updateCalls:0, original, readSaved:()=>getStudioProject(original.id) };
+const state = window.retainedDraftTest = { calls:[], images:0, pause:true, updateCalls:0, original, readSaved:()=>readProjectSnapshot(folder).then(({ files, values })=>({ files, settings:values })) };
 const writerSteps = new Map();
 const actualFetch = window.fetch.bind(window);
 const tool = (model, name, input) => new Response('data: '+JSON.stringify({ id:'gen-offline-retention', model, choices:[{ index:0, delta:{ role:'assistant', tool_calls:[{ index:0, id:name+crypto.randomUUID(), type:'function', function:{ name, arguments:JSON.stringify(input) } }] }, finish_reason:'tool_calls' }] })+'\\n\\ndata: [DONE]\\n\\n', { headers:{ 'Content-Type':'text/event-stream' } });

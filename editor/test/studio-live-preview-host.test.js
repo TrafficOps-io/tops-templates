@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createStudioHost } from '../src/hosts/StudioHost.js';
+import { memoryFolderHost } from './support/folder-host.js';
 
 test('Studio live preview uses the same canonical page order as analysis, regardless of HTML insertion order', async t => {
   // Rendering and page selection are real. DOM serialization is covered by the
@@ -15,7 +15,7 @@ test('Studio live preview uses the same canonical page order as analysis, regard
     { 'index.html': '<h1>Index</h1>', 'other.html': '<h1>Other</h1>' },
     { 'page10.html': '<h1>Ten</h1>', 'page2.html': '<h1>Two</h1>' },
   ]) {
-    const host = createStudioHost({ initial: { files, folders: [], settings: {} } });
+    const host = await memoryFolderHost({ files });
     const state = await host.project.open(), analysis = await host.analyzer.analyze(state);
     for (const page of [undefined, '', 'missing.html']) {
       const preview = await host.livePreview.render(state, { locale: 'en', page });

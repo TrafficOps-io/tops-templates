@@ -2,9 +2,10 @@ import { ConflictError, ValidationError } from './errors.js';
 import { CONVERSATION_LIMITS } from './project.js';
 import { blobReferences, sha256Hex, validateThreadFile } from './conversation-format.js';
 
-/** Reference ConversationStore. Blob refresh and GC follow the directory store's grace rules. */
+/** Reference ConversationStore. Blob refresh and GC follow the directory store's grace rules. Like the directory store's
+ *  tombstones, a deleted id keeps its last revision, so a recreate continues after it and a stale client never matches. */
 export function createMemoryConversationStore({ now = Date.now, graceMs = 10 * 60 * 1000, refreshMs = 5 * 60 * 1000 } = {}) {
-  const threads = new Map(), blobs = new Map(), watchers = new Set();
+  const threads = new Map(), tombstones = new Map(), blobs = new Map(), watchers = new Set();
   const emit = () => { for (const watcher of [...watchers]) { try { watcher(); } catch { /* A watcher cannot break a commit. */ } } };
   return {
     async listThreads() { return [...threads.values()].map(value => structuredClone(value)); },
@@ -12,15 +13,15 @@ export function createMemoryConversationStore({ now = Date.now, graceMs = 10 * 6
       const file = validateThreadFile(structuredClone(thread)), current = threads.get(file.id)?.revision ?? 0;
       if (current !== expectedRevision) throw new ConflictError('The dialogue changed elsewhere. Reload before saving.');
       for (const sha of blobReferences(file)) if (!blobs.has(sha)) throw new ValidationError('The dialogue references a missing attachment.');
-      const revision = current + 1;
-      threads.set(file.id, { ...file, revision }); emit();
+      const revision = Math.max(current, tombstones.get(file.id) ?? 0) + 1;
+      threads.set(file.id, { ...file, revision }); tombstones.delete(file.id); emit();
       return { revision };
     },
     async deleteThread(id, { expectedRevision } = {}) {
       const current = threads.get(id);
       if (!current) return;
       if (current.revision !== expectedRevision) throw new ConflictError('The dialogue changed elsewhere. Reload before deleting it.');
-      threads.delete(id); emit();
+      threads.delete(id); tombstones.set(id, current.revision); emit();
     },
     async putBlob(sha, bytes) {
       if (bytes.byteLength > CONVERSATION_LIMITS.blob) throw new Error('A conversation attachment exceeds 24 MiB.');

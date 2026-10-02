@@ -1,11 +1,12 @@
+import { revealConversationTab } from './support/studio-chat.js';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createStudioProject } from '../src/studio-library.js';
 import { studioChat, newProjectControl } from './support/studio-chat.js';
+import { installFolderPicker, openProject, seedProjectFolder } from './support/studio-folders.js';
 
 // Uses an existing production build, DOM clipboard events and image decoding.
 // All provider responses are synthetic; external network requests are blocked.
@@ -15,10 +16,10 @@ const out = '/tmp/studio-clipboard-images-browser';
 await mkdir(out, { recursive: true });
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4n+DwHwAGoAKfr+/eKAAAAABJRU5ErkJggg==', 'base64');
 const image = name => ({ name, mime: 'image/png', bytes: [...png] });
-const fixture = createStudioProject({ kind: 'landing', name: 'Synthetic clipboard image QA', files: {
+const fixture = { kind: 'landing', name: 'Synthetic clipboard image QA', files: {
   'index.tpl': '@template "Clipboard QA"\n@section page "Page"\n@param headline String = "Original heading" label="Heading" required\n@endsection\n@layout\n<!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="styles.css"></head><body><h1>{{ headline }}</h1></body></html>\n@endlayout\n',
   'styles.css': 'body{margin:0;padding:24px;font-family:system-ui;color:#234}\n',
-}, settings: { headline: 'Original heading' } });
+}, values: { headline: 'Original heading' } };
 const report = { build: root, paidRequests: 0, states: [], pageErrors: [], blockedExternalRequests: [] };
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json', '.woff2': 'font/woff2', '.webmanifest': 'application/manifest+json' };
 const server = createServer(async (request, response) => {
@@ -94,6 +95,7 @@ try {
     const url = new URL(route.request().url()); report.blockedExternalRequests.push(url.origin + url.pathname);
     return route.abort();
   });
+  await installFolderPicker(context);
   page = await context.newPage(); page.on('pageerror', error => report.pageErrors.push(error.message));
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'standalone', { configurable: true, value: true });
@@ -116,27 +118,21 @@ try {
     };
   });
   await page.goto(origin); await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
-  await page.evaluate(async fixture => {
-    const open = (name, initialize) => new Promise((resolve, reject) => {
-      const request = indexedDB.open(name, 1); request.onupgradeneeded = () => initialize?.(request.result);
+  await page.evaluate(async () => {
+    const connection = await new Promise((resolve, reject) => {
+      const request = indexedDB.open('trafficops-template-studio-ai', 1); request.onupgradeneeded = () => request.result.createObjectStore('settings', { keyPath: 'id' });
       request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error);
     });
-    const library = await open('trafficops-studio-library');
-    await new Promise((resolve, reject) => {
-      const tx = library.transaction(['projects', 'preferences'], 'readwrite');
-      tx.objectStore('projects').put({ ...fixture, revision: 1 }); tx.objectStore('preferences').put(fixture.id, 'active-project');
-      tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
-    }); library.close();
-    const connection = await open('trafficops-template-studio-ai', db => db.createObjectStore('settings', { keyPath: 'id' }));
     await new Promise((resolve, reject) => {
       const tx = connection.transaction('settings', 'readwrite');
       tx.objectStore('settings').put({ id: 'openrouter', apiKey: 'synthetic-clipboard-key-no-paid-requests', model: 'test/clipboard-model', imageModel: '' });
       tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
     }); connection.close();
-  }, fixture);
-  await page.reload();
+  });
+  await seedProjectFolder(page, fixture);
+  await openProject(page, fixture.name);
   const collapse = page.getByRole('button', { name: 'Collapse editor', exact: true }); if (await collapse.count()) await collapse.click();
-  await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
+  await revealConversationTab(page.locator('[data-testid=\"studio-chat\"]'));
   const chat = studioChat(page); await chat.composer.waitFor();
   const assistant = chat.composer, prompt = chat.prompt;
   const promptText = 'Use the pasted screenshot as a visual reference.';

@@ -1,3 +1,4 @@
+import { revealConversationTab } from './support/studio-chat.js';
 // Regenerate, edit and branch switching on the actual App (spec 2.3, 2.6), over a pre-tree conversation document,
 // plus the OpenRouter ModelPicker in AI settings. The provider and the model catalog are mocked in the page; no paid
 // or external request leaves the browser.
@@ -6,17 +7,18 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
-import { createStudioProject } from '../src/studio-library.js';
+import { randomUUID } from 'node:crypto';
 import { openThread, studioChat } from './support/studio-chat.js';
+import { configureAi, conversationsOf, installFolderPicker, seedAndOpen } from './support/studio-folders.js';
 
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = resolve(process.argv[2] || 'editor/dist');
 const source = '@template "Branches"\n@section page "Page"\n@param title String = "Hero" label="Title"\n@endsection\n@layout\n<html><body><h1>{{title}}</h1></body></html>\n@endlayout\n';
-const fixture = { ...createStudioProject({ name: 'Branches QA', kind: 'landing', files: { 'index.tpl': source }, settings: { title: 'Hero' } }), revision: 1 };
+const fixture = { id: randomUUID(), name: 'Branches QA', files: { 'index.tpl': source }, settings: { title: 'Hero' } };
 const base = { name: fixture.name, revision: 1, files: fixture.files, folders: [], entrypoint: 'index.html', locale: 'en', translations: { en: fixture.settings } };
 const now = Date.now();
 // Written before conversation trees: no parentId, no activeLeafId.
-const document = { schema: 1, projectId: fixture.id, revision: 1, legacyMigrated: true, threads: [{ id: 'thread-branches', title: 'Branch QA', archived: false, createdAt: now, updatedAt: now, messages: [
+const document = { schema: 1, projectId: fixture.id, revision: 0, threads: [{ id: 'thread-branches', title: 'Branch QA', archived: false, createdAt: now, updatedAt: now, messages: [
   { id: 'message-hero', role: 'user', prompt: 'Describe the hero', parts: [{ type: 'text', text: 'Describe the hero' }], attachments: [], mentions: [], createdAt: now, status: 'completed', runId: 'run-hero' },
   { id: 'answer-hero', role: 'assistant', prompt: 'Answer zero', parts: [{ type: 'text', text: 'Answer zero' }], createdAt: now + 1, runId: 'run-hero', status: 'completed' },
 ] }], runs: [{ id: 'run-hero', threadId: 'thread-branches', messageId: 'message-hero', attempt: 0, state: 'completed', phase: 'answered', scope: { kind: 'project' }, locale: 'en', base, result: { files: fixture.files, values: fixture.settings, valid: true, discussion: true, summary: 'Answer zero', steps: 0, readSet: [] }, createdAt: now, updatedAt: now + 1 }] };
@@ -39,9 +41,9 @@ try {
   const origin = `http://127.0.0.1:${server.address().port}`;
   const context = await browser.newContext({ viewport: { width: 1600, height: 1000 }, reducedMotion: 'reduce' });
   await context.route('**/*', route => { const url = route.request().url(); if (url.startsWith(origin + '/') || url.startsWith(`blob:${origin}/`) || url.startsWith('data:')) return route.continue(); blocked.push(url); return route.abort(); });
+  await installFolderPicker(context);
   const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(catalog => {
-    Object.defineProperty(navigator, 'standalone', { configurable: true, value: true });
     const realFetch = window.fetch.bind(window);
     window.branchTest = { requests: [], catalogRequests: 0 };
     window.fetch = async (url, options = {}) => {
@@ -54,15 +56,10 @@ try {
     };
   }, catalog);
   await page.goto(origin); await page.locator('.library').waitFor();
-  await page.evaluate(async ({ fixture, document }) => {
-    const open = (name, initialize) => new Promise((done, reject) => { const request = indexedDB.open(name, 1); request.onupgradeneeded = () => initialize?.(request.result); request.onsuccess = () => done(request.result); request.onerror = () => reject(request.error); });
-    const write = (db, stores, callback) => new Promise((done, reject) => { const tx = db.transaction(stores, 'readwrite'); callback(tx); tx.oncomplete = done; tx.onerror = () => reject(tx.error); });
-    const library = await open('trafficops-studio-library'); await write(library, ['projects', 'preferences'], tx => { tx.objectStore('projects').put(fixture); tx.objectStore('preferences').put(fixture.id, 'active-project'); }); library.close();
-    const conversations = await open('trafficops-studio-conversations', db => { db.createObjectStore('documents', { keyPath: 'projectId' }); db.createObjectStore('disk-sync', { keyPath: 'projectId' }); }); await write(conversations, ['documents'], tx => tx.objectStore('documents').put(document)); conversations.close();
-    const settings = await open('trafficops-template-studio-ai', db => db.createObjectStore('settings', { keyPath: 'id' })); await write(settings, ['settings'], tx => tx.objectStore('settings').put({ id: 'openrouter', apiKey: 'mock-no-provider-branches', model: 'test/text-model', imageModel: '' })); settings.close();
-  }, { fixture, document });
-  await page.reload();
-  const chat = studioChat(page); await chat.root.waitFor();
+  // The project folder holds the pre-tree history (.trafficops/conversations/).
+  await configureAi(page, { apiKey: 'mock-no-provider-branches', model: 'test/text-model' });
+  const seeded = await seedAndOpen(page, { name: fixture.name, projectId: fixture.id, files: fixture.files, values: fixture.settings, conversations: document });
+  const chat = studioChat(page); await revealConversationTab(chat.root); await chat.root.waitFor();
   const conversations = page.getByRole('tab', { name: 'Conversations', exact: true }); if (await conversations.count()) await conversations.click();
   await openThread(chat, 'Branch QA');
   await chat.run('run-hero').waitFor();
@@ -103,11 +100,11 @@ try {
   assert.ok(edited.includes('Describe the footer') && !edited.includes('Describe the hero'), 'the edited request carries only the new text');
 
   // The tree and the visible branch are durable.
-  await page.reload(); await chat.root.waitFor();
+  await page.reload(); await revealConversationTab(chat.root); await chat.root.waitFor();
   if (await conversations.count()) await conversations.click();
   await openThread(chat, 'Branch QA');
   await chat.feed.getByText('Answer 2', { exact: true }).waitFor();
-  const stored = await page.evaluate(projectId => new Promise((done, reject) => { const request = indexedDB.open('trafficops-studio-conversations', 1); request.onsuccess = () => { const get = request.result.transaction('documents').objectStore('documents').get(projectId); get.onsuccess = () => { done(get.result); request.result.close(); }; get.onerror = () => reject(get.error); }; request.onerror = () => reject(request.error); }), fixture.id);
+  const stored = await conversationsOf(page, seeded.folder);
   const thread = stored.threads[0], users = thread.messages.filter(message => message.role === 'user');
   assert.deepEqual(users.map(message => message.parentId), [null, null], 'the original and the edited question are root siblings');
   assert.equal(stored.runs.filter(run => run.messageId === 'message-hero').length, 2);

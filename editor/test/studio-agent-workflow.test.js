@@ -4,7 +4,7 @@ import { MockLanguageModelV4 } from 'ai/test';
 import { parseProject, getDefaults } from '@trafficops/template-runtime';
 import { runStudioAiWorkflow } from '@trafficops/template-editor-shell/studio-ai-workflow';
 import { createAiDraftValidator } from '@trafficops/template-editor-shell/validate-ai-draft';
-import { createStudioHost } from '../src/hosts/StudioHost.js';
+import { memoryFolderHost } from './support/folder-host.js';
 import { validateDraft } from './support/ai-validator.js';
 import { starterProject } from '../src/starter.js';
 
@@ -118,7 +118,7 @@ test('set_values validates once and validate_draft of the unchanged draft reuses
 });
 
 test('the draft validator runs one analyzer pass when values already carry their defaults', async () => {
-  const host = createStudioHost(), state = await host.project.open();
+  const host = await memoryFolderHost(), state = await host.project.open();
   let passes = 0;
   const analyzer = { analyze: (...args) => { passes++; return host.analyzer.analyze(...args); }, render: (...args) => host.analyzer.render(...args) };
   const validate = createAiDraftValidator(analyzer, () => state);

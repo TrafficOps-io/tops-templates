@@ -16,6 +16,7 @@ const browser = await chromium.launch({ headless: true, ...(process.platform ===
 const out = [];
 for (const installed of [false, true]) for (const width of [1440, 390]) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, hasTouch: width === 390 }); const page = await context.newPage();
+  await page.addInitScript(() => { window.showDirectoryPicker = undefined; });
   if (installed) await page.addInitScript(() => Object.defineProperty(navigator, 'standalone', { configurable: true, value: true }));
   await page.route('https://openrouter.ai/**', r => r.abort());
   await page.goto(`http://127.0.0.1:${server.address().port}`);

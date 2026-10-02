@@ -49,7 +49,7 @@ export function draftCards(runId, base, draft, locale, t = text => text) {
 /** Применимость — та же проверка, что в useEditorProject.applyConversationDraft (:105). */
 export function applicable(run) {
   const draft = run.result || run.checkpoint;
-  return ['ready', 'interrupted'].includes(run.state) && draft?.valid === true && !draft.discussion && !run.recoveredConflict;
+  return ['ready', 'interrupted'].includes(run.state) && draft?.valid === true && !draft.discussion;
 }
 // Применимый восстановленный interrupted-черновик — 'ready' (Apply/Preview/Discard); неприменимый ready — 'completed'.
 // Причина остановки (run.error) — сообщение статуса для failed, interrupted и cancelled, как показывала прежняя панель.

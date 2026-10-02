@@ -1,19 +1,34 @@
 import { strToU8, unzipSync, zipSync } from 'fflate';
+import { blobReferences, conversationThreadFileName, validateThreadFile } from './conversation-format.js';
 
-export const LIMITS = Object.freeze({ archive: 20 * 1024 * 1024, total: 32 * 1024 * 1024, file: 8 * 1024 * 1024, text: 2 * 1024 * 1024, count: 500 });
+// archive: hosting, template and server-side imports; portableArchive: Studio's editable ZIP with history.
+export const LIMITS = Object.freeze({ archive: 20 * 1024 * 1024, portableArchive: 512 * 1024 * 1024, total: 32 * 1024 * 1024, file: 8 * 1024 * 1024, text: 2 * 1024 * 1024, count: 500 });
 const TEXT_FILE = /\.(?:tpl(?:\.(?:html|php|txt))?|php|html?|css|js|mjs|json|md|txt|svg|xml|yaml|yml|csv|map)$/i;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const VALUES_ENTRY = '.trafficops/values.json';
 const METADATA_ENTRY = '.trafficops/project.json';
-const CONVERSATIONS_ENTRY = '.trafficops/conversations.json';
+// Local revision bookkeeping of a project folder (spec A10): accepted in a zipped folder, never imported.
+const TOMBSTONES_ENTRY = '.trafficops/conversation-tombstones.json';
+// Folder format v1 history: one file per dialogue plus content-addressed blobs.
+const HISTORY_DIR = '.trafficops/conversations/', BLOBS_DIR = `${HISTORY_DIR}blobs/`;
+const THREAD_ENTRY = /^\.trafficops\/conversations\/((?:[a-z0-9_-]{1,200}|~[a-f0-9]{64})\.json)$/, BLOB_ENTRY = /^\.trafficops\/conversations\/blobs\/([a-f0-9]{64})$/;
+export const HISTORY_BLOBS = 10000;
 const MiB = 1024 * 1024;
-// runs is per dialogue; total/nodes bound the joined in-memory document; encoded bounds the legacy single-file sidecar (removed in phase 2).
-export const CONVERSATION_LIMITS = Object.freeze({ threads: 100, runs: 100, messages: 500, total: 512 * MiB, encoded: 192 * MiB, nodes: 2000000, depth: 64, threadEncoded: 16 * MiB, blob: 24 * MiB });
-const BYTES_TAG = '$trafficopsBytes';
+// runs is per dialogue; total/nodes bound the joined in-memory document.
+export const CONVERSATION_LIMITS = Object.freeze({ threads: 100, runs: 100, messages: 500, total: 512 * MiB, nodes: 2000000, depth: 64, threadEncoded: 16 * MiB, blob: 24 * MiB });
+// Shared by every history export path (createZip and a host that checks limits before reading blobs).
+export const HISTORY_LIMIT_MESSAGES = Object.freeze({
+  threads: `A project ZIP holds at most ${CONVERSATION_LIMITS.threads} dialogues.`,
+  blobs: `A project ZIP holds at most ${HISTORY_BLOBS} blobs.`,
+  total: 'Project history exceeds 512 MiB. Export without history or archive older dialogues.',
+});
 
+// A lone surrogate becomes U+FFFD in UTF-8, so two ill-formed ids could share a file name.
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+const wellFormed = value => value.isWellFormed ? value.isWellFormed() : !LONE_SURROGATE.test(value);
 function identifier(value, label) {
-  if (typeof value !== 'string' || !value.trim() || value.length > 160 || /[\x00-\x1f\x7f]/.test(value)) throw new Error(`Invalid ${label}.`);
+  if (typeof value !== 'string' || !value.trim() || value.length > 160 || /[\x00-\x1f\x7f]/.test(value) || !wellFormed(value)) throw new Error(`Invalid ${label}.`);
   return value;
 }
 
@@ -41,7 +56,6 @@ export function clonePortablePayload(value) {
     let result;
     if (Array.isArray(item)) result = item.map(child => visit(child, depth + 1));
     else {
-      if (Object.hasOwn(item, BYTES_TAG)) throw new Error('Reserved project history key.');
       result = Object.fromEntries(Object.entries(item).map(([key, child]) => { total += encoder.encode(key).length; return [key, visit(child, depth + 1, key)]; }));
     }
     ancestors.delete(item);
@@ -104,28 +118,6 @@ export function validatePortableMetadata(value) {
   return result;
 }
 
-export function encodePortablePayload(value) {
-  const detached = clonePortablePayload(value);
-  return JSON.stringify(detached, (_key, item) => {
-    if (!(item instanceof Uint8Array)) return item;
-    let binary = '';
-    for (let offset = 0; offset < item.length; offset += 8192) binary += String.fromCharCode(...item.subarray(offset, offset + 8192));
-    return { [BYTES_TAG]: btoa(binary) };
-  });
-}
-
-export function decodePortablePayload(text) {
-  if (typeof text !== 'string' || encoder.encode(text).length > CONVERSATION_LIMITS.encoded) throw new Error('Portable project data is too large.');
-  const value = JSON.parse(text, (_key, item) => {
-    if (!item || typeof item !== 'object' || !Object.hasOwn(item, BYTES_TAG)) return item;
-    const base64 = item[BYTES_TAG];
-    if (Object.keys(item).length !== 1 || typeof base64 !== 'string' || base64.length > Math.ceil(CONVERSATION_LIMITS.blob / 3) * 4 || base64.length % 4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) throw new Error('Invalid portable binary data.');
-    const binary = atob(base64);
-    return Uint8Array.from(binary, character => character.charCodeAt(0));
-  });
-  return clonePortablePayload(value);
-}
-
 export function safePath(path) {
   if (typeof path !== 'string' || !path || path.length > 255 || /[\\:\x00-\x20\x7f?#%]/.test(path) || path.startsWith('/') || path.split('/').some(part => !part || part === '.' || part === '..' || part.startsWith('.') || ['__proto__', 'constructor', 'prototype'].includes(part))) {
     throw new Error(`Unsafe file path: ${String(path).slice(0, 100)}. Use relative paths without hidden folders or spaces.`);
@@ -183,10 +175,25 @@ export function projectFolders(files, explicit = []) {
   return validateFolders(files, folders);
 }
 
+// user | sidecar (.trafficops/ values, metadata and tombstones) | thread | blob | historyFolder.
+function entryKind(path, directory, history) {
+  if (path.startsWith(HISTORY_DIR)) {
+    if (!history) throw new Error('This ZIP contains project history. Import it as an editable Studio project.');
+    if (directory ? path === HISTORY_DIR || path === BLOBS_DIR : THREAD_ENTRY.test(path) || BLOB_ENTRY.test(path)) return directory ? 'historyFolder' : THREAD_ENTRY.test(path) ? 'thread' : 'blob';
+    throw new Error(`Invalid project history entry: ${path.slice(0, 100)}`);
+  }
+  if (path === '.trafficops/') return 'sidecar';
+  if ([VALUES_ENTRY, METADATA_ENTRY, TOMBSTONES_ENTRY].includes(path)) { if (directory) throw new Error(`Invalid metadata entry: ${path}`); return 'sidecar'; }
+  safePath(directory ? path.slice(0, -1) : path);
+  return 'user';
+}
+
 // Inspect central-directory metadata before allocating decompression buffers.
 // ZIP64, encrypted files and symlinks deliberately are not accepted.
-export function inspectZip(bytes) {
-  if (!(bytes instanceof Uint8Array) || bytes.length > LIMITS.archive) throw new Error('Choose a ZIP smaller than 20 MiB.');
+// history: Studio's editable ZIP; allows 512 MiB and `.trafficops/conversations/**`, whose entries have their own caps.
+export function inspectZip(bytes, { history = false } = {}) {
+  const archiveLimit = history ? LIMITS.portableArchive : LIMITS.archive;
+  if (!(bytes instanceof Uint8Array) || bytes.length > archiveLimit) throw new Error(`Choose a ZIP smaller than ${archiveLimit / MiB} MiB.`);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let end = -1;
   for (let at = bytes.length - 22; at >= Math.max(0, bytes.length - 65557); at--) {
@@ -197,9 +204,11 @@ export function inspectZip(bytes) {
   const start = view.getUint32(end + 16, true);
   const directorySize = view.getUint32(end + 12, true);
   if (view.getUint16(end + 4, true) || view.getUint16(end + 6, true) || count !== view.getUint16(end + 8, true) || count === 65535 || start === 0xffffffff || start + directorySize !== end) throw new Error('Split archives and ZIP64 archives are unsupported.');
-  if (!count || count > LIMITS.count) throw new Error(`A ZIP must contain 1–${LIMITS.count} entries.`);
-  let at = start, total = 0;
-  const entries = new Map();
+  const userEntries = `A ZIP may contain at most ${LIMITS.count} files and folders outside .trafficops/.`;
+  if (!count) throw new Error('This ZIP is empty.');
+  if (count > LIMITS.count + 4 + (history ? CONVERSATION_LIMITS.threads + HISTORY_BLOBS + 2 : 0)) throw new Error(userEntries);
+  let at = start, total = 0, historyTotal = 0;
+  const entries = new Map(), counts = { user: 0, sidecar: 0, thread: 0, blob: 0, historyFolder: 0 };
   for (let index = 0; index < count; index++) {
     if (at + 46 > end || view.getUint32(at, true) !== 0x02014b50) throw new Error('The ZIP directory is invalid.');
     const flags = view.getUint16(at + 8, true), method = view.getUint16(at + 10, true);
@@ -208,52 +217,70 @@ export function inspectZip(bytes) {
     const local = view.getUint32(at + 42, true);
     if (at + 46 + nameLength + extraLength + commentLength > end) throw new Error('The ZIP directory is truncated.');
     const path = decoder.decode(bytes.subarray(at + 46, at + 46 + nameLength));
-    const directory = path.endsWith('/');
-    if (![VALUES_ENTRY, METADATA_ENTRY, CONVERSATIONS_ENTRY, '.trafficops/'].includes(path)) safePath(directory ? path.slice(0, -1) : path);
-    if ([VALUES_ENTRY, METADATA_ENTRY, CONVERSATIONS_ENTRY].includes(path) && directory) throw new Error(`Invalid metadata entry: ${path}`);
+    const directory = path.endsWith('/'), kind = entryKind(path, directory, history);
     if (entries.has(path)) throw new Error(`Duplicate ZIP entry: ${path}`);
+    if (++counts[kind] > (kind === 'user' ? LIMITS.count : kind === 'thread' ? CONVERSATION_LIMITS.threads : kind === 'blob' ? HISTORY_BLOBS : Infinity)) {
+      throw new Error(kind === 'user' ? userEntries : kind === 'thread' ? HISTORY_LIMIT_MESSAGES.threads : HISTORY_LIMIT_MESSAGES.blobs);
+    }
     if ((flags & 1) || ![0, 8].includes(method)) throw new Error(`Encrypted or unsupported ZIP entry: ${path}`);
     if (((view.getUint32(at + 38, true) >>> 16) & 0xf000) === 0xa000) throw new Error(`ZIP symlinks are unsupported: ${path}`);
-    const entryLimit = path === CONVERSATIONS_ENTRY ? LIMITS.total : path === METADATA_ENTRY ? 64 * 1024 : isText(path) ? LIMITS.text : LIMITS.file;
+    const entryLimit = kind === 'thread' ? CONVERSATION_LIMITS.threadEncoded : kind === 'blob' ? CONVERSATION_LIMITS.blob : kind === 'historyFolder' ? 0
+      : path === METADATA_ENTRY ? 64 * 1024 : path === TOMBSTONES_ENTRY ? MiB : isText(path) ? LIMITS.text : LIMITS.file;
     if (size > entryLimit || size === 0xffffffff || compressed === 0xffffffff) throw new Error(`ZIP entry is too large: ${path}`);
     if (local + 30 > start || view.getUint32(local, true) !== 0x04034b50) throw new Error(`Invalid local ZIP header: ${path}`);
     const localNameLength = view.getUint16(local + 26, true), localExtraLength = view.getUint16(local + 28, true);
     const dataStart = local + 30 + localNameLength + localExtraLength;
     if (dataStart + compressed > start || decoder.decode(bytes.subarray(local + 30, local + 30 + localNameLength)) !== path || view.getUint16(local + 8, true) !== method) throw new Error(`Inconsistent ZIP entry: ${path}`);
     if (!(flags & 8) && (view.getUint32(local + 18, true) !== compressed || view.getUint32(local + 22, true) !== size)) throw new Error(`Inconsistent ZIP size: ${path}`);
-    total += size;
-    if (total > LIMITS.total) throw new Error('The expanded ZIP exceeds 32 MiB.');
-    entries.set(path, { size, directory });
+    // New-layout history counts against the in-memory history limit, never against the 32 MiB of project files.
+    if (kind === 'thread' || kind === 'blob') { historyTotal += size; if (historyTotal > CONVERSATION_LIMITS.total) throw new Error('The project history in this ZIP exceeds 512 MiB.'); }
+    else { total += size; if (total > LIMITS.total) throw new Error('The expanded ZIP exceeds 32 MiB.'); }
+    entries.set(path, { size, directory, kind });
     at += 46 + nameLength + extraLength + commentLength;
   }
   if (at !== end) throw new Error('Unexpected ZIP directory data.');
   return entries;
 }
 
-export function readZip(bytes) {
-  return readZipProject(bytes).files;
+export function readZip(bytes, options) {
+  return readZipProject(bytes, options).files;
 }
 
-export function readZipProject(bytes) {
-  const entries = inspectZip(bytes);
+/** history: also read `.trafficops/conversations/**` as `conversationFiles: { threads, blobs }` (validated split dialogue
+ *  files and the blobs they reference, by sha; unreferenced blobs are dropped. Join them with
+ *  conversationDocumentFromFiles, which verifies blob hashes). */
+export function readZipProject(bytes, { history = false } = {}) {
+  const entries = inspectZip(bytes, { history });
   const unzipped = unzipSync(bytes);
-  const files = Object.create(null);
-  let settings = {}, metadata, conversations;
+  const files = Object.create(null), threads = [], blobs = new Map();
+  let settings = {}, metadata;
   for (const [path, info] of entries) {
     if (info.directory) continue;
     const data = unzipped[path];
     if (!data || data.byteLength !== info.size) throw new Error(`ZIP size mismatch: ${path}`);
-    if (path === VALUES_ENTRY) {
+    if (info.kind === 'blob') blobs.set(path.slice(BLOBS_DIR.length), data);
+    else if (info.kind === 'thread') {
+      const thread = validateThreadFile(JSON.parse(decoder.decode(data)));
+      if (conversationThreadFileName(thread.id) !== path.slice(HISTORY_DIR.length)) throw new Error(`The dialogue file name does not match its ID: ${path.slice(0, 100)}`);
+      threads.push(thread);
+    } else if (path === VALUES_ENTRY) {
       settings = JSON.parse(decoder.decode(data));
       if (!settings || Array.isArray(settings) || typeof settings !== 'object') throw new Error('Project values must be a JSON object.');
     } else if (path === METADATA_ENTRY) metadata = validatePortableMetadata(JSON.parse(decoder.decode(data)));
-    else if (path === CONVERSATIONS_ENTRY) conversations = validateConversationDocument(decodePortablePayload(decoder.decode(data)));
+    else if (path === TOMBSTONES_ENTRY) continue;
     else files[path] = isText(path) ? decoder.decode(data) : data;
   }
-  if (conversations && (!metadata || conversations.projectId !== metadata.projectId)) throw new Error('Portable history does not match project identity.');
-  const portable = { ...(metadata ? { metadata } : {}), ...(conversations ? { conversations } : {}) };
+  const hasHistory = [...entries.values()].some(info => ['thread', 'blob', 'historyFolder'].includes(info.kind));
+  if (hasHistory && !metadata) throw new Error('Portable history requires project identity.');
+  // Only referenced blobs are returned; an unreferenced blob in the archive is dropped.
+  const referenced = new Map();
+  for (const thread of threads) for (const sha of blobReferences(thread)) {
+    if (!blobs.has(sha)) throw new Error('A conversation attachment is missing from the ZIP.');
+    referenced.set(sha, blobs.get(sha));
+  }
+  const portable = { ...(metadata ? { metadata } : {}), ...(hasHistory ? { conversationFiles: { threads, blobs: referenced } } : {}) };
   validateProject(files);
-  let folders = [...entries].filter(([path, info]) => info.directory && path !== '.trafficops/').map(([path]) => path.slice(0, -1));
+  let folders = [...entries].filter(([, info]) => info.directory && info.kind === 'user').map(([path]) => path.slice(0, -1));
   // A downloaded GitHub/project archive often has a single enclosing folder.
   const names = Object.keys(files), folder = names[0].split('/')[0];
   if (names.every(name => name.startsWith(`${folder}/`))) {
@@ -264,7 +291,9 @@ export function readZipProject(bytes) {
   return { files, folders: validateFolders(files, folders), settings, ...portable };
 }
 
-export function createZip(files, { generated = false, directories = [], settings, metadata, conversations } = {}) {
+/** conversationFiles: `{ threads, blobs }` from conversationFilesFromDocument (or readZipProject), written as the
+ *  folder layout. It is never written into a generated ZIP. */
+export function createZip(files, { generated = false, directories = [], settings, metadata, conversationFiles } = {}) {
   validateProject(files, { generated });
   const folders = validateFolders(files, directories);
   const entries = Object.fromEntries(folders.map(path => [`${path}/`, new Uint8Array()]));
@@ -275,13 +304,35 @@ export function createZip(files, { generated = false, directories = [], settings
     entries[VALUES_ENTRY] = data;
   }
   if (!generated && metadata) entries[METADATA_ENTRY] = strToU8(JSON.stringify(validatePortableMetadata(metadata)));
-  if (!generated && conversations) {
-    if (!metadata) throw new Error('Portable history requires project identity.');
-    entries[CONVERSATIONS_ENTRY] = strToU8(encodePortablePayload(validateConversationDocument(conversations, metadata.projectId)));
-  }
   if (Object.values(entries).reduce((sum, bytes) => sum + bytes.byteLength, 0) > LIMITS.total) throw new Error('The portable project exceeds 32 MiB. Export without history or reduce its size.');
   if (Object.keys(entries).length > LIMITS.count) throw new Error('Too many entries for a project ZIP.');
+  if (!generated && conversationFiles) Object.assign(entries, historyEntries(conversationFiles, { metadata }));
   return zipSync(entries, { level: 6 });
+}
+
+function historyEntries({ threads = [], blobs = new Map() }, { metadata }) {
+  if (!metadata) throw new Error('Portable history requires project identity.');
+  if (threads.length > CONVERSATION_LIMITS.threads) throw new Error(`A project ZIP holds at most ${CONVERSATION_LIMITS.threads} dialogues.`);
+  const byHash = blobs instanceof Map ? blobs : new Map(Object.entries(blobs)), entries = {}, written = new Set();
+  let total = 0;
+  for (const thread of threads) {
+    validateThreadFile(thread);
+    const name = `${HISTORY_DIR}${conversationThreadFileName(thread.id)}`;
+    if (Object.hasOwn(entries, name)) throw new Error('Duplicate dialogue ID in project history.');
+    entries[name] = strToU8(JSON.stringify(thread));
+    total += entries[name].byteLength;
+    for (const sha of blobReferences(thread)) {
+      if (written.has(sha)) continue;
+      const bytes = byHash.get(sha);
+      if (!(bytes instanceof Uint8Array)) throw new Error('A conversation attachment is missing.');
+      if (bytes.byteLength > CONVERSATION_LIMITS.blob) throw new Error('Project history asset exceeds 24 MiB.');
+      // Blobs are mostly compressed media: stored, not deflated again.
+      written.add(sha); entries[`${BLOBS_DIR}${sha}`] = [bytes, { level: 0 }]; total += bytes.byteLength;
+    }
+  }
+  if (written.size > HISTORY_BLOBS) throw new Error(HISTORY_LIMIT_MESSAGES.blobs);
+  if (total > CONVERSATION_LIMITS.total) throw new Error(HISTORY_LIMIT_MESSAGES.total);
+  return entries;
 }
 
 export function renameFile(files, from, to) {

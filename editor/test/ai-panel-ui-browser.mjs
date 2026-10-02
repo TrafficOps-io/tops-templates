@@ -1,21 +1,22 @@
+import { revealConversationTab } from './support/studio-chat.js';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
-import { createStudioProject } from '../src/studio-library.js';
 import { studioChat, showPane } from './support/studio-chat.js';
+import { configureAi, installFolderPicker, seedAndOpen } from './support/studio-folders.js';
 
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = resolve(process.argv[2] || 'editor/dist'), out = '/tmp/studio-ai-panel-ui';
 await mkdir(out, { recursive:true });
 const types = { '.html':'text/html', '.js':'text/javascript', '.css':'text/css', '.svg':'image/svg+xml', '.json':'application/json', '.woff2':'font/woff2', '.ttf':'font/ttf', '.webmanifest':'application/manifest+json' };
-const fixture = createStudioProject({kind:'landing',name:'Synthetic AI summary UI QA',files:{
+const fixture = {name:'Synthetic AI summary UI QA',files:{
   'index.tpl':'@template "UI QA"\n@section page "Page"\n@param headline String = "Original heading" label="Heading" required\n@endsection\n@layout\n<!doctype html><html lang="pl"><head><meta charset="utf-8"><link rel="stylesheet" href="styles.css"></head><body><h1>{{ headline }}</h1></body></html>\n@endlayout\n',
   'styles.css':'body{margin:0;padding:24px;font-family:system-ui;color:#234}h1{overflow-wrap:anywhere}'
-},settings:{headline:'Original heading'}});
+},settings:{headline:'Original heading'}};
 const server = createServer(async (request,response) => {
-  try { const path = decodeURIComponent(new URL(request.url,'http://localhost').pathname), file = resolve(root,'.'+(path === '/' ? '/index.html' : path)); if (!file.startsWith(root+'/')) throw new Error('Invalid path'); response.writeHead(200,{'Content-Type':types[extname(file)] || 'application/octet-stream'}); response.end(await readFile(file)); }
+  try { const path = decodeURIComponent(new URL(request.url,'http://localhost').pathname), file = resolve(root,'.'+(path === '/' ? '/index.html' : path)); if (!file.startsWith(root+'/')) throw new Error('Invalid path'); const value = await readFile(file); response.writeHead(200,{'Content-Type':types[extname(file)] || 'application/octet-stream'}); response.end(value); }
   catch { response.writeHead(404); response.end('Not found'); }
 });
 await new Promise((resolve,reject) => { server.once('error',reject); server.listen(0,'127.0.0.1',resolve); });
@@ -34,8 +35,10 @@ try {
       report.blockedExternalRequests.push({width,url:new URL(url).origin+new URL(url).pathname});
       return route.abort();
     });
+    await installFolderPicker(context);
     const page = activePage = await context.newPage(); page.on('pageerror',error => report.pageErrors.push({width,message:error.message}));
     await page.addInitScript(() => {
+      // The installed presentation: its chat layout and touch targets are checked below.
       Object.defineProperty(navigator,'standalone',{configurable:true,value:true});
       const realFetch = window.fetch.bind(window);
       window.aiUi = {writer:0,calls:0,outcome:'fail',hold:true,release:null};
@@ -70,14 +73,10 @@ try {
       };
     });
     await page.goto(origin); await page.getByRole('heading',{name:'Projects',exact:true}).waitFor();
-    await page.evaluate(async ({fixture,model}) => {
-      async function open(name,initialize) { return new Promise((resolve,reject) => { const request=indexedDB.open(name,1); request.onupgradeneeded=()=>initialize?.(request.result); request.onsuccess=()=>resolve(request.result); request.onerror=()=>reject(request.error); }); }
-      const library = await open('trafficops-studio-library'); await new Promise((resolve,reject) => { const tx=library.transaction(['projects','preferences'],'readwrite'); tx.objectStore('projects').put({...fixture,revision:1}); tx.objectStore('preferences').put(fixture.id,'active-project'); tx.oncomplete=resolve; tx.onerror=()=>reject(tx.error); }); library.close();
-      const connection = await open('trafficops-template-studio-ai',db=>db.createObjectStore('settings',{keyPath:'id'})); await new Promise((resolve,reject) => { const tx=connection.transaction('settings','readwrite'); tx.objectStore('settings').put({id:'openrouter',apiKey:'mock-ui-key-no-paid-requests',model,imageModel:''}); tx.oncomplete=resolve; tx.onerror=()=>reject(tx.error); }); connection.close();
-    },{fixture,model});
-    await page.reload();
+    await configureAi(page,{apiKey:'mock-ui-key-no-paid-requests',model});
+    await seedAndOpen(page,{name:fixture.name,folder:'ai-panel-ui',files:fixture.files,values:fixture.settings});
     const collapse = page.getByRole('button',{name:'Collapse editor',exact:true}); if (await collapse.count()) await collapse.click();
-    const chat = studioChat(page); await chat.root.waitFor();
+    const chat = studioChat(page); await revealConversationTab(chat.root); await chat.root.waitFor();
     await chat.prompt.fill('Change the main heading to Polski tytuł and preserve the rest of the page.');
     await chat.send.click();
     await page.waitForFunction(()=>typeof window.aiUi.release === 'function');

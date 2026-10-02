@@ -1,21 +1,25 @@
-import { ConflictError, encodeProject, decodeProject, createZip, readZipProject, runOperation } from '@trafficops/template-editor-core';
+import { encodeProject, decodeProject, createZip, readZipProject, runOperation, createMemoryConversationStore } from '@trafficops/template-editor-core';
+import { conversationHandler } from './conversation-endpoints.js';
 import { createStudioAnalyzer } from '../../src/hosts/studio-analyzer.js';
 import { studioDialect } from '../../src/studio-dialect.js';
 import { starterProject } from '../../src/starter.js';
 
 // A protocol mock, not an HttpHost replacement: all requests traverse fetch,
 // JSON/base64 serialization, Response parsing and HTTP status normalization.
-export function httpServer({ kind = 'page', aiEnabled = false } = {}) {
+export function httpServer({ kind = 'page', aiEnabled = false, conversationsEnabled } = {}) {
   const calls = []; let failure = null;
+  const conversations = createMemoryConversationStore(), conversationRoute = conversationHandler(conversations);
   let state = { name: 'Server project', files: starterProject(), folders: ['images'], revision: 1, locale: 'en', translations: { en: { title: 'Hello' } }, entrypoint: 'index.html',
-    kind, status: 'draft', revisions: [], versions: [], draftHistory: [], previewEnabled: true, aiEnabled, dialect: studioDialect, canSaveTemplate: kind === 'page' };
+    kind, status: 'draft', revisions: [], versions: [], draftHistory: [], previewEnabled: true, aiEnabled, ...(conversationsEnabled !== undefined ? { conversationsEnabled } : {}), dialect: studioDialect, canSaveTemplate: kind === 'page' };
   const analyzer = createStudioAnalyzer();
   const json = (value, status = 200) => Response.json(value, { status });
   const snapshot = async () => ({ ...structuredClone(state), files: encodeProject(state.files), ...await analyzer.analyze(state) });
   const fetchImpl = (url, init = {}) => runOperation(init.signal, async () => {
-    const action = new URL(url).pathname.split('/').at(-1);
+    // Endpoints are one path segment deep (/project, /ai): the segments after it are positional.
+    const segments = new URL(url).pathname.split('/').slice(1), action = segments.at(-1), [, collection, id, ...extra] = segments;
     calls.push({ url: String(url), init });
     if (failure) { const next = failure; failure = null; if (next instanceof Error) throw next; return json(next.body || { message: 'Injected failure' }, next.status); }
+    if (['conversations', 'conversation-blobs'].includes(collection)) return conversationRoute(new Request(url, init), [collection, id, ...extra]);
     const wire = typeof init.body === 'string' ? JSON.parse(init.body) : {};
     const input = wire.files ? { ...wire, files: decodeProject(wire.files) } : state;
     if (init.method === 'GET' && action === 'project') return json(await snapshot());
@@ -42,5 +46,5 @@ export function httpServer({ kind = 'page', aiEnabled = false } = {}) {
     }
     return json({ message: `Unhandled mock route ${action}` }, 404);
   });
-  return { fetchImpl, calls, fail(value) { failure = value; }, state: () => state };
+  return { fetchImpl, calls, conversations, fail(value) { failure = value; }, state: () => state };
 }

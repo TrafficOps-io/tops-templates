@@ -1,10 +1,10 @@
+import { saveNow } from './support/studio-chat.js';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
-import { createStudioProject } from '../src/studio-library.js';
-import { saveNow } from './support/studio-chat.js';
+import { installFolderPicker, openProject, readOpfs, seedProjectFolder, until } from './support/studio-folders.js';
 
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = resolve(process.argv[2] || 'editor/dist');
@@ -20,7 +20,7 @@ const files = {
   'img/article.svg': '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90"><rect width="160" height="90" fill="green"/></svg>',
 };
 // An existing Values override wins over a subsequently edited @param default.
-const fixture = { ...createStudioProject({ kind: 'landing', name: 'Rich text QA', files, settings: { article_body: 'Saved plain article.\n\nNo paragraph tags.', markdown_body: 'Saved markdown paragraph.\n\nAnother saved paragraph.' } }), revision: 1 };
+const fixture = { kind: 'landing', name: 'Rich text QA', files, settings: { article_body: 'Saved plain article.\n\nNo paragraph tags.', markdown_body: 'Saved markdown paragraph.\n\nAnother saved paragraph.' } };
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.woff2': 'font/woff2', '.ttf': 'font/ttf' };
 const server = createServer(async (request, response) => {
   try {
@@ -34,15 +34,14 @@ let browser, page; const errors = [];
 try {
   browser = await chromium.launch({ headless: true, ...(process.platform === 'darwin' ? { executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' } : {}) });
   page = await browser.newPage({ viewport: { width: 1600, height: 1100 } });
+  await installFolderPicker(page);
   page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(() => Object.defineProperty(navigator, 'standalone', { configurable: true, value: true }));
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
-  await page.evaluate(async fixture => {
-    const db = await new Promise((resolve, reject) => { const request = indexedDB.open('trafficops-studio-library', 1); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
-    await new Promise((resolve, reject) => { const tx = db.transaction(['projects', 'preferences'], 'readwrite'); tx.objectStore('projects').put(fixture); tx.objectStore('preferences').put(fixture.id, 'active-project'); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); }); db.close();
-  }, fixture);
-  await page.reload();
+  // The project lives in a folder (real OPFS through the test picker).
+  const seeded = await seedProjectFolder(page, { kind: fixture.kind, name: fixture.name, files: fixture.files, values: fixture.settings });
+  await openProject(page, fixture.name);
   const frame = () => page.frameLocator('iframe.is-visible');
   await frame().getByRole('heading', { name: 'Rich text QA' }).waitFor();
   assert.equal(await page.getByRole('tab', { name: 'Content', exact: true }).getAttribute('aria-selected'), 'true', 'manual projects open Content');
@@ -118,6 +117,7 @@ try {
   assert.doesNotMatch(savedMarkdown, /<p>|blob:/);
   await markdownField.getByRole('button', { name: 'Visual editor', exact: true }).click();
   await saveNow(page);
+  await until(async () => /Inserted caption\./.test(JSON.parse(await readOpfs(page, `${seeded.folder}/.trafficops/values.json`) || '{}').article_body || ''), 'the edited article is saved to the folder');
   await page.reload();
   await page.getByRole('tab', { name: 'Content', exact: true }).click();
   await articleEditor.locator('figcaption').first().waitFor();

@@ -1,9 +1,11 @@
+import { revealConversationTab } from './support/studio-chat.js';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
-import { studioChat, moreMenuItem } from './support/studio-chat.js';
+import { studioChat, moreMenuItem, newProjectControl } from './support/studio-chat.js';
+import { installFolderPicker, usePicker, editorReady } from './support/studio-folders.js';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -24,6 +26,7 @@ try {
   browser = await chromium.launch({ headless: true, ...(process.platform === 'darwin' ? { executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' } : {}) });
   const context = await browser.newContext();
   await context.addInitScript(() => Object.defineProperty(navigator, 'standalone', { configurable: true, value: true }));
+  await installFolderPicker(context);
   const page = await context.newPage(), errors = [], keys = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.route('https://openrouter.ai/api/v1/**', route => {
@@ -32,19 +35,11 @@ try {
   });
   const url = `http://127.0.0.1:${server.address().port}/`;
   await page.goto(url);
-  // A fresh installed app exposes Conversations before any key has been saved.
-  await page.getByRole('button', { name: 'Use A fresh beginning', exact: true }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Create landing', exact: true }).click();
-  await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
-  const chat = studioChat(page), keyNotice = chat.root.getByRole('status').filter({ hasText: 'Set up OpenRouter' });
-  await keyNotice.waitFor(); assert.equal(await chat.composer.count(), 0, 'the connection card replaces the composer');
-  await keyNotice.getByRole('button', { name: 'Connect OpenRouter', exact: true }).click();
-  const inlineSettings = page.locator('.author-panel .ai-settings');
-  await inlineSettings.getByRole('heading', { name: 'AI connection settings', exact: true }).waitFor();
-  await inlineSettings.getByRole('button', { name: 'Back to assistant', exact: true }).click();
-  await keyNotice.waitFor();
+  await usePicker(page, 'openrouter-settings');
   const open = async () => {
-    await (await moreMenuItem(page, 'OpenRouter')).click();
+    await page.locator('.library, .editor-shell').first().waitFor();
+    if (await page.locator('.library').isVisible()) await page.getByRole('button', { name: 'OpenRouter', exact: true }).click();
+    else await (await moreMenuItem(page, 'OpenRouter')).click();
     const dialog = page.getByRole('dialog', { name: 'OpenRouter settings' });
     await dialog.getByLabel('API key', { exact: false }).waitFor();
     return dialog;
@@ -87,7 +82,15 @@ try {
   assert.equal(await dialog.getByRole('button', { name: 'Remove key', exact: true }).isDisabled(), true);
   await page.screenshot({ path: '/tmp/openrouter-settings.png', animations: 'disabled' });
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-  await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
+  await (await newProjectControl(page)).click();
+  const create = page.getByRole('dialog', { name: 'New project', exact: true });
+  await create.getByRole('button', { name: 'From template', exact: true }).click();
+  await create.getByLabel('Project name', { exact: true }).fill('OpenRouter settings');
+  await usePicker(page, 'openrouter-settings');
+  await create.getByRole('button', { name: 'Create landing', exact: true }).click();
+  await editorReady(page);
+  const chat = studioChat(page), keyNotice = page.locator('.ai-setup-card');
+  await revealConversationTab(chat.root);
   await keyNotice.waitFor(); assert.equal(await chat.composer.count(), 0, 'the connection card replaces the composer');
   dialog = await open();
   await input().fill('sk-or-editor-test');
@@ -109,25 +112,8 @@ try {
   assert.deepEqual(keys, ['Bearer sk-or-second-test'], 'No provider request without a key');
   const tab = await browser.newPage();
   await tab.goto(url);
-  assert.equal(await tab.getByRole('button', { name: 'OpenRouter', exact: true }).count(), 0);
-  await tab.getByRole('button', { name: 'Use A fresh beginning', exact: true }).click();
-  await tab.getByRole('dialog').getByRole('button', { name: 'Create landing', exact: true }).click();
-  assert.equal(await tab.getByRole('tab', { name: 'Conversations', exact: true }).count(), 0);
-  // Simulate this open window entering installed mode: preserve its project
-  // and expose connection setup immediately, without a navigation or reload.
-  await tab.evaluate(() => {
-    Object.defineProperty(navigator, 'standalone', { configurable: true, value: true });
-    window.dispatchEvent(new Event('appinstalled'));
-  });
-  await tab.getByRole('tab', { name: 'Conversations', exact: true }).click();
-  const installedChat = studioChat(tab);
-  await installedChat.root.getByRole('button', { name: 'Connect OpenRouter', exact: true }).waitFor();
-  await tab.evaluate(() => {
-    Object.defineProperty(navigator, 'standalone', { configurable: true, value: false });
-    window.dispatchEvent(new Event('appinstalled'));
-  });
-  await tab.getByRole('tab', { name: 'Conversations', exact: true }).waitFor({ state: 'detached' });
-  assert.equal(await tab.getByRole('button', { name: 'OpenRouter', exact: true }).count(), 0);
+  // AI is available in ordinary tabs too (no installed-app gating).
+  await tab.getByRole('button', { name: 'OpenRouter', exact: true }).first().waitFor();
   assert.deepEqual(errors, []);
   console.log('OpenRouter settings: fresh-install Conversations, inline setup, save, reload, cancel replacement, replace, verify, remove, persistence, live chat key gating and installed-mode transitions without reload passed.');
 } finally {

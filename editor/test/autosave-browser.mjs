@@ -26,7 +26,7 @@ const script = `
   function Harness(){
     const [externalBusy,setExternalBusy]=React.useState(false);
     window.setExternalBusy=setExternalBusy;
-    const editor=useEditorProject(host,value=>{window.snapshot=value;},null,externalBusy);
+    const editor=useEditorProject(host,value=>{window.snapshot=value;},externalBusy);
     window.editor=editor;
     return React.createElement('div',null,
       React.createElement('div',{role:'alert'},editor.error),

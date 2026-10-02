@@ -1,5 +1,7 @@
 # План развития Landing Studio и ИИ ассистента
 
+> Примечание: разделы о хранении проектов заменены документом `docs/superpowers/specs/2026-10-02-folder-first-storage-design.md` (папка проекта как единственное хранилище).
+
 Дата: 1 октября 2026 года. Статус: предложение к реализации. Основа: скриншоты пользователя и текущая рабочая копия `editor`, `template-editor-shell` и `template-editor-core`, включая незакоммиченные доработки редактирования отдельных файлов. Поведение развёрнутой версии отдельно не проверялось.
 
 Цель — сделать проект постоянным рабочим пространством с несколькими диалогами ИИ, историей и независимыми черновиками. Ручное редактирование, автосохранение и переход между проектами должны работать во время генерации. Проект должен сохранять идентичность и диалоги при переходе из библиотеки Studio в папку на компьютере.
@@ -28,11 +30,11 @@
 | Работает только один ИИ запрос | Общий `AiPort` в [App.jsx](src/App.jsx#L34); один `active` и неадресный `finish()` в [StudioAiPort.js](src/hosts/StudioAiPort.js#L65) | Выполнение и отмена по `runId`, очередь с несколькими слотами |
 | Генерация и готовый черновик блокируют проект | `locked` включает `aiBusy` и `aiDraft`; черновик подменяет отображаемые файлы в [useEditorProject.js](../packages/template-editor-shell/src/useEditorProject.js#L24). Это также останавливает autosave. [App.jsx](src/App.jsx#L127) запрещает уход | Разделить состояние проекта, состояние выполнения и выбранный черновик |
 | Нет постоянных диалогов | Единственный prompt, events и draft жили в React state `OpenRouterPanel` (исторически, панель удалена; сейчас StudioChat из `@trafficops/studio-ui` и `chat-port.js` оболочки); unmount отменяет запрос | Репозиторий диалогов и менеджер выполнения вне панели |
-| Recovery не поддерживает несколько черновиков | Store `drafts` имеет ключ `projectId` в [studio-ai-recovery.js](src/studio-ai-recovery.js#L50) | Записи по thread/run, восстановление завершённых операций |
+| Recovery не поддерживает несколько черновиков | Store `drafts` имеет ключ `projectId` в `studio-ai-recovery.js` (файл удалён при переходе на хранение в папках) | Записи по thread/run, восстановление завершённых операций |
 | Контекст проверки зависит от открытого экрана | [validate-ai-draft.js](../packages/template-editor-shell/src/validate-ai-draft.js#L7) читает актуальные state и locale через callbacks | Валидатор конкретного run получает его фиксированный snapshot и locale |
 | PWA можно свернуть внутрь страницы | `initialExpanded` задаёт только начальное состояние; Escape, Collapse и Versions сворачивают shell в [EditorShell.jsx](../packages/template-editor-shell/src/EditorShell.jsx#L275) | Отдельный постоянный app layout |
 | Форма ИИ разделена на несколько сценариев | Project panel использует `PromptImages`; `FileAiPanel` (исторически, панель удалена; сейчас StudioChat + chat-port) имел собственные prompt/run/draft и расширенные вложения | Общий composer и диалог, специализированные исполнители внутри общей системы |
-| Подключение папки и ZIP создаёт другой проект | Раздельные реестры Library и directory handles; UUID папки определяется по handle в [directory-projects.js](src/directory-projects.js#L228). ZIP import создаёт новый template record в [App.jsx](src/App.jsx#L183) | Единый каталог проектов, сохраняемый на диске идентификатор, явные restore/copy |
+| Подключение папки и ZIP создаёт другой проект | Раздельные реестры Library и directory handles; UUID папки определяется по handle в `directory-projects.js` (файл удалён при переходе на хранение в папках). ZIP import создаёт новый template record в [App.jsx](src/App.jsx#L183) | Единый каталог проектов, сохраняемый на диске идентификатор, явные restore/copy |
 | Два непонятных экспорта | Sidebar source export и toolbar HTML export открывают один modal с выбором format в [EditorShell.jsx](../packages/template-editor-shell/src/EditorShell.jsx#L295) | Одно меню с двумя понятными назначениями |
 
 Существующие локальные draft copies, независимые planner/reviewer, валидация парсером и renderer, контроль revision и сохранение только завершённых файлов следует переиспользовать. Новую систему нельзя строить простым удалением `locked` и проверки `active`: нынешнее применение заменяет весь `files` object и потеряет параллельные правки.

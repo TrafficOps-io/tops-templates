@@ -1,6 +1,8 @@
+import { revealConversationTab } from './support/studio-chat.js';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { studioChat, moreMenuItem } from './support/studio-chat.js';
+import { configureAi, installFolderPicker, metaOf, readProjectFolder, usePicker } from './support/studio-folders.js';
 import { createServer } from 'node:http';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
@@ -23,15 +25,9 @@ const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 const generated = '@template "Home chat"\n@section content "Content"\n@param title String = "Home chat launch" label="Title"\n@endsection\n@layout\n<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{title}}</title></head><body><h1>{{title}}</h1><p>Created from the home chat.</p></body></html>\n@endlayout\n';
 const report = { checks: [], providerRequests: 0, errors: [] };
 let browser, page;
-async function readStored(target, database, store) {
-  return target.evaluate(async ({ database, store }) => {
-    const db = await new Promise((done, reject) => { const request = indexedDB.open(database); request.onsuccess = () => done(request.result); request.onerror = () => reject(request.error); });
-    try { return await new Promise((done, reject) => { const request = db.transaction(store).objectStore(store).getAll(); request.onsuccess = () => done(request.result); request.onerror = () => reject(request.error); }); }
-    finally { db.close(); }
-  }, { database, store });
-}
 async function openPage(installed = true) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 }, reducedMotion: 'reduce' });
+  await installFolderPicker(context);
   let step = 0;
   await context.route('**/*', async route => {
     const url = route.request().url();
@@ -54,14 +50,17 @@ async function openPage(installed = true) {
 }
 // The editor opens on the latest conversation (the creation thread), as the former conversation panel did.
 async function showLatestThread(page) {
-  await studioChat(page).root.waitFor();
+  await revealConversationTab(studioChat(page).root); await studioChat(page).root.waitFor();
 }
 try {
   browser = await chromium.launch({ headless: true, ...(process.platform === 'darwin' ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' } : {}) });
+  // AI is always enabled (D7): a plain tab offers the home brief and keeps the site header.
   const manual = await openPage(false);
-  assert.equal(await manual.locator('.home-project-chat').count(), 0);
+  await manual.getByRole('button', { name: 'New project', exact: true }).click();
+  await manual.getByRole('dialog', { name: 'New project' }).getByRole('button', { name: 'With AI', exact: true }).click();
+  await manual.locator('.create-project-modal [data-testid="studio-chat-composer"]').waitFor();
   assert.equal(await manual.locator('.topbar').count(), 1);
-  await manual.context().close(); report.checks.push('browser manual workflows keep the site header and PWA-only AI gating');
+  await manual.context().close(); report.checks.push('a plain tab keeps the site header and offers the home brief');
 
   const pending = await openPage();
   await pending.getByRole('tab', { name: 'Templates', exact: true }).click();
@@ -98,32 +97,34 @@ try {
     await pending.screenshot({ path: `${out}/home-${width}.png`, fullPage: true });
   }
   await pending.setViewportSize({ width: 1440, height: 1000 });
+  // The submit picks the project folder (picker/ceramics) in the same click.
+  await usePicker(pending, 'ceramics');
   await composer.locator('button[type=submit]').click();
   await home.getByRole('status').filter({ hasText: 'Creating project…' }).waitFor();
   await home.locator('form[aria-busy="true"]').waitFor();
   const chat = studioChat(pending); await showLatestThread(pending);
   await chat.user.getByText('Create a reusable ceramics template with editable content.', { exact: true }).waitFor();
   await chat.root.getByRole('button', { name: 'Connect OpenRouter', exact: true }).waitFor();
-  const record = (await readStored(pending, 'trafficops-studio-library', 'projects'))[0];
-  assert.equal(record.kind, 'template'); assert.equal(record.aiAttachments[0].name, 'ceramics.png'); assert.equal(record.aiAttachments[0].useOnPage, true);
-  assert.equal(record.aiGenerateImages, undefined); assert.equal(report.providerRequests, 0);
+  // The brief is claimed into the creation dialogue in the folder: the prompt and its attachment are kept in history.
+  const stored = await readProjectFolder(pending, 'picker/ceramics'), brief = stored.conversations.threads[0].messages[0];
+  assert.equal(stored.meta.kind, 'template'); assert.equal(stored.meta.pendingAi, undefined);
+  assert.equal(brief.attachments[0].name, 'ceramics.png'); assert.equal(brief.attachments[0].useOnPage, true);
+  assert.equal(report.providerRequests, 0);
   assert.equal(await pending.locator('.topbar').count(), 0); assert.equal(await pending.locator('.studio-toolbar').count(), 1);
   const shell = await pending.locator('.editor-shell.is-app').boundingBox(); assert.equal(shell.y, 0); assert.equal(shell.height, 1000);
   await (await moreMenuItem(pending, 'Quick start')).click();
   const tour = pending.getByRole('dialog', { name: 'From template to finished pages', exact: true });
   await tour.getByRole('link', { name: 'Read full docs ↗', exact: true }).waitFor();
   await tour.getByRole('button', { name: 'Start creating', exact: true }).click();
-  await pending.reload(); await showLatestThread(pending); await chat.user.getByText(record.aiPrompt, { exact: true }).waitFor();
+  await pending.reload(); await showLatestThread(pending); await chat.user.getByText(brief.prompt, { exact: true }).waitFor();
   assert.equal(report.providerRequests, 0); report.checks.push('creation template brief + attachment persist without credentials; one full-height PWA header; help/docs retained');
   await pending.getByRole('button', { name: 'Projects', exact: true }).click(); await pending.locator('.library-project-first').waitFor();
   assert.equal(await pending.locator('.topbar').count(), 1); report.checks.push('returning to library restores the home header');
   await pending.context().close();
 
   const configured = await openPage();
-  await configured.evaluate(async () => {
-    const db = await new Promise((done, reject) => { const request = indexedDB.open('trafficops-template-studio-ai', 1); request.onupgradeneeded = () => request.result.createObjectStore('settings', { keyPath: 'id' }); request.onsuccess = () => done(request.result); request.onerror = () => reject(request.error); });
-    await new Promise((done, reject) => { const tx = db.transaction('settings', 'readwrite'); tx.objectStore('settings').put({ id: 'openrouter', apiKey: 'mock-no-paid-requests', model: 'test/home-chat', imageModel: '' }); tx.oncomplete = done; tx.onerror = () => reject(tx.error); }); db.close(); window.dispatchEvent(new Event('trafficops-ai-settings'));
-  });
+  await configureAi(configured, { model: 'test/home-chat' });
+  await usePicker(configured, 'launch');
   await configured.getByRole('button', { name: 'New project', exact: true }).click();
   const configuredDialog = configured.getByRole('dialog', { name: 'New project', exact: true });
   await configuredDialog.getByRole('button', { name: 'With AI', exact: true }).click();
@@ -134,7 +135,7 @@ try {
   await configuredChat.status('ready').waitFor(); await configuredChat.cards('diff').first().waitFor();
   await configuredChat.apply.click(); await configuredChat.status('applied').waitFor();
   await configured.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'Home chat launch', exact: true }).waitFor();
-  assert.equal((await readStored(configured, 'trafficops-studio-library', 'projects'))[0].kind, 'landing');
+  assert.equal((await metaOf(configured, 'picker/launch')).kind, 'landing');
   assert.equal(report.providerRequests, 2, 'brief generation is one agent loop: write, then validate');
   await configured.screenshot({ path: `${out}/chat-desktop.png`, fullPage: true });
   report.checks.push('creation landing brief → mocked generation (write, validate) → apply → rendered landing');

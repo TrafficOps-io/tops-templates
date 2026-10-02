@@ -605,7 +605,7 @@ export function createConversationSession(initialHost, { workflows = defaultWork
         const previous = continuation ? next.runs.find(run => run.id === continuation) : nearestRun(tree, parentId);
         const compatibleScope = previous && scope.kind === previous.scope.kind && (scope.kind !== 'file' || scope.path === previous.scope.path)
           && (scope.kind !== 'block' || JSON.stringify(scope.editScope?.selectedInstanceIds) === JSON.stringify(previous.scope.editScope?.selectedInstanceIds));
-        const retained = previous && !rebase && (!previous.recoveredConflict || previous.scope.kind === 'block') && scope.kind !== 'discussion' && (continuation || compatibleScope) && ['ready', 'failed', 'interrupted', 'cancelled'].includes(previous.state) && (previous.result || previous.checkpoint);
+        const retained = previous && !rebase && scope.kind !== 'discussion' && (continuation || compatibleScope) && ['ready', 'failed', 'interrupted', 'cancelled'].includes(previous.state) && (previous.result || previous.checkpoint);
         const keepBlockScope = !rebase && previous?.scope.kind === 'block' && (continuation || compatibleScope) && ['ready', 'failed', 'interrupted', 'cancelled'].includes(previous.state);
         const runLocale = keepBlockScope ? previous.locale : locale, runScope = clone(retained || keepBlockScope ? previous.scope : scope);
         if (runScope.kind === 'block') {
@@ -616,7 +616,7 @@ export function createConversationSession(initialHost, { workflows = defaultWork
           }
         }
         const priorDraft = previous && (previous.result || previous.checkpoint);
-        const starting = rebase && priorDraft && !previous.recoveredConflict ? mergeChangeSet({ base: previous.base, proposal: priorDraft, current: base, locale: runLocale, allowStaleContext: true }).candidate
+        const starting = rebase && priorDraft ? mergeChangeSet({ base: previous.base, proposal: priorDraft, current: base, locale: runLocale, allowStaleContext: true }).candidate
           : retained ? { ...clone(previous.base), files: clone(retained.files), translations: { ...clone(previous.base.translations), [runLocale]: clone(retained.values) } } : null;
         const runBase = retained || keepBlockScope ? clone(previous.base) : base;
         const referenceReadSet = [...references.map(({ path, hash }) => ({ kind: 'file', path, hash })), ...(previous && (retained || continuation) ? previous.referenceReadSet || [] : [])];
@@ -648,7 +648,7 @@ export function createConversationSession(initialHost, { workflows = defaultWork
       if (options.rebase && !(options.snapshot || options.current)) throw new Error('Open the current project before refreshing this draft.');
       return session.submit({ threadId: run.threadId, prompt: options.prompt || (options.rebase ? 'Adapt the previous proposed changes to the current project. Preserve current manual edits and complete the original request.' : 'Continue the original request from the retained draft. Preserve completed work and finish the requested changes.'), attachments: referenceAttachments(message.mentions || [], message.attachments || [], run.scope), mentions: [], scope: run.scope, snapshot: options.snapshot || options.current || run.base, locale: options.locale || run.locale, generateImages: run.generateImages, continuation: runId, rebase: options.rebase === true }); },
     async markApplied(runId, revision) { await ready; return mutate(next => { const run = next.runs.find(value => value.id === runId); if (!run) throw new Error('This result no longer exists.'); if (run.state === 'applied') return false;
-      if (!['ready', 'interrupted'].includes(run.state) || !run.result?.valid || run.result.discussion || run.recoveredConflict) throw new Error('This result is not ready to apply. Continue it and review the completed draft first.');
+      if (!['ready', 'interrupted'].includes(run.state) || !run.result?.valid || run.result.discussion) throw new Error('This result is not ready to apply. Continue it and review the completed draft first.');
       run.state = 'applied'; run.appliedRevision = revision; touch(run); }); },
     async reconcileApplied(ids = []) { await ready; const pending = doc.runs.filter(run => ids.includes(run.id) && run.state !== 'applied'); if (!pending.length) return; return mutate(next => { for (const run of next.runs) if (ids.includes(run.id)) { run.state = 'applied'; touch(run); } }); },
     dispose() { disposed = true; clearInterval(heartbeat); releaseOwner?.(); unsubscribePort?.(); for (const controller of requests.values()) controller.abort(); listeners.clear(); },

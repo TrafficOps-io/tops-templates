@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateProject, getDefaults, parseProject } from '@trafficops/template-runtime';
 import { createZip, readZipProject } from '../src/project.js';
-import { cloneStudioProject } from '../src/studio-library.js';
+import { createProjectInRoot, readProjectSnapshot } from '../src/storage/project-root.js';
+import { MemoryDirectoryHandle } from './support/fs-access.js';
 import { studioStarters } from '../src/studio-catalog.js';
 import { analyzeStudioProject } from '../src/hosts/studio-analyzer.js';
 
@@ -55,19 +56,19 @@ for (const project of studioStarters) {
     assert.deepEqual(generateProject(reopened.files, reopened.settings), generated);
   });
 
-  test(`${project.name}: creating a landing leaves the built-in template unchanged`, () => {
-    const before = structuredClone(project);
-    const landing = cloneStudioProject(project, { id: `${project.id}-landing`, kind: 'landing', name: 'My landing', now: 123 });
-    assert.equal(landing.sourceTemplateId, project.id);
-    assert.equal(landing.kind, 'landing');
-    assert.equal(landing.createdAt, 123);
-    assert.deepEqual(landing.files, project.files);
-    assert.deepEqual(landing.settings, project.settings);
+  test(`${project.name}: creating a landing leaves the built-in template unchanged`, async () => {
+    const before = structuredClone(project), root = new MemoryDirectoryHandle('landing');
+    // As the create dialog does: the starter's snapshot is written into a new project folder.
+    const meta = await createProjectInRoot(root, { kind: 'landing', name: 'My landing', files: project.files, folders: project.folders, values: project.settings, now: () => 123 });
+    assert.equal(meta.kind, 'landing'); assert.equal(meta.createdAt, 123); assert.equal(meta.sourceTemplateId, undefined);
+    const landing = await readProjectSnapshot(root);
+    assert.deepEqual({ ...landing.files }, project.files);
+    assert.deepEqual({ ...landing.values }, project.settings);
     landing.files['index.tpl'] += '\n';
-    landing.settings.headline = 'Independent page';
+    landing.values.headline = 'Independent page';
     landing.folders.push('my-assets');
     assert.deepEqual(project, before);
-    assert.deepEqual(analyzeStudioProject(state(landing)).sourceDiagnostics, []);
-    assert.match(generateProject(landing.files, landing.settings)['index.html'], /Independent page/);
+    assert.deepEqual(analyzeStudioProject(state(landing, landing.values)).sourceDiagnostics, []);
+    assert.match(generateProject(landing.files, landing.values)['index.html'], /Independent page/);
   });
 }

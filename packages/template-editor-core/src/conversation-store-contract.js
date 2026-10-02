@@ -119,13 +119,14 @@ export const conversationStoreContract = [
     const afterWrite = calls;
     await store.deleteThread('t1', { expectedRevision: 1 });
     check(await waitFor(() => calls > afterWrite), 'a committed delete notifies watchers');
-    await store.writeThread(thread(), { expectedRevision: 0 });
+    // A recreate may continue the old revisions (directory tombstones), so the later delete uses the returned one.
+    const { revision } = await store.writeThread(thread(), { expectedRevision: 0 });
     await waitFor(() => false, 50); const settled = calls;
     await rejects(store.writeThread(thread(), { expectedRevision: 9 }), conflict, 'a stale write conflicts');
     await pause(50);
     check(calls === settled, 'a rejected write does not notify watchers');
     stop();
-    await store.deleteThread('t1', { expectedRevision: 1 });
+    await store.deleteThread('t1', { expectedRevision: revision });
     await pause(50);
     check(calls === settled, 'a stopped watcher hears nothing');
   } },

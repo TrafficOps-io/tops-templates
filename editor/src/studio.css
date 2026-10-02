@@ -285,3 +285,20 @@ h1 { font-size: clamp(2.25rem, 4.5vw, 4.4rem); line-height: 1.02; letter-spacing
   .library-search, .library-kind-filter { min-height: 44px; }
   .library-project-menu [role=menuitem], .theme-toggle [role=menuitemradio] { min-height: 44px; min-width: 44px; }
 }
+
+.library-thumbnail-placeholder { position: absolute; inset: 0; display: grid; place-items: center; color: var(--ui-muted); background: color-mix(in srgb, var(--ui-border) 35%, var(--ui-surface)); }
+.library-unavailable { display: flex; flex-direction: column; gap: .35rem; margin: .5rem 0; padding: .6rem .75rem; border: 1px solid color-mix(in srgb, var(--color-warning) 32%, var(--ui-border)); border-radius: var(--radius-field); background: color-mix(in srgb, var(--color-warning) 8%, var(--ui-surface)); font-size: var(--ui-text-xs); }
+.library-unavailable span { color: var(--ui-muted); }
+.unsupported-browser { max-width: 36rem; margin: 4rem auto; padding: 2rem; border: 1px solid var(--ui-border); border-radius: .75rem; background: var(--ui-surface); }
+.unsupported-browser h2 { font-size: 1.5rem; letter-spacing: -.03em; font-weight: 500; margin: .4rem 0 .75rem; }
+.unsupported-browser p { color: var(--ui-muted); line-height: 1.6; font-size: var(--ui-text-md); }
+.unsupported-browser ul { margin: 1rem 0 0 1.1rem; list-style: disc; font-size: var(--ui-text-sm); line-height: 1.8; }
+.folder-unavailable { display: flex; align-items: center; gap: .5rem; color: var(--color-error); font-size: var(--ui-text-sm); }
+.library-card-badges { display: flex; gap: .35rem; flex-wrap: wrap; margin-top: .35rem; }
+.template-choice { border: 0; padding: 0; margin: 0; }
+.template-choice legend { font-size: var(--ui-text-sm); font-weight: 500; margin-bottom: .4rem; }
+.template-choice-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: .4rem; max-height: 14rem; overflow: auto; }
+.template-choice-list button { display: flex; flex-direction: column; align-items: flex-start; gap: .15rem; padding: .55rem .7rem; border: 1px solid var(--ui-border); border-radius: var(--radius-field); background: var(--ui-surface); text-align: left; font-size: var(--ui-text-sm); }
+.template-choice-list button span { color: var(--ui-muted); font-size: var(--ui-text-xs); }
+.template-choice-list button[aria-pressed="true"] { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary); }
+.template-choice small { display: block; margin-top: .4rem; color: var(--ui-muted); font-size: var(--ui-text-xs); }

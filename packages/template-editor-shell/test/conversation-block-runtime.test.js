@@ -14,7 +14,7 @@ function fixture(projectId = crypto.randomUUID(), initial) {
     blockInstances: [{ id: 'hero-1', sourceId: 'hero', page: 'index.html', valuePaths: [['title']] }],
     valueUses: [{ path: ['title'], instanceIds: ['hero-1'], page: 'index.html' }, { path: ['shared'], instanceIds: [], page: 'index.html' }], selectedInstanceIds: ['hero-1'] },
   { files: state.files, rawValues, values: { ...rawValues, title: 'Original', shared: 'Keep' } });
-  let document = initial || { schema: 1, projectId, revision: 0, legacyMigrated: true, threads: [], runs: [] };
+  let document = initial || { schema: 1, projectId, revision: 0, threads: [], runs: [] };
   const subscribers = new Set(), saved = [], calls = [];
   const host = { conversations: { projectId, load: async () => structuredClone(document), save: async (next, { expectedRevision }) => {
     assert.equal(expectedRevision, document.revision); document = structuredClone({ ...next, revision: document.revision + 1 }); saved.push(document);
@@ -86,7 +86,7 @@ test('malicious checkpoint and final scope widening never enter saved conversati
 
 test('tampered scoped recovery is rejected before any draft is published', async t => {
   const local = fixture(), scope = { ...local.scope, intent: 'content' }, run = { id: 'saved-run', threadId: 'saved-thread', messageId: 'saved-message', state: 'ready', locale: 'en', base: local.state, scope: { kind: 'block', editScope: scope }, result: { files: local.state.files, values: { ...local.rawValues, shared: 'Bad' }, valid: true, editScope: scope } };
-  local.host.conversations.load = async () => ({ schema: 1, projectId: local.host.conversations.projectId, revision: 1, legacyMigrated: true, threads: [{ id: 'saved-thread', messages: [] }], runs: [run] });
+  local.host.conversations.load = async () => ({ schema: 1, projectId: local.host.conversations.projectId, revision: 1, threads: [{ id: 'saved-thread', messages: [] }], runs: [run] });
   const session = createConversationSession(local.host, { locks: null, sessionId: 'owner', workflows: workflows(() => assert.fail()) }); t.after(() => session.dispose());
   await assert.rejects(session.ready, /Unselected field/); assert.deepEqual(session.getSnapshot().runs, []); assert.equal(local.calls.length, 0);
 });
