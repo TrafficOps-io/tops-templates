@@ -2409,5 +2409,6 @@
   "{value} B": ["{value} Б", "{value} Б"],
   "{value} KB": ["{value} КБ", "{value} КБ"],
   "{value} MB": ["{value} МБ", "{value} МБ"],
-  "{value} GB": ["{value} ГБ", "{value} ГБ"]
+  "{value} GB": ["{value} ГБ", "{value} ГБ"],
+  "Use attached images on the page": ["Использовать прикреплённые изображения на странице", "Використовувати прикріплені зображення на сторінці"]
 }

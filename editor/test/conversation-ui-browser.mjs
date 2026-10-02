@@ -64,10 +64,8 @@ try {
   await chat.run('run-style').getByRole('button', { name: 'Preview draft', exact: true }).click();
   await page.getByText('Conversation draft · Project files unchanged', { exact: true }).waitFor();
   assert.equal(await chat.run('run-style').locator('[data-testid="studio-chat-apply"]').isEnabled(), true); report.checks.push('review includes deletion; explicit separate preview');
-  if (!process.env.T7_SKIP_PREVIEW_EXIT) {
   await panel.getByRole('button', { name: 'Show current project', exact: true }).click();
   await page.getByText('Conversation draft · Project files unchanged', { exact: true }).waitFor({ state: 'detached' });
-  } // T7_SKIP
   await panel.locator('.studio-chat-header').getByRole('button', { name: 'Rename conversation', exact: true }).click();
   await panel.getByRole('textbox', { name: 'Conversation title', exact: true }).fill('Collection spacing review'); await panel.getByRole('textbox', { name: 'Conversation title', exact: true }).press('Enter');
   await panel.getByRole('heading', { name: 'Collection spacing review', exact: true }).waitFor();
@@ -84,7 +82,7 @@ try {
   await page.reload(); await wideChat(); await chat.thread('Collection spacing review').waitFor(); report.checks.push('rename/archive/restore/search persist after reload');
   await chat.thread('Plan the landing').click(); await chat.user.locator('.studio-chip-mention').filter({ hasText: '@Main hero' }).getByRole('button').click();
   // A saved section reference opens its source file at the section (as the former conversation panel did).
-  if (!process.env.T7_SKIP_SECTION) { await page.getByRole('tab', { name: 'Files', selected: true, exact: true }).waitFor({ timeout: 5000 }); await page.locator('.source-heading').getByText('index.tpl', { exact: true }).waitFor(); } // T7_SKIP
+  await page.getByRole('tab', { name: 'Files', selected: true, exact: true }).waitFor({ timeout: 5000 }); await page.locator('.source-heading').getByText('index.tpl', { exact: true }).waitFor();
   await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
   await threadMenu('Plan the landing', 'Archive'); await archived.click(); await threadMenu('Plan the landing', 'Delete conversation');
   const confirmation = page.getByRole('dialog', { name: 'Delete conversation?', exact: true }); await confirmation.getByText('Messages of this conversation will be deleted. Changes already applied stay in the project.', { exact: true }).waitFor(); await confirmation.getByRole('button', { name: 'Delete permanently', exact: true }).click(); await confirmation.waitFor({ state: 'detached' });

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { File } from 'node:buffer';
-import { createChatPort, keptDraft } from '../src/chat-port.js';
+import { createChatPort, keptDraft, markUseOnPage, sectionSource, toMentionTarget } from '../src/chat-port.js';
 
 function fakeSession() {
   let doc = { projectId: 'p', revision: 0, threads: [], runs: [] }; const listeners = new Set(), calls = [];
@@ -212,4 +212,38 @@ test('keptDraft keeps project drafts without validation and refuses invalid bloc
   assert.throws(() => keptDraft({ scope: { kind: 'block' }, checkpoint: { files, valid: false } }, { locale: 'en', t }), { message });
   assert.throws(() => keptDraft({ scope: { kind: 'project' }, result: { files, editScope: {}, valid: false } }, { locale: 'en', t }), { message });
   assert.deepEqual(keptDraft({ scope: { kind: 'block' }, result: { files, valid: true } }, { locale: 'en', t }).files, files);
+});
+
+test('discard and apply close the preview of their own draft only', async () => {
+  const session = fakeSession(), previews = []; let previewRunId = 'r1';
+  const { port } = createChatPort(session, () => ({ ...context(), previewRunId, onPreviewDraft: value => previews.push(value) }));
+  const { id } = await port.createThread(); await port.send(id, input()); ready(session);
+  await port.discard('r1'); assert.deepEqual(previews, [null], 'discarding the previewed draft returns the preview to the project');
+  previewRunId = 'other'; await port.discard('r1'); assert.deepEqual(previews, [null], 'another run keeps its preview');
+  previewRunId = 'r1'; await port.apply('r1'); assert.deepEqual(previews, [null, null]);
+  assert.equal(port.capabilities.clarifyWhileRunning, true);
+});
+
+test('a saved section mention keeps its source and opens the file at the section', async () => {
+  const source = '<h1>A</h1>\n<section>Hero</section>\n', start = source.indexOf('<section>'), end = source.indexOf('</section>') + 10;
+  const stored = { kind: 'section', id: 'hero', page: 'index.html', label: 'Hero', path: 'index.tpl', start, end, content: source.slice(start, end) };
+  const target = toMentionTarget(stored);
+  assert.deepEqual(target, { kind: 'section', id: 'index.html:hero', label: 'Hero', detail: 'index.html', path: 'index.tpl', start, end, content: stored.content });
+  assert.deepEqual(sectionSource(target, { 'index.tpl': source }), { path: 'index.tpl', selection: { lineNumber: 2, column: 1 } });
+  assert.deepEqual(sectionSource(target, { 'index.tpl': 'changed' }), { path: 'index.tpl' }, 'an edited section opens the file without a stale position');
+  assert.equal(sectionSource({ kind: 'section', id: 'p:x' }, { 'index.tpl': source }), null);
+  const session = fakeSession(), opened = [], sections = [];
+  const { port } = createChatPort(session, () => ({ ...context(), state: { ...state, files: { 'index.tpl': source } }, onOpenFile: (...args) => opened.push(args), onOpenSection: value => sections.push(value) }));
+  port.openTarget(target); port.openTarget({ kind: 'field', id: 'field:hero.title', label: 'Title' });
+  assert.deepEqual(opened, [['index.tpl', { lineNumber: 2, column: 1 }]]); assert.equal(sections.length, 1);
+});
+
+test('the use-on-page switch marks image attachments only', async () => {
+  const items = [{ id: 'a', mime: 'image/png' }, { id: 'b', mime: 'text/plain' }];
+  assert.deepEqual(markUseOnPage(items, true), [{ id: 'a', mime: 'image/png', useOnPage: true }, { id: 'b', mime: 'text/plain' }]);
+  assert.equal(markUseOnPage(items, false)[0].useOnPage, false);
+  const session = fakeSession(), { port } = createChatPort(session, () => ({ ...context(), useOnPage: true })), { id } = await port.createThread();
+  const png = new File([Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jp1sAAAAASUVORK5CYII=', 'base64'))], 'person.png', { type: 'image/png' });
+  await port.send(id, input({ attachments: [png] }));
+  assert.equal(session.calls[0][1].attachments[0].useOnPage, true);
 });

@@ -106,13 +106,8 @@ async function configureTestKey(page) {
   });
 }
 // The editor opens on the latest conversation (the creation thread), as the former conversation panel did.
-// T7_SKIP_LATEST_THREAD: opens it by hand from the header menu so the rest of the scenario can be verified.
 async function showLatestThread(page) {
-  const chat = studioChat(page); await chat.root.waitFor();
-  if (!process.env.T7_SKIP_LATEST_THREAD) return; // T7_SKIP
-  const header = chat.root.locator('.studio-chat-header');
-  await header.getByRole('button', { name: 'Conversations', exact: true }).click();
-  await header.getByRole('menuitem').last().click();
+  await studioChat(page).root.waitFor();
 }
 const records = page => page.evaluate(() => window.readStudioRecords());
 const documents = page => page.evaluate(() => window.readConversationDocuments());

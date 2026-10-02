@@ -128,7 +128,7 @@ try {
   }
   await ready.getByRole('button', { name: 'Discard', exact: true }).click();
   await chat.status('discarded').waitFor();
-  if (!process.env.T7_SKIP_DISCARD_PREVIEW) await preview().getByRole('heading', { name: 'Make room for something great.', exact: true }).waitFor({ timeout: 10000 }); // T7_SKIP
+  await preview().getByRole('heading', { name: 'Make room for something great.', exact: true }).waitFor({ timeout: 10000 });
   assert.equal(await page.getByRole('button', { name: 'styles.css', exact: true }).count(), 1);
   // Stopping and provider failure leave the project unchanged and do not retry.
   await newConversation();

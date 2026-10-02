@@ -104,8 +104,8 @@ try {
     await chat.prompt.fill(brief);
     await chat.attachmentInput.setInputFiles([{ name: 'site-reference.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') }, { name: 'person.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') }]);
     assert.equal(await chat.composer.locator('.studio-chip-attachment').count(), 2);
-    // An attached photo marked for use on the page becomes a project asset (images/reference-*.png).
-    if (!process.env.T7_SKIP_USE_ON_PAGE) await chat.composer.getByRole('checkbox', { name: /person\.png/ }).check({ timeout: 5000 }); // T7_SKIP
+    // Attached images marked for use on the page become project assets (images/reference-*.png).
+    await chat.root.getByRole('checkbox', { name: 'Use attached images on the page', exact: true }).check({ timeout: 5000 });
     const images = chat.composer.getByRole('button', { name: 'Generate images', exact: true });
     if (await images.getAttribute('aria-pressed') !== 'true') await images.click();
     assert.equal(await images.getAttribute('aria-pressed'), 'true');
@@ -126,7 +126,7 @@ try {
   await preview().getByRole('heading', { name: 'Polski artykuł', exact: true }).waitFor();
   await chat.status('ready').getByRole('button', { name: 'Discard', exact: true }).click();
   await chat.status('discarded').waitFor();
-  if (!process.env.T7_SKIP_DISCARD_PREVIEW) await preview().getByRole('heading', { name: 'Original headline', exact: true }).waitFor({ timeout: 10000 }); // T7_SKIP
+  await preview().getByRole('heading', { name: 'Original headline', exact: true }).waitFor({ timeout: 10000 });
   assert.equal(Object.keys((await readRecord()).files).length, 1, 'discard does not keep generated photos');
   await page.evaluate(() => Object.assign(window.fillAi, { writer: 0, reviews: 0, holdReview: false }));
   await compose();
@@ -156,8 +156,8 @@ try {
   assert.equal(saved.settings.title, 'Polski artykuł', 'wait for the durable autosave transaction');
   assert.equal(saved.files['index.tpl'], fixture.files['index.tpl']); assert.equal(saved.settings.article.replace(/<[^>]+>/g, '').length, 2600); assert.equal(saved.settings.reviews.length, 7);
   assert.ok(saved.files['images/article.png'] instanceof Uint8Array);
-  if (!process.env.T7_SKIP_USE_ON_PAGE) { assert.ok(saved.files[saved.settings.portrait] instanceof Uint8Array); assert.equal(Object.keys(saved.files).length, 3, 'reference-only screenshot is not exported as a page image'); } // T7_SKIP
-  else assert.equal(Object.keys(saved.files).length, 2, 'reference-only attachments are not exported as page images');
+  assert.ok(saved.files[saved.settings.portrait] instanceof Uint8Array);
+  assert.equal(Object.keys(saved.files).filter(path => path.startsWith('images/reference-')).length, 2, 'both attached images become page assets when the switch is on');
   await page.getByRole('button', { name: 'Export', exact: true }).click();
   await page.getByRole('menuitem').filter({ hasText: 'Editable project' }).click();
   const download = page.waitForEvent('download'); await page.getByRole('button', { name: 'Download', exact: true }).click();

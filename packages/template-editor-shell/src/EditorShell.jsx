@@ -24,8 +24,8 @@ import { useStudioText } from './studio-i18n.js';
 import { activeElement, trapFocus } from './focus.js';
 import { createAiDraftValidator } from './validate-ai-draft.js';
 import { useEditorProject } from './useEditorProject.js';
-import { createBlockEditScope } from './block-edit-scope.js';
-import { previewSelectionMatches, selectedPreviewBlocks } from './preview-selection.js';
+import { blockScopeSourceTargets, createBlockEditScope } from './block-edit-scope.js';
+import { blockScopeBaseMatches, previewSelectionMatches, selectedPreviewBlocks } from './preview-selection.js';
 const CodeEditor = lazy(() => import('./CodeEditor.jsx'));
 // Чат — отдельный чанк: догружается при первом открытии вкладки AI.
 const StudioChat = lazy(() => import('@trafficops/studio-ui/chat').then(module => ({ default: module.StudioChat })));
@@ -44,7 +44,7 @@ function Shell({ host, onSnapshot, onNewProject, onImportProject, newProjectCrea
   const [collapsed, setCollapsed] = useState(false), [mobile, setMobile] = useState(false), [expanded, setExpanded] = useState(initialExpanded);
   const [dialog, setDialog] = useState(null), [dialogValue, setDialogValue] = useState(''), [dialogError, setDialogError] = useState('');
   const [chatLaunch, setChatLaunch] = useState(null), [chatThreadId, setChatThreadId] = useState(null), [aiOpened, setAiOpened] = useState(false);
-  const [blockSelectionBusy, setBlockSelectionBusy] = useState(false);
+  const [blockSelectionBusy, setBlockSelectionBusy] = useState(false), [useOnPage, setUseOnPage] = useState(false);
   const [selectionEnabled, setSelectionEnabled] = useState(false), [selectionFrame, setSelectionFrame] = useState(null);
   const [selectionPage, setSelectionPage] = useState(''), [selectedInstanceIds, setSelectedInstanceIds] = useState([]);
   const [exporting, setExporting] = useState(null), [continueUrl, setContinueUrl] = useState(''), [shared, setShared] = useState(null);
@@ -125,7 +125,8 @@ function Shell({ host, onSnapshot, onNewProject, onImportProject, newProjectCrea
       // Адаптер хранит editScope по ключу; в StudioChat уходит только сериализуемая ссылка на него.
       const key = JSON.stringify(scope.targets);
       chat.current?.registerBlockScope(key, scope);
-      setChatLaunch({ id: crypto.randomUUID(), scope: { kind: 'block', targetId: key }, mentions: [] });
+      // Запуск из превью открывает новый диалог (как прежняя панель); editScope — для панели «Selected blocks».
+      setChatThreadId(''); setChatLaunch({ id: crypto.randomUUID(), scope: { kind: 'block', targetId: key }, mentions: [], editScope: scope });
       setTab('ai'); setAiView('assistant');
     } catch (cause) { report(cause); }
   }
@@ -259,7 +260,7 @@ function Shell({ host, onSnapshot, onNewProject, onImportProject, newProjectCrea
   const selectionStale = !previewSelectionMatches(selectionFrame, { files: state.files, values, locale });
   const openFileAi = aiEnabled ? () => {
     if (locked || !fileAiAvailability.supported) return;
-    setChatLaunch({ id: crypto.randomUUID(), scope: { kind: 'file', targetId: active }, mentions: [{ kind: 'file', id: active, label: active }] }); setTab('ai'); setAiView('assistant');
+    setChatThreadId(''); setChatLaunch({ id: crypto.randomUUID(), scope: { kind: 'file', targetId: active }, mentions: [{ kind: 'file', id: active, label: active }] }); setTab('ai'); setAiView('assistant');
   } : undefined;
   const transientStatus = editor.aiBusy ? t('AI is working…') : editor.aiDraft ? t('Review AI changes') : busy ? t('Working…') : dirty ? host.capabilities.autosave && !editor.error && !editor.conflict ? t('Saving changes…') : t('Unsaved changes') : '';
   const status = transientStatus || state.status;
@@ -305,8 +306,8 @@ function Shell({ host, onSnapshot, onNewProject, onImportProject, newProjectCrea
           {tab === 'content' && <><nav className="hosted-sections">{sections.map(item => <button key={item.id} className={shownSection?.id === item.id ? 'selected' : ''} onClick={() => setSection(item.id)}>{item.label}{issues.some(issue => issue.locale === locale && issue.section === item.id) && ' ⚠'}</button>)}</nav>{shownSection ? <fieldset disabled={locked}><ParameterForm disabled={locked} definition={{ ...analysis.definition, sections: [shownSection] }} values={values} files={files} projectImages={Object.keys(files).filter(path => /\.(?:png|jpe?g|webp|svg|gif|avif)$/i.test(path))} aiEnabled={aiEnabled} onSettings={openSettings} onImageUpload={uploadImage} errors={issues.filter(issue => issue.locale === locale)} onChange={next => mutate(previous => ({ translations: { ...previous.translations, [locale]: next } }))} /></fieldset> : <div className="empty-content-actions"><p>{t('This project has no editable fields.')}</p><p className="field-help">{t('Open the source files or ask the assistant to update the page.')}</p><div className="ai-actions"><button type="button" className="btn btn-outline btn-sm" onClick={() => setTab('files')}>{t('Open files')}</button>{aiEnabled && <button type="button" className="btn btn-primary btn-sm" onClick={() => { setTab('ai'); setAiView('assistant'); }}><Sparkles size={14} />{t('Open AI assistant')}</button>}</div></div>}{shownSection && <div className="settings-actions"><button className="btn btn-ghost btn-xs" disabled={locked} onClick={() => mutate({ translations: { ...state.translations, [locale]: {} } })}>{t('Reset defaults')}</button><button className="btn btn-ghost btn-xs" disabled={locked} onClick={() => data.current.click()}>{t('Load JSON')}</button><button className="btn btn-ghost btn-xs" onClick={() => downloadFile('trafficops-data.json', JSON.stringify(values, null, 2), 'application/json')}>{t('Save JSON')}</button></div>}</>}
           {tab === 'files' && (typeof files[active] === 'string' && (!/\.svg$/i.test(active) || imageSource) ? <Suspense fallback={<div className="source-loading" role="status" aria-label={t('Opening editor…')}><LoaderCircle className="spin" size={24} aria-hidden="true" /></div>}><CodeEditor key={active} dialect={host.dialect} path={active} value={files[active]} files={files} onChange={value => mutate(previous => ({ files: { ...previous.files, [active]: value } }))} reveal={reveal?.path === active ? reveal : null} onOpenFile={openFile} onError={editor.setError} onEditWithAi={openFileAi} aiEditDisabled={!fileAiAvailability.supported} aiEditReason={fileAiAvailability.reason} readOnly={locked} /></Suspense> : <AssetPreview key={active} path={active} value={files[active]} onEditSource={typeof files[active] === 'string' ? () => setImageSource(true) : undefined} onEditWithAi={openFileAi} aiEditDisabled={locked || !fileAiAvailability.supported} aiEditReason={fileAiAvailability.reason} />)}
           {aiEnabled && <><div hidden={tab !== 'ai' || aiView !== 'assistant'} className="conversations-active">{host.conversations
-            ? <ShellChat host={context} chatRef={chat} mounted={aiOpened} threadId={chatThreadId} onThreadChange={setChatThreadId} launch={chatLaunch} disabled={externalBusy || busy} onBlockSelectionBusyChange={setBlockSelectionBusy} previewRunId={editor.conversationDraft?.runId}
-              chatContext={{ state, locale, sectionFrame: selectionStale || editor.conversationDraft ? null : selectionFrame, t, language: host.language,
+            ? <ShellChat host={context} chatRef={chat} mounted={aiOpened} threadId={chatThreadId} onThreadChange={setChatThreadId} launch={chatLaunch} onLaunch={setChatLaunch} selectionStale={selectionStale} useOnPage={useOnPage} onUseOnPageChange={setUseOnPage} disabled={externalBusy || busy} onBlockSelectionBusyChange={setBlockSelectionBusy} previewRunId={editor.conversationDraft?.runId}
+              chatContext={{ state, locale, sectionFrame: selectionStale || editor.conversationDraft ? null : selectionFrame, t, language: host.language, previewRunId: editor.conversationDraft?.runId, useOnPage,
                 onApplyRun: editor.applyConversationDraft, onPreviewDraft: editor.previewConversationDraft, onKeepDraft: keepDraftInEditor, onOpenFile: openFile,
                 onOpenSection: target => { setTab('content'); if (target.kind === 'field') setSection(target.id.replace(/^field:/, '').split('.')[0]); } }}
               onSettings={openSettings} onCreateProject={text => { createPrompt.current = text; setDialog({ kind: 'ai-create' }); }} />
@@ -330,7 +331,7 @@ function Shell({ host, onSnapshot, onNewProject, onImportProject, newProjectCrea
 }
 
 // Чат вкладки AI: порт над сессией разговоров хоста, StudioChat грузится лениво при первом открытии вкладки.
-function ShellChat({ host, chatRef, mounted, threadId, onThreadChange, launch, disabled, chatContext, onSettings, onCreateProject, onBlockSelectionBusyChange, previewRunId }) {
+function ShellChat({ host, chatRef, mounted, threadId, onThreadChange, launch, onLaunch, disabled, chatContext, onSettings, onCreateProject, onBlockSelectionBusyChange, previewRunId, selectionStale, useOnPage, onUseOnPageChange }) {
   const t = chatContext.t, ui = useStudioUi();
   const [aiSettings, setAiSettings] = useState(null);
   useEffect(() => {
@@ -344,16 +345,60 @@ function ShellChat({ host, chatRef, mounted, threadId, onThreadChange, launch, d
   useEffect(() => () => { if (chatRef.current === chat) chatRef.current = null; }, [chat, chatRef]);
   // Пока ран с областью «Блок» активен или его черновик в превью, выделение в превью заблокировано (как раньше в ConversationPanel).
   const session = useMemo(() => getConversationSession(host), [host]);
-  const blockBusy = useSyncExternalStore(session.subscribe, () => session.getSnapshot().runs.some(run => run.scope?.kind === 'block' && (activeRunStates.has(run.state) || run.id === previewRunId)));
+  const document = useSyncExternalStore(session.subscribe, session.getSnapshot);
+  const blockBusy = document.runs.some(run => run.scope?.kind === 'block' && (activeRunStates.has(run.state) || run.id === previewRunId));
   useEffect(() => { onBlockSelectionBusyChange(blockBusy); return () => onBlockSelectionBusyChange(false); }, [blockBusy, onBlockSelectionBusyChange]);
+  // Выбор диалога: если его последний ран блочный и работает или ждёт уточнения, композер получает область этого рана.
+  const selectThread = useCallback(id => {
+    onThreadChange(id);
+    const run = id ? session.getSnapshot().runs.filter(item => item.threadId === id).at(-1) : null, draft = run?.result || run?.checkpoint;
+    if (run?.scope?.kind === 'block' && run.scope.editScope && (activeRunStates.has(run.state) || (run.state === 'failed' && draft?.needsClarification))) {
+      const key = JSON.stringify(run.scope.editScope.targets ?? run.id);
+      chat.registerBlockScope(key, run.scope.editScope);
+      onLaunch({ id: crypto.randomUUID(), scope: { kind: 'block', targetId: key }, mentions: [], editScope: run.scope.editScope });
+    }
+  }, [chat, onLaunch, onThreadChange, session]);
+  // Редактор открывается на последнем неархивном диалоге сессии (как прежняя панель), если диалог ещё не выбран.
+  const decided = useRef(false); if (threadId !== null) decided.current = true;
+  useEffect(() => {
+    let alive = true;
+    session.ready.then(() => {
+      if (!alive || decided.current) return;
+      decided.current = true;
+      const latest = session.getSnapshot().threads.filter(item => !item.archived).at(-1);
+      if (latest) selectThread(latest.id);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Панель «Selected blocks»: область последнего незавершённого блочного рана диалога, иначе область запуска «Edit selected» для нового диалога.
+  const threadRuns = threadId ? document.runs.filter(run => run.threadId === threadId) : [], latestRun = threadRuns.at(-1);
+  const blockScope = latestRun?.scope?.kind === 'block' && !['applied', 'discarded'].includes(latestRun.state) ? latestRun.scope.editScope
+    : !latestRun && launch?.scope?.kind === 'block' ? launch.editScope : null;
+  const hasDraft = Boolean(latestRun?.result || latestRun?.checkpoint), { state, locale } = chatContext;
+  const blockScopeStale = Boolean(blockScope && ((selectionStale && !hasDraft) || (blockScope.locale && blockScope.locale !== locale)
+    || !blockScopeBaseMatches(blockScope, { files: state.files, rawValues: state.translations?.[locale] || {} })));
   const actions = [{ id: 'create', label: t('Create a new project'), danger: true, onSelect: ({ text }) => onCreateProject(text) }, { id: 'settings', label: t('AI settings'), onSelect: onSettings }];
-  const footer = <>{aiSettings && !aiSettings.configured && <InlineNotice tone="info" actions={<Button variant="ghost" size="sm" onClick={onSettings}>{t('AI settings')}</Button>}>{t('Connect your key in Settings to start.')}</InlineNotice>}
+  const footer = <>{previewRunId && <div className="ai-preview-exit" role="status"><span>{t('The preview shows this conversation’s draft. Your project files are unchanged.')}</span><Button variant="ghost" size="sm" onClick={() => chatContext.onPreviewDraft?.(null)}>{t('Show current project')}</Button></div>}
+    {blockScope && <BlockScopePanel scope={blockScope} stale={blockScopeStale} t={t} />}
+    <label className="ai-use-on-page"><input type="checkbox" className="checkbox checkbox-xs" checked={useOnPage} onChange={event => onUseOnPageChange(event.target.checked)} />{t('Use attached images on the page')}</label>
+    {aiSettings && !aiSettings.configured && <InlineNotice tone="info" actions={<Button variant="ghost" size="sm" onClick={onSettings}>{t('AI settings')}</Button>}>{t('Connect your key in Settings to start.')}</InlineNotice>}
     <small className="conversation-disclosure">{t('Messages and referenced files are sent to your selected AI provider. Review changes before applying.')}</small></>;
   if (!mounted) return null;
   // StudioUiProvider внешнего хоста (portalContainer embed) сохраняется; иначе язык и перекрытия берутся из хоста.
   return <StudioUiProvider language={ui?.language ?? host.language} messages={ui?.messages ?? host.messages} portalContainer={ui?.portalContainer}>
     <Suspense fallback={<div className="studio-chat-loading" aria-busy="true" aria-label={t('Loading conversations…')}><Skeleton shape="block" height="100%" /><div><Skeleton shape="line" width="40%" /><Skeleton shape="block" /><Skeleton shape="block" height={96} /></div></div>}>
-      <StudioChat port={chat.port} threadId={threadId || ''} onThreadChange={onThreadChange} launch={launch} disabled={disabled} actions={actions} footer={footer} />
+      <StudioChat port={chat.port} threadId={threadId || ''} onThreadChange={selectThread} launch={launch} disabled={disabled} actions={actions} footer={footer} />
     </Suspense>
   </StudioUiProvider>;
+}
+
+// Замороженное выделение блоков (разметка прежней ConversationPanel): подписи экземпляров, охват шаблонных правок, устаревшее выделение.
+function BlockScopePanel({ scope, stale, t }) {
+  const instances = scope.blockInstances || [], sources = scope.intent === 'content' ? [] : blockScopeSourceTargets(scope);
+  return <div className="ai-block-scope" role="group" aria-label={t('Selected blocks')}><strong>{t('Editing selected blocks')}</strong>
+    <ul>{(scope.selectedInstanceIds || []).map(id => <li key={id}>{instances.find(block => block.id === id)?.label || id}</li>)}</ul>
+    <p className="field-help">{t('Describe a template change or content for the selected instance. Shared fields outside your selection are protected.')}</p>
+    {scope.intent && <p className="field-help" role="status">{scope.intent === 'content' ? t('Content changes affect only the selected instances.') : t('Template changes affect all {count} instances of these source blocks.', { count: instances.filter(instance => sources.some(source => source.id === instance.sourceId)).length })}</p>}
+    {stale && <p className="inline-error" role="alert">{t('The selected preview is outdated. Refresh preview and select the blocks again.')}</p>}
+  </div>;
 }

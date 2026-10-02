@@ -436,6 +436,12 @@ fieldset:disabled { opacity: .65; }
 .conversation-mention-list > button[aria-selected="true"], .conversation-mention-list > button:focus-visible { background: color-mix(in srgb, var(--color-primary) 10%, var(--ui-surface)); }
 .conversation-mention-list > p { color: var(--ui-muted); font-size: .8rem; padding: .65rem; margin: 0; }
 .conversation-disclosure { color: var(--ui-muted); font-size: .7rem; }
+.ai-preview-exit { display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex-wrap: wrap; font-size: .75rem; color: var(--ui-muted); }
+.ai-block-scope { max-height: 7rem; overflow: auto; font-size: .75rem; padding: .5rem .65rem; border: 1px solid var(--ui-border); border-radius: var(--radius-field); background: var(--ui-surface); }
+.ai-block-scope ul { margin: .25rem 0; padding-left: 1.1rem; }
+.ai-block-scope p { margin: .25rem 0 0; }
+.ai-use-on-page { display: inline-flex; align-items: center; gap: .4rem; font-size: .75rem; color: var(--ui-muted); }
+@media (pointer: coarse) { .ai-use-on-page { min-height: 44px; } }
 .ai-attachments--compact { margin: .25rem 0 0; }
 .ai-attachments--compact .ai-attachment-list { margin: .35rem 0; }
 .ai-attachments--compact .ai-attachment-list li { padding: .4rem; font-size: .75rem; }

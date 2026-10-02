@@ -7,10 +7,27 @@ import { FILE_ATTACHMENT_ACCEPT, FILE_ATTACHMENT_LIMITS, readFileAiAttachments }
 const uuid = () => globalThis.crypto?.randomUUID?.() || `t-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 const iso = value => new Date(value ?? Date.now()).toISOString();
 const attachmentBytes = a => a.text ? new TextEncoder().encode(a.text).length : Math.floor(((a.dataUrl || '').split(',')[1] || '').length * 3 / 4);
-// Ссылки рантайма: { kind: 'section', id, page, label } или файл { path, kind: 'text' | 'binary' }.
-const toMentionTarget = item => item?.kind === 'section'
-  ? { kind: 'section', id: `${item.page}:${item.id}`, label: item.label || item.id, detail: item.page }
+// Ссылки рантайма: { kind: 'section', id, page, label, path?, start?, end?, content? } или файл { path, kind: 'text' | 'binary' }.
+// Исходник секции (path, start, end, content) сохраняется: openTarget открывает файл на секции.
+export const toMentionTarget = item => item?.kind === 'section'
+  ? { kind: 'section', id: `${item.page}:${item.id}`, label: item.label || item.id, detail: item.page,
+    ...(item.path ? { path: item.path } : {}), ...(Number.isInteger(item.start) && Number.isInteger(item.end) ? { start: item.start, end: item.end } : {}), ...(typeof item.content === 'string' ? { content: item.content } : {}) }
   : { kind: 'file', id: typeof item === 'string' ? item : item.path, label: typeof item === 'string' ? item : item.path };
+/**
+ * Куда ведёт ссылка на секцию (как ConversationPanel.openReference): исходник на начале секции, если фрагмент
+ * не изменился; иначе файл целиком; без файла — null (секция открывается вкладкой содержимого).
+ */
+export function sectionSource(target, files = {}) {
+  if (!target?.path || !Object.hasOwn(files, target.path)) return null;
+  const source = files[target.path];
+  if (typeof source === 'string' && Number.isInteger(target.start) && typeof target.content === 'string' && source.slice(target.start, target.end) === target.content) {
+    const before = source.slice(0, target.start).split('\n');
+    return { path: target.path, selection: { lineNumber: before.length, column: before.at(-1).length + 1 } };
+  }
+  return { path: target.path };
+}
+/** Изображения-вложения отправки получают useOnPage по переключателю «Use attached images on the page». */
+export const markUseOnPage = (attachments, useOnPage) => attachments.map(item => item.mime?.startsWith('image/') ? { ...item, useOnPage: Boolean(useOnPage) } : item);
 const sectionId = section => `${section.page}:${section.id}`;
 
 /**
@@ -25,7 +42,8 @@ export function keptDraft(run, { locale, t }) {
 
 /**
  * ChatPort над сессией conversation-runtime. `context()` возвращает актуальные state, locale, sectionFrame,
- * settings, onApplyRun(run, { allowStaleContext }), onPreviewDraft(draft | null), onKeepDraft(run), onOpenFile(path), onOpenSection(target), t.
+ * settings, onApplyRun(run, { allowStaleContext }), onPreviewDraft(draft | null), previewRunId (ран черновика в превью), useOnPage,
+ * onKeepDraft(run), onOpenFile(path, selection?), onOpenSection(target), t.
  * Возвращает { port, registerBlockScope, invalidateConflicts, refresh }: три последних — внутренний API адаптера, в ChatPort их нет.
  */
 export function createChatPort(session, context) {
@@ -48,6 +66,8 @@ export function createChatPort(session, context) {
   };
   const runsOf = threadId => document().runs.filter(run => run.threadId === threadId);
   const findRun = runId => document().runs.find(run => run.id === runId);
+  // Превью черновика этого рана закрывается после Discard и Apply: превью возвращается к текущему проекту.
+  const closePreview = runId => { const { previewRunId, onPreviewDraft } = context(); if (previewRunId === runId) onPreviewDraft?.(null); };
 
   function assistantMessage(run) {
     const { t, state, locale } = context(), conflict = conflicts.get(run.id);
@@ -132,7 +152,7 @@ export function createChatPort(session, context) {
       const text = (input.text || '').trim(), files = input.attachments || [];
       if (!text && !files.length) throw new PolicyError(t('Type a message or attach a file.'));
       // File[] контракта → форма рантайма { id, name, mime, dataUrl | text } с лимитами и валидацией file-ai-attachments.js
-      const attachments = files.length ? await readFileAiAttachments(files) : [];
+      const attachments = files.length ? markUseOnPage(await readFileAiAttachments(files), context().useOnPage) : [];
       const sections = sectionsOf(state, locale, sectionFrame);
       let mentions = [];
       for (const target of input.mentions || []) {
@@ -152,10 +172,10 @@ export function createChatPort(session, context) {
       pendingThreads.delete(threadId); notify();
     },
     async stop(runId) { await session.stop(runId); },
-    async discard(runId) { conflicts.delete(runId); await session.discard(runId); notify(); },
+    async discard(runId) { conflicts.delete(runId); await session.discard(runId); closePreview(runId); notify(); },
     async apply(runId, { allowStaleContext = false } = {}) {
       const run = findRun(runId); if (!run) throw new Error(context().t('This result no longer exists.'));
-      try { const saved = await context().onApplyRun(run, { allowStaleContext }); await session.markApplied(runId, saved?.revision); conflicts.delete(runId); notify(); }
+      try { const saved = await context().onApplyRun(run, { allowStaleContext }); await session.markApplied(runId, saved?.revision); conflicts.delete(runId); closePreview(runId); notify(); }
       catch (error) { if (error?.code === 'conflict') { conflicts.set(runId, error); notify(); return; } throw error; }
     },
     async previewDraft(runId) {
@@ -177,9 +197,12 @@ export function createChatPort(session, context) {
     async archiveThread(threadId, archived) { await session.archive(threadId, archived); },
     async deleteThread(threadId) { messageStores.delete(threadId); if (pendingThreads.delete(threadId)) { notify(); return; } await session.deleteThread(threadId); },
     mentionTargets,
-    openTarget(target) { if (target.kind === 'file') context().onOpenFile?.(target.id); else context().onOpenSection?.(target); },
+    openTarget(target) {
+      const { onOpenFile, onOpenSection, state } = context(), source = target.kind === 'section' ? sectionSource(target, state?.files) : null;
+      if (target.kind === 'file') onOpenFile?.(target.id); else if (source) onOpenFile?.(source.path, source.selection); else onOpenSection?.(target);
+    },
     attachmentLimits: { count: FILE_ATTACHMENT_LIMITS.count, bytesPerFile: FILE_ATTACHMENT_LIMITS.bytes, bytesTotal: FILE_ATTACHMENT_LIMITS.total, accept: FILE_ATTACHMENT_ACCEPT },
-    get capabilities() { const { settings, onKeepDraft } = context(); return { scopes: ['project', 'file', 'block', 'content', 'discussion'], cost: false, previewDraft: true, generateImages: Boolean(settings?.imageModel), conflictReview: true, keepDraft: Boolean(onKeepDraft) }; },
+    get capabilities() { const { settings, onKeepDraft } = context(); return { scopes: ['project', 'file', 'block', 'content', 'discussion'], clarifyWhileRunning: true, cost: false, previewDraft: true, generateImages: Boolean(settings?.imageModel), conflictReview: true, keepDraft: Boolean(onKeepDraft) }; },
     dispose() { for (const close of [...streams]) close(); disposed = true; unsubscribe(); listeners.clear(); messageStores.clear(); },
   };
   return {

@@ -160,7 +160,7 @@ async function selectBlocks({ multiple = false } = {}) {
   if (multiple) { await page.locator('.preview-selection-chip').filter({ hasText: 'order_form' }).waitFor(); assert.equal(await page.locator('.preview-selection-chip').count(), 2); }
   await page.getByRole('button', { name: 'Edit selected', exact: true }).click();
   await blockScopeChip().waitFor();
-  if (!process.env.T7_SKIP_BLOCKSCOPE) await page.getByRole('group', { name: 'Selected blocks', exact: true }).waitFor({ timeout: 5000 }); // T7_SKIP
+  await page.getByRole('group', { name: 'Selected blocks', exact: true }).waitFor({ timeout: 5000 });
   assert.equal(await chat().composer.getByRole('button', { name: 'Generate images', exact: true }).count(), 0, 'Scoped mode exposes no image-generation action');
 }
 async function generate(prompt) {
@@ -220,10 +220,10 @@ try {
     const baseline = await saved();
     assert.equal(await page.locator('.preview-selection-toggle').getAttribute('aria-pressed'), 'false');
     await selectBlocks({ multiple: true });
-    const frozenLabels = process.env.T7_SKIP_BLOCKSCOPE ? [] : await page.locator('.ai-block-scope li').allTextContents(); // T7_SKIP
+    const frozenLabels = await page.locator('.ai-block-scope li').allTextContents();
     await preview().locator('[data-block="Comment body"]').nth(1).click();
     await page.waitForFunction(() => document.querySelectorAll('.preview-selection-chip').length === 1);
-    if (!process.env.T7_SKIP_BLOCKSCOPE) assert.deepEqual(await page.locator('.ai-block-scope li').allTextContents(), frozenLabels, 'Changing preview selection retains the explicit assistant restriction'); // T7_SKIP
+    assert.deepEqual(await page.locator('.ai-block-scope li').allTextContents(), frozenLabels, 'Changing preview selection retains the explicit assistant restriction');
     await blockScopeChip().waitFor(); assert.equal(await chat().scope.getByRole('button', { name: 'Project', pressed: true, exact: true }).count(), 0, 'Preview selection changes never silently switch to ordinary editing');
     await previewSettled();
     await preview().locator('[data-block="Comment body"]').nth(1).click();
@@ -249,7 +249,7 @@ try {
     // A source fragment is shared: editing one rendered body updates all three.
     intent = 'source'; await selectBlocks();
     await generate('Add the source-improved class to the shared comment body template for every instance. Preserve all content.');
-    if (!process.env.T7_SKIP_BLOCKSCOPE) await page.getByText('Template changes affect all 3 instances of these source blocks.', { exact: true }).waitFor({ timeout: 5000 }); // T7_SKIP
+    await page.getByText('Template changes affect all 3 instances of these source blocks.', { exact: true }).waitFor({ timeout: 5000 });
     await page.waitForFunction(() => document.querySelector('iframe.is-visible'));
     await preview().locator('.source-improved').nth(2).waitFor();
     assert.equal(await preview().locator('.source-improved').count(), 3);
@@ -296,12 +296,10 @@ try {
     await latestRun().getByRole('button', { name: 'Discard', exact: true }).click();
     await latestRun().and(page.locator('[data-run-status="discarded"]')).waitFor();
     // Discarding the previewed draft returns the preview to the current project.
-    if (!process.env.T7_SKIP_DISCARD_PREVIEW) { // T7_SKIP
-      await page.getByText('Conversation draft · Project files unchanged', { exact: true }).waitFor({ state: 'detached', timeout: 5000 });
-      await page.locator('.preview-panel').scrollIntoViewIfNeeded();
-      await previewSettled();
-      await preview().getByText(expectedValues.comments[1].body, { exact: true }).waitFor();
-    } // T7_SKIP
+    await page.getByText('Conversation draft · Project files unchanged', { exact: true }).waitFor({ state: 'detached', timeout: 5000 });
+    await page.locator('.preview-panel').scrollIntoViewIfNeeded();
+    await previewSettled();
+    await preview().getByText(expectedValues.comments[1].body, { exact: true }).waitFor();
     assert.deepEqual(await saved(), sourceSaved, 'Discard preserves saved source and raw values');
     const discardedCalls = report.providerRequests.length;
     await page.reload(); await editorReady(); await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
