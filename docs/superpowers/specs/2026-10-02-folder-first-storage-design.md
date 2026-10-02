@@ -381,15 +381,39 @@ Both run on the joined document before the threads are written to the new root.
 2. **Studio storage:** `storage/*`, the directory store, folder-first create/open flows, and removal of the IndexedDB library and the mode gates.
 3. **Embed:** the HTTP store, the `conversationsEnabled` gate, and an embed release.
 
-## Notes for phase 2 (from phase 1 reviews)
+## Spec amendments (phases 2–3)
 
-- **Thread ids become file names.** `{threadId}.json` must encode ids, for example with `encodeURIComponent`. Ids created by the runtime are UUIDs or `initial-*-<len>-<hash>`.
-- **Monotonic revisions across delete and recreate.** The adapter reuses a joined thread when its revision is unchanged. The directory store must therefore never restart a dialogue's revision at 1 after a delete followed by a recreate with the same id; one way is to keep a revision tombstone. The memory store restarts revisions in that case. Deterministic initial-request ids make this reachable, though it is rare.
-- **The directory store's `watch` must pass the contract with a real `openPeer`.** A `BroadcastChannel` never hears its own posts.
-- **GC in the directory store must not run while thread files are unreadable.** If a file cannot be parsed, its references are unknown, so GC must skip that pass instead of deleting the blobs that file may reference.
-- **GC has no follow-up timer.** A deletion that happens inside the 5-minute window is collected on the next qualifying save or load.
-- **Renaming, or sending a clarification to, a dialogue that is streaming in another window** can lose all 4 attempts. These are real per-dialogue conflicts, and the error goes to the caller. Consider retrying the rename after the run's next checkpoint.
-- **Dead guards remain.** `recoveredConflict` checks in `conversation-runtime.js`, `useEditorProject.js` and `chat-cards.js`, and the unused "AI recovery" strings in `studio-translations.json`, can be removed together with Studio's `ai.recovery` wiring.
+Decisions taken while planning and reviewing phases 2–3. They override earlier text where they conflict. Full details are in `docs/superpowers/plans/2026-10-02-folder-first-storage-phase2-3.md`.
+
+| # | Amendment |
+|---|---|
+| A1 | **ZIP import always creates a new project root.** Studio never overwrites an existing folder on import. The archive's `projectId` is kept, unless Studio already knows it; then the import becomes a copy with a new `projectId`, remapped history and interrupted runs. "Continue into an existing folder", `ProjectImportDialog` and the transfer journal are removed. |
+| A2 | **User templates live in their own folders.** Choosing a template card asks for access in its own click. **Create** then opens the picker. |
+| A3 | **Recent registry.** IndexedDB `trafficops-studio-recent`, store `projects`, holds `{ projectId, name, kind, handle, lastOpenedAt }`. OPFS projects are not registered; they are listed from `navigator.storage.getDirectory()/projects/*`. |
+| A4 | **Save as template** asks the App for a new root as its first step, then writes `kind: "template"` with files and values and no history. |
+| A5 | **Locks.** `navigator.locks` when present, otherwise an in-process FIFO mutex. Locks are not reentrant and are never nested. |
+| A6 | **Thread file names.** `<id>.json` when the id matches `/^[a-z0-9_-]{1,200}$/`, otherwise `~<sha256 of UTF-8 id>.json`. This avoids case-insensitive collisions, characters illegal on Windows, and the 255-byte name limit. Dialogue ids must be well-formed UTF-16. ZIP entries use the same rule (`conversationThreadFileName`). |
+| A7 | **AI everywhere.** The AI port is always enabled. `installedDisplayMode()` only drives install and update chrome. |
+| A8 | **User activation.** `pickFolder()` and `requestAccess()` run synchronously at the start of a click or key press. Select-change events are never used for permission prompts. **Import ZIP** and **Duplicate** (when the source needs permission) get an explicit second button. Attachments are read only after the root has been chosen. |
+| A9 | **Permissions outside Chromium.** A missing `queryPermission`/`requestPermission` counts as `granted`. `storageMode()` is async and returns `unsupported` when OPFS rejects or when `FileSystemFileHandle` has no `createWritable`. OPFS mode calls `navigator.storage.persist()` and shows a backup note. |
+| A10 | **Tombstones.** `.trafficops/conversation-tombstones.json` keeps revisions monotonic across delete and recreate. The CAS compares only the file revision; the tombstone only raises the new revision. The memory reference store follows the same rule. |
+| A11 | **Meta writes are patches.** Only `preparePendingAi`, `storePendingAi` and `claimPendingAi` touch `pendingAi`. `createProjectMeta(root, meta, { pendingAi })` writes the brief together with the new project. The brief follows the runtime's attachment rules (`validateFileAiAttachments`). A malformed brief is dropped with `pendingAiError` instead of blocking the project. |
+| A12 | **Adapter rebase** (phase 1 review). A stale copy is rebased per dialogue against the base snapshot it was built on (the last 16 are kept). Refreshes are coalesced. GC runs at most every 5 minutes and off the save path. |
+| A13 | **HTTP id alphabet.** Dialogue ids sent to a host must match `/^[A-Za-z0-9_-]{1,160}$/`, and blob hashes must be 64 lowercase hex characters. The client verifies `getBlob` hashes. A missing `If-Match` should be answered with 428. |
+| A14 | **Embed gate.** Without `conversationsEnabled: true` the embed exposes no AI. A dropped `initialAiRequest` logs a console warning. Embed version is 0.7.0. |
+| A15 | **Folder host.** `createFolderHost` (`editor/src/hosts/FolderHost.js`) is async and resolves the brief before the runtime starts. Folders are normalised on save. After a partial save failure the next open rebuilds from disk. A lost folder is reported as access loss (DOMException in `cause`), not as a conflict. History ZIPs are packed in `archive.worker.js`, and limits are checked before any blob is read. |
+
+### Notes for phase 2 (from phase 1 reviews): status
+
+| Note | Status |
+|---|---|
+| Thread ids as file names | done (A6) |
+| Monotonic revisions across delete and recreate | done (A10) |
+| Directory-store `watch` passes the contract with a real `openPeer` | done (node, and real OPFS in `storage-contract-browser`) |
+| GC skips passes while thread files are unreadable | done; GC also keeps `pendingAi` blob refs |
+| GC follow-up timer | deferred: collected on the next qualifying save or load |
+| Rename or clarification against a dialogue streaming in another window | deferred: a real per-dialogue conflict, surfaced to the caller |
+| Dead `recoveredConflict` guards and "AI recovery" strings | removed |
 
 ## Follow-ups (separate specs)
 
