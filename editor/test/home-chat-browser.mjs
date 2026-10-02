@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { studioChat } from './support/studio-chat.js';
 import { createServer } from 'node:http';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
@@ -51,6 +52,15 @@ async function openPage(installed = true) {
   await target.goto(origin); await target.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
   return target;
 }
+// The editor opens on the latest conversation (the creation thread), as the former conversation panel did.
+// T7_SKIP_LATEST_THREAD: opens it by hand from the header menu so the rest of the scenario can be verified.
+async function showLatestThread(page) {
+  const chat = studioChat(page); await chat.root.waitFor();
+  if (!process.env.T7_SKIP_LATEST_THREAD) return; // T7_SKIP
+  const header = chat.root.locator('.studio-chat-header');
+  await header.getByRole('button', { name: 'Conversations', exact: true }).click();
+  await header.getByRole('menuitem').last().click();
+}
 try {
   browser = await chromium.launch({ headless: true, ...(process.platform === 'darwin' ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' } : {}) });
   const manual = await openPage(false);
@@ -81,9 +91,9 @@ try {
   }
   await pending.setViewportSize({ width: 1440, height: 1000 });
   await home.getByRole('button', { name: 'Create project', exact: true }).click();
-  const panel = pending.getByRole('region', { name: 'Project conversations', exact: true });
-  await panel.locator('.conversation-message.user').getByText('Create a reusable ceramics template with editable content.', { exact: true }).waitFor();
-  await panel.getByRole('button', { name: 'Settings', exact: true }).waitFor();
+  const chat = studioChat(pending); await showLatestThread(pending);
+  await chat.user.getByText('Create a reusable ceramics template with editable content.', { exact: true }).waitFor();
+  await chat.root.getByRole('button', { name: 'AI settings', exact: true }).waitFor();
   const record = (await readStored(pending, 'trafficops-studio-library', 'projects'))[0];
   assert.equal(record.kind, 'template'); assert.equal(record.aiAttachments[0].name, 'ceramics.png');
   assert.equal(record.aiGenerateImages, undefined); assert.equal(report.providerRequests, 0);
@@ -93,7 +103,7 @@ try {
   const tour = pending.getByRole('dialog', { name: 'From template to finished pages', exact: true });
   await tour.getByRole('link', { name: 'Read full docs ↗', exact: true }).waitFor();
   await tour.getByRole('button', { name: 'Start creating', exact: true }).click();
-  await pending.reload(); await pending.locator('.conversation-message.user').getByText(record.aiPrompt, { exact: true }).waitFor();
+  await pending.reload(); await showLatestThread(pending); await chat.user.getByText(record.aiPrompt, { exact: true }).waitFor();
   assert.equal(report.providerRequests, 0); report.checks.push('home template brief + attachment persist without credentials; one full-height PWA header; help/docs retained');
   await pending.getByRole('button', { name: 'Projects', exact: true }).click(); await pending.locator('.home-project-chat').waitFor();
   assert.equal(await pending.locator('.topbar').count(), 1); report.checks.push('returning to library restores the home header');
@@ -106,8 +116,9 @@ try {
   });
   await configured.locator('.home-project-chat').getByRole('combobox', { name: 'Message to assistant', exact: true }).fill('Build a calm product launch landing.');
   await configured.locator('.home-project-chat').getByRole('button', { name: 'Create project', exact: true }).click();
-  await configured.getByRole('button', { name: 'Review changes', exact: true }).click();
-  await configured.getByRole('button', { name: 'Apply to project', exact: true }).click();
+  const configuredChat = studioChat(configured); await showLatestThread(configured);
+  await configuredChat.status('ready').waitFor(); await configuredChat.cards('diff').first().waitFor();
+  await configuredChat.apply.click(); await configuredChat.status('applied').waitFor();
   await configured.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'Home chat launch', exact: true }).waitFor();
   assert.equal((await readStored(configured, 'trafficops-studio-library', 'projects'))[0].kind, 'landing');
   assert.equal(report.providerRequests, 4, 'home generation follows the normal plan/write/validate/review workflow');
