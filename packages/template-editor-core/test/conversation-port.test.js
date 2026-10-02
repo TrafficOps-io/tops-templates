@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createStoreConversationPort } from '../src/conversation-port.js';
 import { createMemoryConversationStore } from '../src/memory-conversation-store.js';
-import { sha256Hex } from '../src/conversation-format.js';
+import { blobReferences, sha256Hex } from '../src/conversation-format.js';
 
 const big = 'y'.repeat(6000);
 const png = `data:image/png;base64,${Buffer.from('png bytes').toString('base64')}`;
@@ -13,7 +13,17 @@ function addThread(document, id, extra = {}) {
   document.runs.push({ id: `${id}-r`, threadId: id, messageId: `${id}-m`, state: 'ready', updatedAt: 1, owner: { sessionId: 's', expiresAt: 1 }, base: { files: { 'index.html': big, 'logo.png': new Uint8Array([7]) } } });
   return document;
 }
+function addUniqueThread(document, id) {
+  addThread(document, id);
+  document.threads.at(-1).messages[0].attachments[0].dataUrl = `data:image/png;base64,${Buffer.from(`png ${id}`).toString('base64')}`;
+  Object.assign(document.runs.at(-1).base.files, { 'index.html': id + big, 'logo.png': new Uint8Array(Buffer.from(id)) });
+  return document;
+}
 const port = (store, options = {}) => createStoreConversationPort(store, { projectId: 'p', ...options });
+// Another window's raw thread write (no blobs), as a store watcher sees it.
+const writeRaw = (store, id, revision) => store.writeThread({ schema: 1, id, revision, title: id, messages: [], runs: [] }, { expectedRevision: revision });
+const conflict = error => error.code === 'conflict';
+const within = (promise, ms = 1000) => { let timer; return Promise.race([promise, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('blocked')), ms); })]).finally(() => clearTimeout(timer)); };
 
 test('save then load in a fresh adapter round-trips the document, with revisions carried on threads', async () => {
   const store = createMemoryConversationStore(), a = port(store);
@@ -44,15 +54,179 @@ test('a thread changed by another adapter fails the per-thread CAS; an untouched
   assert.deepEqual(ok.threads.map(thread => thread.title), ['A edit', 'B t2']);
 });
 
-test('a watch refresh between copy and save rejects the stale save without deleting the new thread', async () => {
+test('a stale copy that only adds a thread saves on top of a thread created elsewhere, which survives', async () => {
   const store = createMemoryConversationStore(), a = port(store), b = port(store);
   const seen = []; a.subscribe(document => seen.push(document.revision));
   const copy = await a.load();
   await b.save(addThread(await b.load(), 'from-b'), { expectedRevision: 1 });
   await settle();
   assert.equal(seen.length, 1); assert.ok(seen[0] > copy.revision, 'the counter increases on a watch refresh');
-  await assert.rejects(a.save({ ...copy, threads: [], runs: [] }, { expectedRevision: copy.revision }), error => error.code === 'conflict');
-  assert.deepEqual((await store.listThreads()).map(thread => thread.id), ['from-b']);
+  const saved = await a.save(addThread(copy, 't-a'), { expectedRevision: copy.revision });
+  assert.deepEqual(saved.threads.map(thread => thread.id), ['t-a', 'from-b']);
+  assert.deepEqual(saved.runs.map(run => run.threadId), ['t-a', 'from-b']);
+  assert.deepEqual((await store.listThreads()).map(thread => thread.id).sort(), ['from-b', 't-a']);
+});
+
+test('a stale copy does not resurrect a dialogue deleted elsewhere', async () => {
+  const store = createMemoryConversationStore(), a = port(store), b = port(store);
+  a.subscribe(() => {});
+  const copy = await a.save(addThread(addThread(await a.load(), 't1'), 't2'), { expectedRevision: 1 });
+  const fromB = await b.load();
+  await b.save({ ...fromB, threads: fromB.threads.filter(thread => thread.id !== 't1'), runs: fromB.runs.filter(run => run.threadId !== 't1') }, { expectedRevision: fromB.revision });
+  await settle();
+  const change = structuredClone(copy); change.threads[1].title = 'A edit';
+  const saved = await a.save(change, { expectedRevision: copy.revision });
+  assert.deepEqual(saved.threads.map(thread => [thread.id, thread.title]), [['t2', 'A edit']]);
+  assert.deepEqual(saved.runs.map(run => run.threadId), ['t2']);
+  assert.deepEqual((await store.listThreads()).map(thread => thread.id), ['t2']);
+});
+
+test('another window writing frequently does not starve a save from an older copy', async () => {
+  const store = createMemoryConversationStore(), a = port(store);
+  a.subscribe(() => {});
+  const copy = await a.save(addThread(await a.load(), 't-a'), { expectedRevision: 1 });
+  for (let revision = 0; revision < 20; revision++) await writeRaw(store, 'from-b', revision);
+  await settle();
+  const change = structuredClone(copy); change.threads[0].title = 'A edit';
+  const saved = await a.save(change, { expectedRevision: copy.revision });
+  assert.deepEqual(saved.threads.map(thread => [thread.id, thread.title, thread.revision]), [['t-a', 'A edit', 2], ['from-b', 'from-b', 20]]);
+});
+
+test('a stale copy that changes a thread another window also changed fails the store CAS', async () => {
+  const store = createMemoryConversationStore(), a = port(store), b = port(store);
+  a.subscribe(() => {});
+  const copy = await a.save(addThread(await a.load(), 't1'), { expectedRevision: 1 });
+  const fromB = await b.load(); fromB.threads[0].title = 'B edit';
+  await b.save(fromB, { expectedRevision: fromB.revision }); await settle();
+  const change = structuredClone(copy); change.threads[0].title = 'A edit';
+  await assert.rejects(a.save(change, { expectedRevision: copy.revision }), conflict);
+  assert.equal((await store.listThreads())[0].title, 'B edit');
+});
+
+test('a copy older than the last 16 publications is rejected as too stale', async () => {
+  const store = createMemoryConversationStore(), a = port(store), published = [];
+  a.subscribe(document => published.push(document));
+  const oldest = await a.load();
+  for (let revision = 0; revision < 17; revision++) { await writeRaw(store, 'from-b', revision); await settle(); }
+  assert.equal(published.length, 17); assert.equal(published.at(-1).revision, oldest.revision + 17);
+  await assert.rejects(a.save(addThread(structuredClone(oldest), 't-a'), { expectedRevision: oldest.revision }), conflict);
+  await assert.rejects(a.save(addThread(structuredClone(published[0]), 't-a'), { expectedRevision: published[0].revision }), conflict);
+  // The 16th most recent publication is still accepted and rebased onto the latest state.
+  const saved = await a.save(addThread(structuredClone(published[1]), 't-a'), { expectedRevision: published[1].revision });
+  assert.deepEqual(saved.threads.map(thread => [thread.id, thread.revision]), [['from-b', 17], ['t-a', 1]]);
+});
+
+test('a burst of watch notifications during a save coalesces into at most two listings', async () => {
+  const inner = createMemoryConversationStore(), gate = deferred(); let lists = 0, gated = false;
+  const store = { ...inner, async writeThread(thread, options) { if (gated) await gate.promise; return inner.writeThread(thread, options); },
+    async listThreads() { lists++; return inner.listThreads(); } };
+  let notify; store.watch = listener => { notify = listener; return () => {}; };
+  const a = port(store); a.subscribe(() => {});
+  const document = await a.load(); gated = true;
+  const pending = a.save(addThread(document, 't1'), { expectedRevision: document.revision });
+  await settle(); lists = 0;
+  for (let index = 0; index < 50; index++) notify();
+  gate.resolve(); await pending; await settle();
+  assert.ok(lists <= 2, `${lists} listings`);
+});
+
+test('a refresh joins only the dialogue that changed elsewhere', async () => {
+  const inner = createMemoryConversationStore(), fetched = [];
+  const store = { ...inner, async getBlob(sha) { fetched.push(sha); return inner.getBlob(sha); } };
+  const seeder = port(inner);
+  await seeder.save(['t1', 't2', 't3'].reduce(addUniqueThread, await seeder.load()), { expectedRevision: 1 });
+  const a = port(store); let latest; a.subscribe(document => { latest = document; });
+  await a.load(); fetched.length = 0;
+  const b = port(inner), fromB = await b.load(), run = fromB.runs.find(item => item.threadId === 't2');
+  run.updatedAt = 2; run.base.files['extra.txt'] = 'z'.repeat(5000);
+  await b.save(fromB, { expectedRevision: fromB.revision }); await settle();
+  const files = await inner.listThreads(), refs = id => blobReferences(files.find(file => file.id === id));
+  assert.ok(fetched.length > 0);
+  assert.deepEqual(fetched.filter(sha => !refs('t2').has(sha)), []);
+  assert.equal(latest.runs.find(item => item.threadId === 't2').base.files['extra.txt'].length, 5000);
+  assert.equal(latest.runs.find(item => item.threadId === 't1').base.files['index.html'], `t1${big}`);
+});
+
+test('a transient blob read failure keeps the previous version visible until a later refresh recovers', async () => {
+  const inner = createMemoryConversationStore(); let failNext = false;
+  const store = { ...inner, async getBlob(sha) { if (failNext) { failNext = false; throw new Error('EIO'); } return inner.getBlob(sha); } };
+  const seeder = port(inner); await seeder.save(addThread(await seeder.load(), 't1'), { expectedRevision: 1 });
+  const a = port(store), seen = []; a.subscribe(document => seen.push(document));
+  await a.load();
+  const b = port(inner), fromB = await b.load(); fromB.threads[0].title = 'B edit';
+  failNext = true;
+  await b.save(fromB, { expectedRevision: fromB.revision }); await settle();
+  assert.equal(failNext, false, 'the refresh hit the failure');
+  assert.ok(seen.every(document => document.threads.some(thread => thread.id === 't1')), 'the dialogue is never hidden');
+  await writeRaw(inner, 'other', 0); await settle();
+  assert.deepEqual(seen.at(-1).threads.map(thread => [thread.id, thread.title, thread.revision]), [['t1', 'B edit', 2], ['other', 'other', 1]]);
+  assert.equal(seen.at(-1).storageWarning, undefined);
+});
+
+test('a partial commit followed by an I/O error is published by the next refresh', async () => {
+  const inner = createMemoryConversationStore(); let fail = false;
+  const store = { ...inner, async writeThread(thread, options) { if (fail && thread.id === 't2') throw new Error('disk full'); return inner.writeThread(thread, options); } };
+  const a = port(store), seen = []; a.subscribe(document => seen.push(document));
+  const seeded = await a.save(addThread(addThread(await a.load(), 't1'), 't2'), { expectedRevision: 1 });
+  await settle(); seen.length = 0; fail = true;
+  const change = structuredClone(seeded); for (const thread of change.threads) thread.title = 'edited';
+  await assert.rejects(a.save(change, { expectedRevision: seeded.revision }), /disk full/);
+  await settle();
+  assert.equal(seen.length, 1);
+  assert.deepEqual(seen[0].threads.map(thread => [thread.id, thread.title, thread.revision]), [['t1', 'edited', 2], ['t2', 't2', 1]]);
+});
+
+test('damaged files without an ID cause no extra notifications or conflicts on the adapter’s own saves', async () => {
+  const inner = createMemoryConversationStore();
+  const store = { ...inner, async listThreads() { return [...await inner.listThreads(), { schema: 1, revision: 1, messages: 'x', runs: [] }, { schema: 1, revision: 2, messages: 'y', runs: [] }]; } };
+  const a = port(store), seen = []; a.subscribe(document => seen.push(document.revision));
+  let document = await a.load();
+  assert.match(document.storageWarning, /could not be opened/);
+  document = await a.save(addThread(document, 't1'), { expectedRevision: document.revision }); await settle();
+  for (let beat = 2; beat < 5; beat++) {
+    const next = structuredClone(document); next.runs[0].owner.expiresAt = beat;
+    document = await a.save(next, { expectedRevision: document.revision }); await settle();
+  }
+  assert.equal(seen.length, 4, 'one notification per save');
+  assert.match(document.storageWarning, /could not be opened/);
+});
+
+test('garbage collection runs at most once per five minutes', async () => {
+  const inner = createMemoryConversationStore(); let collections = 0, clock = 0;
+  const store = { ...inner, async collectGarbage() { collections++; return inner.collectGarbage(); } };
+  const a = port(store, { now: () => clock });
+  let document = await a.load(); await settle();
+  assert.equal(collections, 1, 'the first load collects');
+  document = await a.save(['t1', 't2', 't3'].reduce(addUniqueThread, document), { expectedRevision: document.revision });
+  const drop = current => ({ ...current, threads: current.threads.slice(1), runs: current.runs.slice(1) });
+  clock = 6 * 60 * 1000;
+  document = await a.save(drop(document), { expectedRevision: document.revision });
+  clock += 60 * 1000;
+  document = await a.save(drop(document), { expectedRevision: document.revision });
+  await settle();
+  assert.equal(collections, 2);
+  assert.deepEqual(document.threads.map(thread => thread.id), ['t3']);
+});
+
+test('a collectGarbage that never settles blocks neither load nor save', async () => {
+  const inner = createMemoryConversationStore(); let clock = 0, collections = 0;
+  const store = { ...inner, collectGarbage() { collections++; return new Promise(() => {}); } };
+  const a = port(store, { now: () => clock });
+  let document = await within(a.load());
+  document = await within(a.save(addThread(document, 't1'), { expectedRevision: document.revision }));
+  clock = 6 * 60 * 1000;
+  document = await within(a.save({ ...document, threads: [], runs: [] }, { expectedRevision: document.revision }));
+  document = await within(a.save(addThread(document, 't2'), { expectedRevision: document.revision }));
+  assert.equal(collections, 2); assert.deepEqual(document.threads.map(thread => thread.id), ['t2']);
+});
+
+test('a failing refresh is reported to onError', async () => {
+  const inner = createMemoryConversationStore(), errors = []; let fail = false;
+  const store = { ...inner, async listThreads() { if (fail) throw new Error('EACCES'); return inner.listThreads(); } };
+  const a = port(store, { onError: error => errors.push(error.message) }); a.subscribe(() => {});
+  await a.load(); fail = true;
+  await writeRaw(inner, 'from-b', 0); await settle();
+  assert.deepEqual(errors, ['EACCES']);
 });
 
 test('a heartbeat-only change reaches the store without hashing any blob; a message status change also persists', async () => {
@@ -67,13 +241,15 @@ test('a heartbeat-only change reaches the store without hashing any blob; a mess
   assert.equal(reread.runs[0].owner.expiresAt, 999); assert.equal(reread.threads[0].messages[0].status, 'interrupted');
 });
 
-test('removing a thread deletes it and collects its blobs', async () => {
-  const store = createMemoryConversationStore({ graceMs: 0 }), a = port(store);
+test('removing a thread deletes it and collects its blobs in the background', async () => {
+  let clock = 0; const store = createMemoryConversationStore({ graceMs: 0 }), a = port(store, { now: () => clock });
   const saved = await a.save(addThread(await a.load(), 't1'), { expectedRevision: 1 });
   const [file] = await store.listThreads(), sha = file.runs[0].base.files['index.html'].$trafficopsBlob;
   await new Promise(resolve => setTimeout(resolve, 5));
+  clock = 6 * 60 * 1000;
   await a.save({ ...saved, threads: [], runs: [] }, { expectedRevision: saved.revision });
   assert.equal((await store.listThreads()).length, 0);
+  await settle();
   await assert.rejects(store.getBlob(sha));
 });
 
@@ -91,15 +267,14 @@ test('a watch refresh that arrives during save I/O runs after the save completes
   assert.deepEqual(order, ['write', 'list']);
 });
 
-test('a failed save bumps the local counter so the runtime reloads', async () => {
+test('a failed save leaves the copy valid: re-saving the same document succeeds', async () => {
   const inner = createMemoryConversationStore(); let fail = true;
   const store = { ...inner, async writeThread(thread, options) { if (fail) throw new Error('disk full'); return inner.writeThread(thread, options); } };
   const a = port(store), document = await a.load();
   await assert.rejects(a.save(addThread(structuredClone(document), 't1'), { expectedRevision: 1 }), /disk full/);
   fail = false;
-  await assert.rejects(a.save(addThread(structuredClone(document), 't1'), { expectedRevision: 1 }), error => error.code === 'conflict');
-  const reloaded = await a.load();
-  assert.equal((await a.save(addThread(reloaded, 't1'), { expectedRevision: reloaded.revision })).threads.length, 1);
+  const saved = await a.save(addThread(structuredClone(document), 't1'), { expectedRevision: 1 });
+  assert.deepEqual(saved.threads.map(thread => [thread.id, thread.revision]), [['t1', 1]]);
 });
 
 test('the adapter’s own writes never make a watch refresh read blobs', async () => {
@@ -162,6 +337,7 @@ test('a blob collected after another window dropped it is re-uploaded on the nex
   const sha = (await store.listThreads())[0].runs[0].base.files['index.html'].$trafficopsBlob, fromB = await b.load();
   await new Promise(resolve => setTimeout(resolve, 5));
   await b.save({ ...fromB, threads: [], runs: [] }, { expectedRevision: fromB.revision });
+  await store.collectGarbage();
   await assert.rejects(store.getBlob(sha));
   const saved = await a.save(addThread(structuredClone(fromA), 't2'), { expectedRevision: fromA.revision });
   assert.ok(saved.threads.some(thread => thread.id === 't2'));
