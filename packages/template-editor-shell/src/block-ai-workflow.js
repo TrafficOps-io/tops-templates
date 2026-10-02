@@ -5,6 +5,7 @@ import { createOpenRouterTemplateModel } from './openrouter-template-agent.js';
 import { TEMPLATE_SYSTEM_PROMPT, parseStructuredContent } from './openrouter-ai.js';
 import { AI_RUN_TIMEOUT_MS, AI_STEP_TIMEOUT_MS } from './ai-limits.js';
 import { runWithAiProviderRecovery } from './ai-provider-recovery.js';
+import { runRetryBudget } from './ai-retry-policy.js';
 import { normalizeAiProviderError } from './ai-provider-errors.js';
 import { createAiDiagnosticFetch } from './ai-request-diagnostics.js';
 import { byteSize } from './project.js';
@@ -29,19 +30,22 @@ function abortableRun(operation, signal) {
   });
 }
 
-function callTimeout(options) {
+const MAX_BLOCK_CALLS = 32;
+
+function callTimeout(options, retry) {
   options.signal?.throwIfAborted();
   const remaining = options.deadline - Date.now();
   if (remaining <= 0) throw new Error('AI generation exceeded its run time limit. Completed changes are retained.');
-  if (options.calls.count >= 32) throw new Error('Selected-block editing reached its provider call limit. Completed changes are retained.');
+  if (!retry && options.calls.count >= MAX_BLOCK_CALLS) throw new Error('Selected-block editing reached its provider call limit. Completed changes are retained.');
   return { totalMs: remaining, stepMs: Math.min(remaining, AI_STEP_TIMEOUT_MS) };
 }
 
 async function runCall(agent, options, messages) {
-  let toolStarted = false, sawOutput = false;
-  return runWithAiProviderRecovery(async () => {
-    const timeout = callTimeout(options), step = ++options.calls.count, started = Date.now();
-    options.notify({ type: 'step', step });
+  let toolStarted = false, sawOutput = false, step;
+  // A pre-output retry keeps its step number and does not spend the call limit.
+  return runWithAiProviderRecovery(async attempt => {
+    const timeout = callTimeout(options, attempt > 0), started = Date.now();
+    if (!attempt) { step = ++options.calls.count; options.notify({ type: 'step', step }); }
     let result;
     if (!options.stream) result = await agent.generate({ messages, abortSignal: options.signal, timeout });
     else {
@@ -191,7 +195,7 @@ async function runWorkflow(options) {
   const takeInstructions = () => { const pending = callerTakeInstructions?.() || []; additions.push(...pending); return pending; };
   const notify = event => { if (!options.signal?.aborted) options.onProgress?.(event); };
   const diagnosticFetch = createAiDiagnosticFetch(options.fetchImpl || globalThis.fetch, { onProgress: notify, apiKey: options.apiKey });
-  options = { ...options, attachments, deadline, calls: { count: 0 }, retryState: options.retryState || { attempted: false }, notify, takeInstructions };
+  options = { ...options, attachments, deadline, calls: { count: 0 }, retryBudget: runRetryBudget(MAX_BLOCK_CALLS), retryState: options.retryState || { attempted: false }, notify, takeInstructions };
   options.languageModel ||= createOpenRouterTemplateModel({ ...options, diagnosticFetch });
   const currentBrief = () => prompt + (additions.length ? `\nLatest clarifications:\n${additions.join('\n')}` : '');
   takeInstructions();

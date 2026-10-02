@@ -4,6 +4,7 @@ import { MockLanguageModelV4 } from 'ai/test';
 import { simulateReadableStream } from 'ai';
 import { runBlockAiWorkflow } from '../src/block-ai-workflow.js';
 import { assertBlockDraftScope } from '../src/block-edit-scope.js';
+import { setAiRetrySleepForTesting } from '../src/ai-provider-recovery.js';
 
 const usage = { inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 5, text: 5, reasoning: 0 } };
 const call = (toolName, input) => ({ content: [{ type: 'tool-call', toolCallId: crypto.randomUUID(), toolName, input: JSON.stringify(input) }], finishReason: { unified: 'tool-calls', raw: 'tool_calls' }, usage, warnings: [] });
@@ -163,4 +164,20 @@ test('provider streaming accepts queued takeInstructions without recursion and k
   assert.equal(result.valid, true); assert.equal(result.values.comments[0].body, 'Provider first'); assert.equal(result.values.comments[1].body, 'Second');
   assert.equal(requests.length, 4); assert.ok(JSON.stringify(requests[0].messages).includes('Keep all authors unchanged.'));
   assert.ok(requests.slice(1).filter(request => !request.tools.some(item => item.function.name === 'submit_review')).every(request => !request.tools.some(item => item.function.name === 'replace_block')));
+});
+
+test('pre-output provider retries do not consume selected-block provider calls', async () => {
+  setAiRetrySleepForTesting(async () => {});
+  try {
+    const initial = setup(), events = [];
+    const responses = [plan('content'), call('set_block_value', { path: ['comments', 0, 'body'], value: 'Selected only' }), call('validate_draft', {}), review()];
+    const languageModel = new MockLanguageModelV4({ doGenerate: async () => {
+      if (languageModel.doGenerateCalls.length % 2) throw Object.assign(new Error('Provider temporarily unavailable'), { statusCode: 503 });
+      return responses.shift();
+    } });
+    const result = await runBlockAiWorkflow({ ...initial, languageModel, onProgress: event => events.push(event) });
+    assert.equal(result.valid, true); assert.equal(result.steps, 4);
+    assert.equal(languageModel.doGenerateCalls.length, 8);
+    assert.deepEqual(events.filter(event => event.type === 'step').map(event => event.step), [1, 2, 3, 4]);
+  } finally { setAiRetrySleepForTesting(null); }
 });

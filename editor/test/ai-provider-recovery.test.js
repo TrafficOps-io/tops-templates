@@ -48,3 +48,14 @@ test('Retry-After is honored up to 20 seconds', async () => {
   await runWithAiProviderRecovery(async () => { if (++calls === 1) throw { statusCode: 503, message: 'Busy', responseHeaders: new Headers({ 'Retry-After': '2' }) }; return 'ok'; }, { sleep: async delay => { delays.push(delay); } });
   assert.deepEqual(delays, [2000]);
 });
+
+test('a shared run retry budget caps retries across requests and the callback sees its attempt index', async () => {
+  const retryBudget = { remaining: 4 }, attempts = [];
+  let calls = 0;
+  const flaky = () => runWithAiProviderRecovery(async attempt => { attempts.push(attempt); if (++calls % 2) throw { statusCode: 503, message: 'Unavailable' }; return 'ok'; }, { sleep: noWait, retryBudget });
+  for (let index = 0; index < 4; index++) assert.equal(await flaky(), 'ok');
+  assert.equal(retryBudget.remaining, 0);
+  assert.deepEqual(attempts, [0, 1, 0, 1, 0, 1, 0, 1]);
+  await assert.rejects(flaky(), /Unavailable/, 'an exhausted run budget stops a provider that keeps failing');
+  assert.equal(calls, 9);
+});

@@ -358,7 +358,7 @@ test('a rejected submission cannot obtain a fresh deadline for its correction', 
   assert.equal(model.doGenerateCalls.length, 1);
 });
 
-test('transport recovery and a schema correction share the two-call stage budget', async () => {
+test('a transport retry does not spend the stage budget, which still allows only one schema correction', async () => {
   const initial = setup(), retryState = { attempted: false };
   let attempts = 0;
   const model = new MockLanguageModelV4({ doGenerate: async () => {
@@ -368,7 +368,7 @@ test('transport recovery and a schema correction share the two-call stage budget
   await assert.rejects(runStudioAiWorkflow({ staged: true, ...initial, mode: 'content', prompt: 'Update the headline.', languageModel: model, validateDraft, retryState }), error => {
     assert.equal(error.code, 'AI_STAGE_SCHEMA_INVALID'); assert.match(error.message, /project is unchanged/i); return true;
   });
-  assert.equal(model.doGenerateCalls.length, 2, 'neither schema correction nor transport retry can add a third call');
+  assert.equal(model.doGenerateCalls.length, 3, 'one unbilled retry, the submission and its single correction');
 });
 
 for (const stage of ['submit_plan', 'submit_review']) test(`the streaming OpenRouter adapter corrects invalid ${stage} input and retains opaque reasoning history`, async () => {
@@ -525,17 +525,32 @@ test('every provider request gets its own bounded pre-output retries (three at m
   assert.deepEqual(events.filter(event => event.type === 'provider-recovery').map(event => event.attempt), [1, 1, 2, 3]);
 });
 
-test('a transient error on the twelfth content call cannot trigger a thirteenth paid request', async () => {
+test('a transient error on the twelfth content call is retried without spending a content call', async () => {
   const initial = setup(), events = [];
   const model = new MockLanguageModelV4({ doGenerate: async () => {
     const count = model.doGenerateCalls.length;
     if (count === 12) throw Object.assign(new Error('Provider temporarily unavailable'), { statusCode: 503 });
     return call('set_values', { values: { headline: `Updated headline ${count}` } });
   } });
-  await assert.rejects(generateContentDraft({ ...initial, prompt: 'Fill content.', languageModel: model, validateDraft, onProgress: event => events.push(event) }), /temporarily unavailable/);
-  assert.equal(model.doGenerateCalls.length, 12);
-  assert.equal(events.filter(event => event.type === 'provider-recovery').length, 0);
-  assert.ok(events.some(event => event.type === 'values-set' && event.values.headline === 'Updated headline 11'));
+  const result = await generateContentDraft({ ...initial, prompt: 'Fill content.', languageModel: model, validateDraft, onProgress: event => events.push(event) });
+  assert.equal(result.valid, false); assert.match(result.error, /step limit/);
+  assert.equal(model.doGenerateCalls.length, 13, 'twelve answered content calls plus one unbilled retry');
+  assert.equal(events.filter(event => event.type === 'provider-recovery').length, 1);
+  assert.deepEqual(events.filter(event => event.type === 'step').map(event => event.step), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  assert.equal(result.values.headline, 'Updated headline 13');
+});
+
+test('a rate-limited planner request keeps the schema-correction attempt', async () => {
+  const initial = setup(), events = [];
+  const responses = [call('submit_plan', { summary: 'Missing tasks.', tasks: [] }), plan(), call('set_values', { values: { headline: 'Polski tytuł' } }), done(), review()];
+  const model = new MockLanguageModelV4({ doGenerate: async () => {
+    if (model.doGenerateCalls.length === 1) throw Object.assign(new Error('Rate limited'), { statusCode: 429 });
+    return responses.shift();
+  } });
+  const result = await runStudioAiWorkflow({ staged: true, ...initial, mode: 'content', prompt: 'Write Polish content.', languageModel: model, validateDraft, onProgress: event => events.push(event) });
+  assert.equal(result.valid, true); assert.equal(result.values.headline, 'Polski tytuł');
+  assert.equal(events.filter(event => event.type === 'provider-recovery').length, 1);
+  assert.ok(events.some(event => event.type === 'validation' && event.code === 'AI_STAGE_SCHEMA_INVALID'));
 });
 
 test('literal document language reaches content planning and review without exposing template source', async () => {

@@ -10,6 +10,7 @@ import { byteSize, validateProject } from './project.js';
 import { AI_RUN_TIMEOUT_MS, AI_STEP_TIMEOUT_MS } from './ai-limits.js';
 import { aiProjectContext } from './ai-context.js';
 import { runWithAiProviderRecovery } from './ai-provider-recovery.js';
+import { runRetryBudget } from './ai-retry-policy.js';
 import { normalizeAiProviderError } from './ai-provider-errors.js';
 import { parseStructuredContent } from './openrouter-ai.js';
 import { createAiDiagnosticFetch } from './ai-request-diagnostics.js';
@@ -40,9 +41,11 @@ function callTimeout(options) {
 
 async function runCall(agent, options, onProgress) {
   let toolStarted = false, sawOutput = false;
-  return runWithAiProviderRecovery(async () => {
+  // Only the first attempt spends the call budget. Pre-output retries are not
+  // billed and draw from the run's shared retryBudget instead.
+  return runWithAiProviderRecovery(async attempt => {
     const timeout = callTimeout(options);
-    if (options.callBudget) {
+    if (options.callBudget && !attempt) {
       if (options.callBudget.remaining <= 0) throw new Error('Content generation reached its provider call limit. Completed changes are retained.');
       options.callBudget.remaining--;
     }
@@ -65,16 +68,16 @@ async function runCall(agent, options, onProgress) {
     if (failure) throw failure;
     const [text, steps, totalUsage] = await completion;
     return { text, steps, totalUsage };
-  }, { ...options, onProgress, canRetry: () => !toolStarted && !sawOutput && (!options.callBudget || options.callBudget.remaining > 0) });
+  }, { ...options, onProgress, canRetry: () => !toolStarted && !sawOutput });
 }
 
 async function structuredStage({ model, name, schema, instructions, prompt, attachments, signal, stream, onProgress, ...runtime }) {
   let submitted;
   const label = name === 'submit_review' ? 'a review' : 'a plan';
   const retained = name === 'submit_review' ? 'The completed draft is retained.' : 'Your project is unchanged.';
-  // A schema correction and transport recovery share two actual calls. These
-  // tools only submit results; neither attempt can replay writes or paid images.
-  const callBudget = { remaining: 2 };
+  // Two answered calls: the submission and one schema correction. Transport
+  // retries use a separate pool; these tools cannot replay writes or paid images.
+  const callBudget = { remaining: 2 }, retryBudget = runRetryBudget(2);
   const messages = [{ role: 'user', content: attachmentMessage(prompt, attachments) }];
   const stageProgress = event => onProgress?.(event.type === 'tool-start' && event.tool !== name ? { ...event, tool: 'unavailable_tool' } : event);
   const knownFields = new Set(Object.keys(schema.shape));
@@ -97,7 +100,7 @@ async function structuredStage({ model, name, schema, instructions, prompt, atta
   // The sole tool and validated submission enforce the stage's result locally.
   const agent = new ToolLoopAgent({ model, instructions: `${instructions}\nThis is a read-only ${name === 'submit_plan' ? 'planning' : 'review'} stage. The ONLY available tool is ${name}; call only ${name}. Website changes and image generation requested in the brief are writer actions and must never be attempted in this stage.\nKeep summary to 1–3 short sentences and fewer than 500 characters; do not repeat the brief or page copy. Keep each plan task to one short action and each review issue to one concise blocking mismatch. Preserve the full requested website content; these limits apply only to submission fields.\nFinish by calling ${name} with the completed result. Do not return the result as prose or JSON text.`, tools: { [name]: tool({ description: 'Submit the completed result.', inputSchema: schema, execute: async value => { submitted = value; return { ok: true }; } }) }, toolChoice: 'auto', stopWhen: stepCountIs(1), maxOutputTokens: 4000, maxRetries: 0, telemetry: { isEnabled: false } });
   for (let attempt = 0; attempt < 2; attempt++) {
-    const result = await runCall(agent, { ...runtime, callBudget, messages, signal, stream }, stageProgress);
+    const result = await runCall(agent, { ...runtime, callBudget, retryBudget, messages, signal, stream }, stageProgress);
     signal?.throwIfAborted();
     if (submitted) return submitted;
     let issues = [];
@@ -153,7 +156,7 @@ export async function generateContentDraft(options) {
   let files = { ...options.files }, values = structuredClone(options.values || {}), revision = 0;
   let emptyResponseRecovered = false, validatedRevision = -1, validatedDraft, finalIssueRevision = -1, textEmitted = false, stepText = false, checkedAt = null;
   const agentic = options.agentic === true, usedTools = new Set();
-  const callBudget = { remaining: 12 };
+  const callBudget = { remaining: 12 }, retryBudget = runRetryBudget(12);
   let mutationQueue = Promise.resolve();
   const enqueue = operation => { const task = mutationQueue.catch(() => {}).then(operation); mutationQueue = task; return task; };
   const notify = event => options.onProgress?.(event);
@@ -220,10 +223,8 @@ export async function generateContentDraft(options) {
     if (instructions.length) { validatedRevision = -1; notify({ type: 'instructions-received', count: instructions.length }); }
     notify({ type: 'step', step });
     const started = Date.now();
-    const callsBefore = callBudget.remaining;
     stepText = false;
-    const result = await runCall(agent, { ...runtimeOptions(options), callBudget, messages, signal: options.signal, stream: options.stream, emitText }, notify);
-    step += callsBefore - callBudget.remaining - 1;
+    const result = await runCall(agent, { ...runtimeOptions(options), callBudget, retryBudget, messages, signal: options.signal, stream: options.stream, emitText }, notify);
     for (const completed of result.steps) messages.push(...completed.response.messages);
     if (!options.stream && result.text) emitText(result.text);
     notify({ type: 'step-finished', step, seconds: Math.max(0, (Date.now() - started) / 1000) });

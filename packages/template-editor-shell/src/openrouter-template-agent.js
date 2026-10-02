@@ -8,6 +8,7 @@ import { completedFileInput } from './completed-file-input.js';
 import { attachmentMessage } from './ai-attachments.js';
 import { draftImageTool } from './ai-image-tool.js';
 import { runWithAiProviderRecovery } from './ai-provider-recovery.js';
+import { runRetryBudget } from './ai-retry-policy.js';
 import { normalizeAiProviderError } from './ai-provider-errors.js';
 import { createAiDiagnosticFetch } from './ai-request-diagnostics.js';
 import { createReasoningSafeOpenRouterModel } from './openrouter-reasoning-history.js';
@@ -332,7 +333,9 @@ export function createTemplateDraftAgent({ model, onProgress, initialFiles = {},
     const messages = [{ role: 'user', content: attachmentMessage(initialPrompt, attachments) }];
     const budget = typeof timeout === 'number' ? { totalMs: timeout, stepMs: AI_STEP_TIMEOUT_MS } : timeout;
     const deadline = Math.min(runDeadline, Date.now() + (budget.totalMs ?? AI_RUN_TIMEOUT_MS));
-    let received = 0, lastUpdate = 0, result, callAttempts = 0;
+    // Pre-output retries keep their step: they draw from a separate run pool.
+    let received = 0, lastUpdate = 0, result;
+    const retryBudget = runRetryBudget(MAX_AGENT_STEPS);
     let rejectedInputRevision = -1, entryCheckedRevision = -1, entrySchemaKnown = mode !== 'create', entryGuidanceSent = false, finalIssueRevision = -1, textEmitted = false;
     const usedTools = new Set();
     // A deterministic host check (e.g. requested images present) gets one model turn per revision.
@@ -363,7 +366,6 @@ export function createTemplateDraftAgent({ model, onProgress, initialFiles = {},
       notify({ type: 'step', step });
       try {
         result = await runWithAiProviderRecovery(async () => {
-          callAttempts++;
           call.timeout.totalMs = deadline - Date.now();
           if (stream) {
             let streamError;
@@ -400,12 +402,10 @@ export function createTemplateDraftAgent({ model, onProgress, initialFiles = {},
             const [text, totalUsage, completedSteps] = await completion;
             return { text, totalUsage, steps: completedSteps };
           } else return agent.generate(call);
-        }, { signal: abortSignal, deadline, retryState, onProgress: notify, apiKey,
+        }, { signal: abortSignal, deadline, retryState, retryBudget, onProgress: notify, apiKey,
           // An idle timeout keeps its own recovery below (complete batch input may be retained).
-          canRetry: safe => callAttempts < MAX_AGENT_STEPS && !toolStarted && !sawOutput && revision === stepRevision && !/upstream idle timeout/i.test(String(safe?.message || '')) });
-        step = callAttempts;
+          canRetry: safe => !toolStarted && !sawOutput && revision === stepRevision && !/upstream idle timeout/i.test(String(safe?.message || '')) });
       } catch (error) {
-        step = callAttempts;
         for (const id of openSteps) notify({ type: 'tool-step', id, status: 'error', detail: 'The response was interrupted before this tool ran.' });
         const idleTimeout = /upstream idle timeout exceeded/i.test(String(error?.message || error));
         if (!idleTimeout || abortSignal?.aborted) throw error;

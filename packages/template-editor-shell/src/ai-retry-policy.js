@@ -6,6 +6,11 @@ export const RETRYABLE_STATUSES = Object.freeze([408, 429, 500, 502, 503, 504, 5
 export const MAX_PROVIDER_RETRIES = 3;
 export const RETRY_AFTER_CAP_MS = 20000;
 export const RETRY_BACKOFF_MS = Object.freeze([1000, 3000, 7000]);
+/**
+ * Absolute safety cap for one run: retries do not spend step/call budgets, so
+ * a provider that keeps failing before output is bounded by this shared pool.
+ */
+export function runRetryBudget(calls) { return { remaining: MAX_PROVIDER_RETRIES * calls }; }
 const JITTER = 0.2;
 
 /**

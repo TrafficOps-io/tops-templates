@@ -11,12 +11,14 @@ import { AI_INITIAL_SOURCE_BYTES, AI_RUN_TIMEOUT_MS, AI_STEP_TIMEOUT_MS } from '
 import { byteSize, isTemplate, safePath, validateProject } from './project.js';
 import { createAiDiagnosticFetch } from './ai-request-diagnostics.js';
 import { runWithAiProviderRecovery } from './ai-provider-recovery.js';
+import { runRetryBudget } from './ai-retry-policy.js';
 import { normalizeAiProviderError } from './ai-provider-errors.js';
 
 export const FILE_AI_MAX_SOURCE_BYTES = AI_INITIAL_SOURCE_BYTES;
 export const FILE_AI_MAX_DRAFT_BYTES = 200 * 1024;
 const reviewSchema = z.object({ approved: z.boolean(), summary: z.string().max(1200), issues: z.array(z.string().max(800)).max(8) }).strict();
 const imagePromptSchema = z.object({ prompt: z.string().min(1).max(5600), summary: z.string().max(600) }).strict();
+const MAX_FILE_CALLS = 32;
 const imagePath = /\.(?:png|jpe?g|webp)$/i;
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 const copyFiles = files => Object.fromEntries(Object.entries(files).map(([path, content]) => [path, typeof content === 'string' ? content : content.slice()]));
@@ -68,20 +70,25 @@ async function validateFileDraft(options, content) {
 }
 
 async function runCall(agent, options, messages) {
-  return runWithAiProviderRecovery(async () => {
+  let step;
+  // A pre-output retry keeps its step number and does not spend the call limit.
+  return runWithAiProviderRecovery(async attempt => {
     checkAbort(options);
     const remaining = options.deadline - Date.now();
     if (remaining <= 0) throw new Error('AI file editing exceeded its run time limit.');
-    const started = Date.now(), step = ++options.calls.count;
-    if (step > 32) throw new Error('AI file editing reached its provider call limit.');
-    options.notify({ type: 'step', step });
+    const started = Date.now();
+    if (!attempt) {
+      if (options.calls.count >= MAX_FILE_CALLS) throw new Error('AI file editing reached its provider call limit.');
+      step = ++options.calls.count;
+      options.notify({ type: 'step', step });
+    }
     // Every tool only changes a local draft. A transport retry therefore cannot
     // replay filesystem writes or paid image requests.
     const result = await agent.generate({ messages, abortSignal: options.signal, timeout: { totalMs: remaining, stepMs: Math.min(remaining, AI_STEP_TIMEOUT_MS) } });
     checkAbort(options);
     options.notify({ type: 'step-finished', step, seconds: Math.max(0, (Date.now() - started) / 1000) });
     return result;
-  }, { signal: options.signal, deadline: options.deadline, retryState: options.retryState, apiKey: options.apiKey, onProgress: options.notify });
+  }, { signal: options.signal, deadline: options.deadline, retryState: options.retryState, retryBudget: options.retryBudget, apiKey: options.apiKey, onProgress: options.notify });
 }
 
 function selectedImagePart(content, path, label) {
@@ -184,7 +191,7 @@ async function runWorkflow(options) {
   if (typeof options.validateDraft !== 'function') throw new Error('The host does not support AI draft validation.');
   const attachments = validateFileAiAttachments(options.attachments || []).map(item => ({ ...item, useOnPage: false }));
   const originalFiles = copyFiles(options.files), values = structuredClone(options.values || {});
-  options = { ...options, path, prompt, attachments, originalFiles, values, kind: support.kind, calls: { count: 0 }, retryState: options.retryState || { attempted: false } };
+  options = { ...options, path, prompt, attachments, originalFiles, values, kind: support.kind, calls: { count: 0 }, retryBudget: runRetryBudget(MAX_FILE_CALLS), retryState: options.retryState || { attempted: false } };
   const diagnosticFetch = createAiDiagnosticFetch(options.fetchImpl || globalThis.fetch, { onProgress: options.notify, apiKey: options.apiKey });
   options.languageModel ||= createOpenRouterTemplateModel({ ...options, diagnosticFetch });
   let imagePrompt, content = originalFiles[path], result, review, feedback = '';
