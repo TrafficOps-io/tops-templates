@@ -24,7 +24,7 @@
 | D3 | **Recent registry:** a new IndexedDB database `trafficops-studio-recent` with store `projects`, keyPath `projectId`, holding `{ projectId, name, kind, handle, lastOpenedAt }`. The old `trafficops-template-studio` database is abandoned and not migrated. OPFS projects are not registered; they are listed from `navigator.storage.getDirectory()/projects/*`. |
 | D4 | **Save as template** (lifecycle action) calls an App-provided `createProjectRoot()` as the first step of the click flow. It writes a new project with `kind: "template"` there, copying files and values without history. |
 | D5 | **Locks:** `navigator.locks` when present, otherwise an in-process FIFO mutex keyed by name. Node has no `navigator.locks`; tests use the fallback. |
-| D6 | **Thread file names:** `encodeURIComponent(id) + '.json'`. **Tombstones:** `.trafficops/conversations/tombstones.json` maps a deleted id to its last revision, so revisions never restart after a delete and recreate. It is written under the conversations lock. |
+| D6 | **Superseded by spec A6 (file names) and D10/A10 (tombstones).** Original text: **Thread file names:** `encodeURIComponent(id) + '.json'`. **Tombstones:** `.trafficops/conversations/tombstones.json` maps a deleted id to its last revision, so revisions never restart after a delete and recreate. It is written under the conversations lock. |
 | D7 | **The AI port is always enabled.** `createStudioAiPort` loses `isEnabled`. `installedDisplayMode()` remains only for PWA install and update chrome. |
 
 ---

@@ -42,7 +42,7 @@ The embedded editor (`HttpHost`) reuses the same IndexedDB conversation store, s
 
 | Topic | Decision |
 |---|---|
-| Browsers without `showDirectoryPicker` | OPFS fallback at `navigator.storage.getDirectory()/projects/{projectId}/`. Minimums are Safari / iOS 26 and Firefox 111, the first versions with `FileSystemFileHandle.createWritable()`. Detect support by checking `'createWritable' in FileSystemFileHandle.prototype`, not `getDirectory`, because Safari 15.2–18 has `getDirectory` but cannot write from the main thread. Unsupported browsers see an "Update your browser" screen; there is no worker `createSyncAccessHandle` fallback |
+| Browsers without `showDirectoryPicker` | OPFS fallback at `navigator.storage.getDirectory()/projects/{uuid}/`: each root gets a random UUID name, and the `projectId` lives only in its `project.json` (a rekeyed project keeps its folder). Minimums are Safari / iOS 26 and Firefox 111, the first versions with `FileSystemFileHandle.createWritable()`. Detect support by checking `'createWritable' in FileSystemFileHandle.prototype`, not `getDirectory`, because Safari 15.2–18 has `getDirectory` but cannot write from the main thread. Unsupported browsers see an "Update your browser" screen; there is no worker `createSyncAccessHandle` fallback |
 | Tab vs PWA | One mode. Every `installedDisplayMode()` gate for storage and AI is dropped. The PWA is only window chrome, install/update and offline |
 | Existing IDB project data | Abandoned, with no migration code |
 | Remaining IndexedDB | Device-level, non-project data only: the `recent` handle registry, and OpenRouter settings (`trafficops-template-studio-ai`; secrets never enter a project folder) |
@@ -60,8 +60,9 @@ The embedded editor (`HttpHost`) reuses the same IndexedDB conversation store, s
 └── .trafficops/
     ├── project.json             identity, revisions, pendingAi
     ├── values.json              parameter values (unchanged; PWApps ProjectArchive reads it)
+    ├── conversation-tombstones.json   last revision of deleted dialogues (A10); ignored on ZIP import
     └── conversations/
-        ├── {threadId}.json      one dialogue and its runs
+        ├── {threadId}.json      one dialogue and its runs (file name rule: A6)
         └── blobs/
             └── {sha256}         raw bytes, no extension
 ```
@@ -71,13 +72,12 @@ The embedded editor (`HttpHost`) reuses the same IndexedDB conversation store, s
 It keeps the existing `validatePortableMetadata` fields: `schema`, `projectId`, `kind`, `name`, `contentRevision`, `metadataRevision`, `createdAt`, `sourceTemplateId`, `contentHash` and `appliedAiRuns`.
 
 `metadataRevision` counts only changes to identity metadata (`name`, `kind`). It no longer mirrors the conversation revision, and these writers change:
-- `StudioHost.js:96` and `:123` stop writing `currentHistory.revision` / `document.revision` into it.
-- `portable-project.js:74` stops writing `document.revision` into it.
-- `portable-project.js:71` stops comparing the whole-document `conversations.revision`. On a ZIP "Continue project" import, the history is merged per thread with the same per-thread CAS, through the adapter.
+- `FolderHost` (`editor/src/hosts/FolderHost.js`) never writes a conversation revision into it.
+- A ZIP import never merges into an existing project (A1), so no whole-document `conversations.revision` is compared.
 
 Conversation freshness is tracked per thread only.
 
-The fields that `validateStudioProject` holds today (`aiPrompt`, `aiAttachments`, `aiGenerateImages`, `aiStarted`) move into an optional `pendingAi: { id, prompt, mode, attachments, generateImages }`. Its attachments are blob references. `StudioHost` exposes `pendingAi` as `host.ai.initialRequest = { id, prompt, mode, generateImages, attachments, autoStart: true, claim }`. The attachments come with their blob references resolved back to `{ id, name, mime, dataUrl, useOnPage }`. Apart from `attachments`, this is the shape `HttpHost` already passes (`{ ...initialAiRequest, mode, claim }`). `claim()` runs under the `project-meta` lock. If `pendingAi.id` matches, it removes `pendingAi` from `project.json` and returns `true`; otherwise it returns `false`. The runtime's existing guard (`run.initialClaim`, `conversation-runtime.js:354`) then gives the current semantics:
+The fields that `validateStudioProject` holds today (`aiPrompt`, `aiAttachments`, `aiGenerateImages`, `aiStarted`) move into an optional `pendingAi: { id, prompt, mode, attachments, generateImages }`. Its attachments are blob references. `FolderHost` exposes `pendingAi` as `host.ai.initialRequest = { id, prompt, mode, generateImages, attachments, autoStart: true, claim }`. The attachments come with their blob references resolved back to `{ id, name, mime, dataUrl, useOnPage }`. Apart from `attachments`, this is the shape `HttpHost` already passes (`{ ...initialAiRequest, mode, claim }`). `claim()` runs under the `project-meta` lock. If `pendingAi.id` matches, it removes `pendingAi` from `project.json` and returns `true`; otherwise it returns `false`. The runtime's existing guard (`run.initialClaim`, `conversation-runtime.js:354`) then gives the current semantics:
 - A queued run that has not been claimed yet resumes after a crash.
 - An already-claimed request reports "already started, continue explicitly", and the prompt is never sent twice.
 
@@ -102,13 +102,13 @@ The fields that `validateStudioProject` holds today (`aiPrompt`, `aiAttachments`
 
 ### Blob references
 
-`splitThread` replaces two kinds of values with `{ "$trafficopsBlob": "<sha256>", "encoding": "<e>", "size": <bytes> }`:
+`splitThread` replaces these values with `{ "$trafficopsBlob": "<sha256>", "encoding": "<e>", "size": <bytes> }`; a `dataUrl` reference also carries `"mime"` (from the data URL), so the join rebuilds it exactly:
 
 | Location | Value | `encoding` |
 |---|---|---|
 | Any `files` map in a run snapshot (`base`, `starting`, `checkpoint`, `result`), any depth | string ≥ 4 KiB | `utf8` |
 | Same | `Uint8Array` | `bytes` |
-| Any attachment object (`{ mime, dataUrl }`) in messages, runs or `pendingAi` | `dataUrl` | `dataUrl`; the blob holds the decoded bytes, and `mime` stays on the attachment |
+| Any attachment object (`{ mime, dataUrl }`) in messages or runs | `dataUrl` | `dataUrl`; the blob holds the decoded bytes, and the reference carries the data URL's `mime` |
 | Anywhere else | `Uint8Array` | `bytes` |
 
 `joinThread` restores the original type exactly. The round-trip is required to be lossless (property-tested). Identical snapshot files across runs, and images reused as references, are stored once.
@@ -213,8 +213,8 @@ It is exported so hosts can run it.
 
 | Module | Responsibility | Replaces |
 |---|---|---|
-| `roots.js` | `chooseFolder()`: picker plus the empty / existing-project / create-subfolder decision. Also `createOpfsRoot(projectId)`, `listOpfsProjects()` and permission checks | parts of `directory-projects.js` |
-| `recent.js` | IDB registry `{ projectId, name, kind, handle, lastOpenedAt }`, kept in the existing `trafficops-template-studio` database | `listDirectoryProjects`, `rememberDirectoryProject` |
+| `roots.js` | `pickFolder()`, `classifyFolder()` (empty / project / files), `createSubfolder()`, `createOpfsRoot(uuid)`, `listOpfsRoots()`, `deleteOpfsRoot()` and permission checks. The empty / existing-project / create-subfolder decision is `chooseRoot()` in `editor/src/folder-choice.js` | parts of `directory-projects.js` |
+| `recent.js` | IDB registry `{ projectId, name, kind, handle, lastOpenedAt }` in its own database `trafficops-studio-recent` (A3); OPFS opens are recorded in `localStorage` | `listDirectoryProjects`, `rememberDirectoryProject` |
 | `write.js` | The only caller of `createWritable()`. It writes one file atomically: the swap file commits on `close()` | scattered writers |
 | `files.js` | Project tree read, and `sync(previous, next)` with external-change detection (`ConflictError`) | `readDirectoryProject`, `syncDirectoryProject` |
 | `project-meta.js` | Read/write of `project.json` and `values.json` under `navigator.locks` `trafficops-project-meta:{projectId}` | `read/writeProjectMetadata`, `read/writeProjectSettings` |
@@ -234,7 +234,7 @@ It is exported so hosts can run it.
 - the IndexedDB parts of `studio-conversations.js` and `directory-projects.js`
 - the `installedDisplayMode()` checks in `App.jsx` and `createStudioAiPort`
 
-`app-mode.js` stays for PWA chrome only. `StudioHost` becomes the only Studio host and always receives a directory handle, either real or OPFS.
+`app-mode.js` stays for PWA chrome only. `FolderHost` is the only Studio host and always receives a directory handle, either real or OPFS.
 
 ### `editor/embedded/src/` (HttpHost)
 
@@ -271,16 +271,16 @@ Hosts own GC of unreferenced blobs. When `initial` lacks `conversationsEnabled: 
    - Not empty, no `project.json`: offer "Create subfolder `{slug}`" or "Choose another".
 3. `AbortError`: nothing changes, and the prompt input stays.
 4. Generate the `projectId`. Write the starter or template files, `values.json` and `project.json` (with `pendingAi` for a home prompt).
-5. Register in `recent`, then mount `StudioHost`.
+5. Register in `recent`, then mount `FolderHost`.
 6. For a home prompt, run the AI kickoff, and clear `pendingAi` after the kickoff run is persisted.
 
 "From template" copies files and values without conversations. A user template is a project with `kind: "template"`. Built-in templates stay bundled.
 
-**Home list** is `recent` plus `listOpfsProjects()`, sorted by `lastOpenedAt`. Opening a project calls `requestPermission()` inside the click.
+**Home list** is `recent` plus `listOpfsRoots()` (`listKnownProjects`), sorted by `lastOpenedAt`. Opening a project calls `requestPermission()` inside the click.
 
-**Duplicate `projectId`.** A folder copied in Finder or cloned twice has the same `projectId`, which would collide on lock names, the `BroadcastChannel` and `recent`. When a folder is opened, `recent` is searched for another entry with the same `projectId`. If that entry's handle is still accessible and `isSameEntry` is false, Studio says "This folder is a copy of {name}" and offers one action, "Make independent". That action:
+**Duplicate `projectId`.** A folder copied in Finder or cloned twice has the same `projectId`, which would collide on lock names, the `BroadcastChannel` and `recent`. When a folder is opened, the known projects (`recent` and OPFS) are searched for another entry with the same `projectId`. If that entry's handle is still accessible and `isSameEntry` is false, Studio says "This folder is a copy of {name}" and offers one action, "Make independent". That action:
 - writes a new `projectId` to `project.json`;
-- rewrites every thread through `cloneConversationDocument`, which remaps the ids and interrupts active runs;
+- rewrites every thread through `remapConversation`, which remaps the ids and interrupts active runs;
 - registers the folder as a new `recent` entry.
 
 Cancelling leaves the folder closed.
@@ -311,9 +311,9 @@ The ZIP mirrors the folder layout: `.trafficops/conversations/*.json` and `.traf
 | `.trafficops/conversations/**` entries | counted separately against the in-memory document limit (512 MiB expanded), for both export and import |
 | History opt-out | the existing control stays. It is the way to export a small ZIP that also fits the 20 MiB host import limit (PWApps `import`) |
 
-Import of the new layout:
-- **Continue:** `interruptImportedRuns`.
-- **Copy:** remap every identifier with `cloneConversationDocument`.
+Import of the new layout always creates a new root (A1):
+- **Kept projectId:** `interruptImportedRuns`.
+- **Copy** (Studio already knows the projectId): remap every identifier with `remapConversation`.
 
 Both run on the joined document before the threads are written to the new root.
 
@@ -322,7 +322,7 @@ Both run on the joined document before the threads are written to the new root.
 | Situation | Behaviour |
 |---|---|
 | Permission denied, or the folder was moved or deleted | Editor goes read-only with a "Folder unavailable" banner. "Reconnect" picks a folder and requires a matching `projectId`; "Remove from list" is the other option |
-| A user file changed outside Studio | Autosave stops; banner with "Reload" and "Overwrite" (current behaviour) |
+| A user file changed outside Studio | Autosave stops; banner with "Reload saved project" and "Save a copy…"; nothing is overwritten |
 | A thread revision conflicts | The runtime reloads the whole document and retries the change, up to 4 attempts (current `mutate` behaviour). The composer draft is kept |
 | A blob write fails | That thread is not written, and the run is marked failed with "Retry" |
 | A thread file fails validation | Skipped, with a `storageWarning`. The file is never deleted |
@@ -397,7 +397,7 @@ Decisions taken while planning and reviewing phases 2–3. They override earlier
 | A8 | **User activation.** `pickFolder()` and `requestAccess()` run synchronously at the start of a click or key press. Select-change events are never used for permission prompts. **Import ZIP** and **Duplicate** (when the source needs permission) get an explicit second button. Attachments are read only after the root has been chosen. |
 | A9 | **Permissions outside Chromium.** A missing `queryPermission`/`requestPermission` counts as `granted`. `storageMode()` is async and returns `unsupported` when OPFS rejects or when `FileSystemFileHandle` has no `createWritable`. OPFS mode calls `navigator.storage.persist()` and shows a backup note. |
 | A10 | **Tombstones.** `.trafficops/conversation-tombstones.json` keeps revisions monotonic across delete and recreate. The CAS compares only the file revision; the tombstone only raises the new revision. The memory reference store follows the same rule. |
-| A11 | **Meta writes are patches.** Only `preparePendingAi`, `storePendingAi` and `claimPendingAi` touch `pendingAi`. `createProjectMeta(root, meta, { pendingAi })` writes the brief together with the new project. The brief follows the runtime's attachment rules (`validateFileAiAttachments`). A malformed brief is dropped with `pendingAiError` instead of blocking the project. |
+| A11 | **Meta writes are patches.** Only project creation and `claimPendingAi` touch `pendingAi`: `createProjectInRoot` encodes the brief (`encodePendingAi`), writes its blobs, and `createProjectMeta(root, meta, { pendingAi })` writes it together with the new project. The brief follows the runtime's attachment rules (`validateFileAiAttachments`). A malformed brief is dropped with `pendingAiError` instead of blocking the project. |
 | A12 | **Adapter rebase** (phase 1 review). A stale copy is rebased per dialogue against the base snapshot it was built on (the last 16 are kept). Refreshes are coalesced. GC runs at most every 5 minutes and off the save path. |
 | A13 | **HTTP id alphabet.** Dialogue ids sent to a host must match `/^[A-Za-z0-9_-]{1,160}$/`, and blob hashes must be 64 lowercase hex characters. The client verifies `getBlob` hashes. A missing `If-Match` should be answered with 428. |
 | A14 | **Embed gate.** Without `conversationsEnabled: true` the embed exposes no AI. A dropped `initialAiRequest` logs a console warning. Embed version is 0.7.0. |

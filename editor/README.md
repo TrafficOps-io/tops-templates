@@ -70,7 +70,7 @@ If Studio loses access (permission revoked) or the folder is moved or deleted, t
 
 Studio keeps only a small recent-projects list in the browser (IndexedDB database `trafficops-studio-recent`: project ID, name, kind, folder handle, last opened time) so the library can find your folders; OPFS projects are listed from the browser's private directory instead. No project data lives in IndexedDB, and clearing it does not delete a folder. The OpenRouter connection is stored separately (see below).
 
-Browsers expose the selected directory name, not its absolute filesystem path. **Manage folders & paths** accepts an optional full path label for the project selector. This label is display metadata; it never changes the actual directory handle.
+Browsers expose a chosen folder's name, not its full path, so Studio never shows where a folder is on disk. Projects are reached from the library or the editor's project switcher: **Open folder** points Studio at a folder, and **Reconnect** at a moved one.
 
 Changed files show a dot and new files show `+` relative to the last saved revision. Indicators clear after a successful save. AI changes have a separate pending-review indicator. Project navigation saves pending edits first. AI generation and pending drafts do not block editing, creating another dialogue or switching projects.
 
@@ -192,8 +192,8 @@ The JavaScript runtime deliberately supports a documented portable subset of the
 - User files: at most 32 MiB expanded and 500 entries outside `.trafficops/`. Files: at most 8 MiB each; editable UTF-8 source: at most 2 MiB each. Generated HTML export permits the runtime’s 8 MiB per-page output budget. JSON field values are bounded to 2 MiB.
 - ZIP: at most 20 MiB compressed without history, and at most 512 MiB with conversation history (`.trafficops/conversations/`). Hosting, template and server-side imports keep the 20 MiB limit.
 - History caps: 100 dialogues per project, 10 000 blobs per archive, 16 MiB per dialogue file and 24 MiB per blob. Limits are checked before any blob is read; Studio packs and unpacks history ZIPs in a worker. Browser storage quota or disk space still applies.
-- Traversal, absolute paths, hidden files/directories (except `.trafficops/project.json`, `.trafficops/values.json` and well-formed history entries under `.trafficops/conversations/`), control characters, ambiguous paths, duplicate entries, symlinks, encrypted files, multi-volume archives and ZIP64 are rejected.
-- Metadata and local ZIP headers are checked before decompression. Import runs in a separate worker with a 15-second timeout.
+- Traversal, absolute paths, hidden files/directories (except `.trafficops/project.json`, `.trafficops/values.json`, well-formed history entries under `.trafficops/conversations/`, and `.trafficops/conversation-tombstones.json`, which is accepted from a zipped project folder and ignored), control characters, ambiguous paths, duplicate entries, symlinks, encrypted files, multi-volume archives and ZIP64 are rejected.
+- Metadata and local ZIP headers are checked before decompression. Import runs in a separate worker with a timeout that scales with the archive: 15 seconds, or 1 second per 2 MiB when that is longer.
 
 Source templates have additional parser and rendering limits enforced by the shared runtime. Interactive preview snapshots have a 32 MiB project budget. Static library thumbnails additionally bound encoded asset expansion to 32 MiB and CSS imports to 12 levels. Exceeding a preview budget shows an error while generated ZIP download remains available. Large media projects should be reduced before import.
 
@@ -335,6 +335,10 @@ PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/storage-access-b
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/storage-contract-browser.mjs editor/dist
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/agent-browser.mjs editor/dist
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/ai-panel-ui-browser.mjs editor/dist
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/branches-browser.mjs editor/dist
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/clipboard-images-browser.mjs editor/dist
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/rich-text-browser.mjs editor/dist
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/openrouter-settings-browser.mjs editor/dist
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/retained-draft-settings-browser.mjs
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/autosave-browser.mjs
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/interactive-preview-browser.mjs
