@@ -23,6 +23,30 @@ try {
  await page.getByRole('button', { name: 'Create landing', exact: true }).click();
  await page.locator('.browser-frame iframe.is-visible').waitFor();
  assert.equal(await page.getByRole('tab',{name:'AI assistant',exact:true}).count(),0);
+ // Section tabs flag fields that need attention with a text badge, not a glyph.
+ const identity=page.getByRole('tab',{name:/^Identity/});
+ assert.equal((await identity.innerText()).includes('\u26a0'),false);
+ await page.locator('#setting-brand').fill('');
+ await identity.getByText(/\d+ issues/).waitFor();
+ await page.locator('#setting-brand').fill('STUDIO / 01');
+ await page.waitForFunction(()=>![...document.querySelectorAll('[role=tab]')].some(tab=>/\d+ issues/.test(tab.textContent)));
+ // Icon and toolbar buttons keep a 32px target even in the dense desktop layout.
+ const shortButtons=await page.locator('.preview-panel .btn, .file-sidebar .btn, .studio-toolbar .btn').evaluateAll(nodes=>nodes.filter(node=>node.getBoundingClientRect().height>0&&node.getBoundingClientRect().height<32).map(node=>node.className));
+ assert.deepEqual(shortButtons,[]);
+ // An empty tree shows a state, but one with folders still lists them (rendered directly: Studio never lets a project drop index.tpl).
+ {
+  const { build }=require('esbuild');
+  const entry=`import { createRoot } from 'react-dom/client'; import ProjectSidebar from './packages/template-editor-shell/src/ProjectSidebar.jsx';
+   const noop=()=>{}; const props={ active:'', onSelect:noop, onCreate:noop, onRename:noop, onDelete:noop, onMove:noop, onUpload:noop, onToggleCollapsed:noop, isCollapsed:false };
+   window.mountSidebar=(files,folders)=>createRoot(document.querySelector('#sidebar-mount')).render(<ProjectSidebar {...props} files={files} folders={folders} />);`;
+  const bundle=await build({ stdin:{ contents:entry, resolveDir:resolve('.'), sourcefile:'sidebar-entry.jsx', loader:'jsx' }, bundle:true, write:false, platform:'browser', format:'iife', target:'chrome120', jsx:'automatic', loader:{ '.css':'empty' }, define:{ 'process.env.NODE_ENV':'"production"' } });
+  const harness=await browser.newPage(); await harness.setContent('<div id="sidebar-mount"></div>'); await harness.addScriptTag({ content:bundle.outputFiles[0].text });
+  await harness.evaluate(()=>window.mountSidebar({},[])); await harness.getByText('No files yet',{exact:true}).waitFor();
+  assert.equal(await harness.getByRole('status').filter({hasText:'No files yet'}).count(),1);
+  await harness.evaluate(()=>window.mountSidebar({},['empty-folder'])); await harness.getByText('empty-folder',{exact:true}).waitFor();
+  assert.equal(await harness.getByText('No files yet').count(),0);
+  await harness.close();
+ }
  assert.equal(await page.getByRole('button',{name:'Manage project folders',exact:true}).count(),0);
  // Browser embedding retains its viewport overlay and focus behaviour.
  await page.evaluate(()=>{document.body.style.overflow='auto';document.querySelector('.workspace').style.transform='translateX(0)';});

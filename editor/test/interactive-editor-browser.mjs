@@ -86,7 +86,7 @@ try {
   await page.locator('.view-lines').click({position:{x:80,y:10}});
   await page.keyboard.press(process.platform==='darwin'?'Meta+A':'Control+A');
   await page.keyboard.insertText(source.replace('@endlayout',''));
-  await page.getByText('Preview could not update. Showing the last working version.',{exact:true}).waitFor();
+  await page.getByRole('alert').filter({hasText:'Preview could not update. Showing the last working version.'}).waitFor();
   assert.equal(await page.evaluate(()=>document.querySelector('iframe.is-visible')===window.beforeInvalid),true,'invalid source retains the working document');
   await visible().contentFrame().getByRole('heading',{name:'Offline',exact:true}).waitFor();
   await page.locator('.view-lines').click({position:{x:80,y:10}});

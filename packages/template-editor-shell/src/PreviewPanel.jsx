@@ -2,6 +2,7 @@ import { ChevronDown, Code2, Maximize2, Minimize2, Monitor, MousePointer2, Pause
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useStudioText } from './studio-i18n.js';
 import Menu from './Menu.jsx';
+import { InlineNotice } from '@trafficops/studio-ui/primitives';
 import SectionPicker from './SectionPicker.jsx';
 import { previewSectionOptions } from './preview-selection.js';
 
@@ -99,13 +100,13 @@ export default function PreviewPanel({ pages, page, onPageChange, onSetEntry, en
       <Menu className="page-menu" triggerClassName="page-menu-trigger" label={t('Preview page')} disabled={!pages.length} trigger={<><span>{page || t('No pages')}</span><ChevronDown size={12} /></>}>
         {({ close }) => <>{pages.map(item => <button key={item.name} type="button" role="menuitem" aria-current={page === item.name ? 'page' : undefined} onClick={() => { onPageChange(item.name); close(); }}><span>{item.name}</span>{item.isEntry && <Star size={12} aria-label={t('Entry page')} />}</button>)}{onSetEntry && <><hr /><button type="button" role="menuitem" disabled={locked || entryDisabled || !current || current.isEntry} onClick={() => { onSetEntry(page); close(); }}><Star size={13} />{t('Make entry page')}</button></>}</>}
       </Menu>
-      {selectionAvailable && <button type="button" className="btn btn-ghost btn-xs preview-selection-toggle" aria-pressed={selectionEnabled} disabled={!preview || selectionLocked || selectionStale} onClick={() => onSelectionEnabledChange?.(!selectionEnabled)}><MousePointer2 size={14} /><span>{t('Select elements')}</span></button>}
+      {selectionAvailable && <button type="button" className="btn btn-ghost btn-sm preview-selection-toggle" aria-pressed={selectionEnabled} disabled={!preview || selectionLocked || selectionStale} onClick={() => onSelectionEnabledChange?.(!selectionEnabled)}><MousePointer2 size={14} /><span>{t('Select elements')}</span></button>}
       <div className="preview-run-controls">
-        {onRefresh && <button type="button" className="btn btn-ghost btn-xs btn-square" aria-label={t('Refresh preview')} title={t('Refresh preview')} onClick={onRefresh}><RotateCw size={15} /></button>}
-        {onTogglePaused && <button type="button" className="btn btn-ghost btn-xs btn-square" aria-label={t(paused ? 'Resume automatic preview' : 'Pause automatic preview')} title={t(paused ? 'Resume automatic preview' : 'Pause automatic preview')} aria-pressed={paused} onClick={onTogglePaused}>{paused ? <Play size={15} /> : <Pause size={15} />}</button>}
+        {onRefresh && <button type="button" className="btn btn-ghost btn-sm btn-square" aria-label={t('Refresh preview')} title={t('Refresh preview')} onClick={onRefresh}><RotateCw size={15} /></button>}
+        {onTogglePaused && <button type="button" className="btn btn-ghost btn-sm btn-square" aria-label={t(paused ? 'Resume automatic preview' : 'Pause automatic preview')} title={t(paused ? 'Resume automatic preview' : 'Pause automatic preview')} aria-pressed={paused} onClick={onTogglePaused}>{paused ? <Play size={15} /> : <Pause size={15} />}</button>}
       </div>
       <div className="device-tabs" role="group" aria-label={t('Preview size')}><button type="button" title={t('Desktop preview')} aria-label={t('Desktop preview')} aria-pressed={!mobile} className={!mobile ? 'selected' : ''} onClick={() => onMobileChange(false)}><Monitor size={16} /></button><button type="button" title={t('Mobile preview')} aria-label={t('Mobile preview')} aria-pressed={mobile} className={mobile ? 'selected' : ''} onClick={() => onMobileChange(true)}><Smartphone size={15} /></button></div>
-      {expanded !== undefined && <button type="button" data-editor-expand={!expanded ? '' : undefined} className="btn btn-ghost btn-xs btn-square expand-editor-button" aria-label={expanded ? t('Collapse editor') : t('Expand editor')} title={expanded ? t('Collapse editor') : t('Expand editor')} onClick={onToggleExpanded}>{expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button>}
+      {expanded !== undefined && <button type="button" data-editor-expand={!expanded ? '' : undefined} className="btn btn-ghost btn-sm btn-square expand-editor-button" aria-label={expanded ? t('Collapse editor') : t('Expand editor')} title={expanded ? t('Collapse editor') : t('Expand editor')} onClick={onToggleExpanded}>{expanded ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button>}
     </div>
     {selectionAvailable && (selectionEnabled || selectedBlocks.length > 0) && <div className="preview-selection-context" aria-label={t('Selected elements')}>
       {selectionEnabled && <SectionPicker key={JSON.stringify([displayedFrame?.revision, selectionPage])} sections={sectionOptions} selectedIds={selectedBlocks.map(block => block.id)} onChange={updateSelection} disabled={selectionLocked || selectionStale} />}
@@ -113,11 +114,11 @@ export default function PreviewPanel({ pages, page, onPageChange, onSetEntry, en
       {ancestors.length > 0 && <Menu label={t('Select parent block')} disabled={selectionLocked || selectionStale} trigger={<>{t('Select parent')}<ChevronDown size={12} /></>}>
         {({ close }) => ancestors.map(block => <button key={block.id} type="button" role="menuitem" onClick={() => { updateSelection([...selectedBlocks.filter(item => !item.ancestorIds?.includes(block.id) && item.id !== block.id).map(item => item.id), block.id]); close(); }}>{block.label}</button>)}
       </Menu>}
-      {selectedBlocks.length > 0 && <><button type="button" className="btn btn-ghost btn-xs" disabled={selectionLocked} onClick={() => updateSelection([])}>{t('Clear selection')}</button><button type="button" className="btn btn-primary btn-xs" disabled={selectionLocked || selectionStale || !onEditSelected} onClick={onEditSelected}><Sparkles size={12} />{t('Edit selected')}</button></>}
+      {selectedBlocks.length > 0 && <><button type="button" className="btn btn-ghost btn-sm" disabled={selectionLocked} onClick={() => updateSelection([])}>{t('Clear selection')}</button><button type="button" className="btn btn-primary btn-sm" disabled={selectionLocked || selectionStale || !onEditSelected} onClick={onEditSelected}><Sparkles size={12} />{t('Edit selected')}</button></>}
       {selectionStale && <span className="preview-selection-hint" role="status">{t('Preview changed. Refresh it before selecting blocks.')}</span>}
     </div>}
     <div className={`preview-stage ${mobile ? 'mobile-preview' : ''}`}>{preview ? <div className="browser-frame"><div className="browser-chrome"><span /><span /><span /><div>{preview.page || page}</div><ShieldCheck size={12} /></div><PreviewFrames preview={preview} interactive={interactive} onDisplayed={display} title={t('Generated page preview')} selectionEnabled={selectionEnabled} selectedBlocks={selectedBlocks} selectionLocked={selectionLocked} selectionStale={selectionStale} onSelectionChange={onSelectionChange} onSelectionDocumentChange={documentChanged} /></div> : <div className="empty-preview"><Code2 size={30} /><h3>{t('A page is taking shape.')}</h3><p>{error || t('Add a .tpl file with an @layout block to get started.')}</p></div>}</div>
-    {error && preview && <div className="preview-update-error" role="alert"><strong>{t('Preview could not update. Showing the last working version.')}</strong><span>{error}</span></div>}
+    {error && preview && <InlineNotice tone="danger" className="preview-update-notice" title={t('Preview could not update. Showing the last working version.')}>{error}</InlineNotice>}
     <div className="preview-bottom"><span><ShieldCheck size={13} />{paused ? t('Automatic preview paused') : updating ? t('Updating preview…') : note}</span><span>{t('{count} pages', { count: pages.length })}</span></div>
   </section>;
 }
