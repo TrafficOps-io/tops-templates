@@ -29,11 +29,11 @@ test('sync writes new and changed files, deletes removed files and preserves unk
   const next = { files: { 'index.tpl': 'new', 'images/hero.png': new Uint8Array([9, 8]) }, folders: ['images', 'empty'] };
   const saved = await syncDirectoryProject(root, previous, next);
   assert.ok(projectSnapshotEqual(saved, next));
-  assert.equal(new TextDecoder().decode(root.entries.get('index.tpl').value), 'new');
-  assert.equal(root.entries.has('remove.txt'), false);
-  assert.equal(new TextDecoder().decode(root.entries.get('external.txt').value), 'leave me');
-  assert.deepEqual(root.entries.get('images').entries.get('hero.png').value, new Uint8Array([9, 8]));
-  assert.equal(root.entries.get('empty').kind, 'directory');
+  assert.equal(new TextDecoder().decode(root.children.get('index.tpl').value), 'new');
+  assert.equal(root.children.has('remove.txt'), false);
+  assert.equal(new TextDecoder().decode(root.children.get('external.txt').value), 'leave me');
+  assert.deepEqual(root.children.get('images').children.get('hero.png').value, new Uint8Array([9, 8]));
+  assert.equal(root.children.get('empty').kind, 'directory');
 });
 
 test('sync rejects an external edit before applying any Studio writes', async () => {
@@ -41,7 +41,7 @@ test('sync rejects an external edit before applying any Studio writes', async ()
   const previous = { files: { 'index.tpl': 'old', 'styles.css': 'old' }, folders: [] };
   const next = { files: { 'index.tpl': 'from Studio', 'styles.css': 'new' }, folders: [] };
   await assert.rejects(() => syncDirectoryProject(root, previous, next), /changed outside Studio/);
-  assert.equal(new TextDecoder().decode(root.entries.get('styles.css').value), 'old');
+  assert.equal(new TextDecoder().decode(root.children.get('styles.css').value), 'old');
 });
 
 test('content and snapshot equality work across strings and binary values', () => {
@@ -56,7 +56,7 @@ test('project settings persist in an internal sidecar outside the template file 
   assert.deepEqual(await readProjectSettings(root), { headline: 'Saved locally' });
   assert.deepEqual(Object.keys((await readDirectoryProject(root)).files), ['index.tpl']);
   await writeProjectSettings(root, {});
-  assert.equal(root.entries.has('.trafficops'), false);
+  assert.equal(root.children.has('.trafficops'), false);
 });
 
 test('remembering the same directory reuses its project identity', async () => {

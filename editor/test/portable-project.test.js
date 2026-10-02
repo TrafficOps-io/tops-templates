@@ -64,11 +64,11 @@ test('save to empty folder and reopen preserve one logical identity and dialogue
 test('unreviewed nonempty folders and stale reviewed snapshots are untouched', async () => {
   const directory = new MemoryDirectoryHandle('unknown', { 'index.tpl': 'Their file' });
   await assert.rejects(saveProjectToDirectory({ record: project(), handle: directory }), /not empty/);
-  assert.equal(directory.entries.has('.trafficops'), false);
+  assert.equal(directory.children.has('.trafficops'), false);
   const before = await readPortableDirectory(directory);
-  directory.entries.get('index.tpl').value = strToU8('External edit');
+  directory.children.get('index.tpl').value = strToU8('External edit');
   await assert.rejects(saveProjectToDirectory({ record: project(), handle: directory, expectedSnapshot: before }), /changed before/);
-  assert.equal(directory.entries.has('.trafficops'), false);
+  assert.equal(directory.children.has('.trafficops'), false);
 });
 
 test('interrupted transfer retains source and journal, and retries only matching bytes', async () => {
@@ -92,11 +92,11 @@ test('folder host opens an empty folder without disk writes and honors persisten
   const empty = new MemoryDirectoryHandle('empty');
   const emptyHost = createStudioHost({ directory: empty, projectId: 'empty-one' });
   const state = await emptyHost.project.open();
-  assert.ok(state.files['index.tpl']); assert.equal(empty.entries.size, 0);
+  assert.ok(state.files['index.tpl']); assert.equal(empty.children.size, 0);
   await emptyHost.conversations.save({ schema: 1, projectId: 'empty-one', revision: 0, threads: [{ id: 'empty-chat', messages: [] }], runs: [] });
   const initialized = await emptyHost.project.save(state);
   assert.equal(initialized.status, 'Saved to folder');
-  assert.ok(empty.entries.has('index.tpl'));
+  assert.ok(empty.children.has('index.tpl'));
   const directory = new MemoryDirectoryHandle('one');
   await saveProjectToDirectory({ record: project(), handle: directory });
   const host = createStudioHost({ directory });
@@ -115,7 +115,7 @@ test('folder content failure is retryable without overwriting external changes',
   await saveProjectToDirectory({ record: project(), handle: directory });
   const host = createStudioHost({ directory });
   const opened = await host.project.open();
-  const photo = directory.entries.get('photo.png'), original = photo.createWritable.bind(photo);
+  const photo = directory.children.get('photo.png'), original = photo.createWritable.bind(photo);
   let fail = true;
   photo.createWritable = async () => { if (fail) { fail = false; throw new Error('Disk write interrupted'); } return original(); };
   const candidate = { ...opened, files: { ...opened.files, 'index.tpl': '@layout\nChanged\n@endlayout', 'photo.png': new Uint8Array([9]) } };

@@ -33,7 +33,7 @@ function folderSpies() {
     const original = directory[method];
     directory[method] = function (...args) { calls.push(method); return original.apply(this, args); };
   }
-  const file = directory.entries.get('index.tpl');
+  const file = directory.children.get('index.tpl');
   for (const method of ['getFile', 'createWritable']) {
     const original = file[method];
     file[method] = function (...args) { calls.push(method); return original.apply(this, args); };
@@ -128,7 +128,7 @@ test('folder saves recheck installed mode after an asynchronous settings read', 
   const callCount = calls.length;
   await assert.rejects(host.project.save({ ...state, files: { 'index.tpl': source.replace('Local', 'Updated') } }), folderDenied);
   assert.deepEqual(calls.slice(callCount), ['getDirectoryHandle']);
-  assert.equal(new TextDecoder().decode(directory.entries.get('index.tpl').value), source);
+  assert.equal(new TextDecoder().decode(directory.children.get('index.tpl').value), source);
 });
 
 test('queued folder saves recheck installed mode after the preceding save settles', async () => {

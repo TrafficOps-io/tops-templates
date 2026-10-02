@@ -50,14 +50,14 @@ test('conformance rejects null optional ports rather than treating them as absen
 test('folder conflict retains dirty content until an explicit reload accepts disk changes', async () => {
   const directory = new MemoryDirectoryHandle('Local', { 'index.tpl': source, 'styles.css': 'old' });
   const host = createStudioHost({ directory }), state = await host.project.open();
-  directory.entries.get('styles.css').value = new TextEncoder().encode('external');
+  directory.children.get('styles.css').value = new TextEncoder().encode('external');
   const dirty = { ...state, files: { ...state.files, 'styles.css': 'local' } };
   await assert.rejects(host.project.save(dirty), e => e.code === 'conflict');
   await assert.rejects(() => host.project.save(dirty), error => error.code === 'conflict');
   const reloaded = await host.project.open();
   assert.notEqual(reloaded.revision, state.revision); assert.equal(reloaded.files['styles.css'], 'external');
   assert.equal(dirty.files['styles.css'], 'local');
-  assert.equal(new TextDecoder().decode(directory.entries.get('styles.css').value), 'external');
+  assert.equal(new TextDecoder().decode(directory.children.get('styles.css').value), 'external');
 });
 test('HTTP lifecycle keeps save+publish atomic and restore preserves unsaved files', async () => {
   const server = httpServer(), host = await createHttpHost({ endpoint: 'https://app.test/project', csrf: 'csrf', fetchImpl: server.fetchImpl });
