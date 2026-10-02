@@ -1,0 +1,114 @@
+{
+  "docs": {
+    "before": {
+      "lighthouse": "13.5.0",
+      "fetchTime": "2026-10-02T14:40:43.720Z",
+      "categories": {
+        "performance": 99,
+        "accessibility": 98,
+        "best-practices": 100
+      },
+      "metrics": {
+        "first-contentful-paint": {
+          "display": "0.6\u00a0s",
+          "numeric": 646.366
+        },
+        "largest-contentful-paint": {
+          "display": "0.8\u00a0s",
+          "numeric": 766.366
+        },
+        "total-blocking-time": {
+          "display": "0\u00a0ms",
+          "numeric": 0
+        },
+        "cumulative-layout-shift": {
+          "display": "0.004",
+          "numeric": 0.00404398804833202
+        }
+      }
+    },
+    "after": {
+      "lighthouse": "13.5.0",
+      "fetchTime": "2026-10-02T15:46:45.683Z",
+      "categories": {
+        "performance": 99,
+        "accessibility": 100,
+        "best-practices": 100
+      },
+      "metrics": {
+        "first-contentful-paint": {
+          "display": "0.6\u00a0s",
+          "numeric": 643.1469999999999
+        },
+        "largest-contentful-paint": {
+          "display": "0.8\u00a0s",
+          "numeric": 803.1469999999999
+        },
+        "total-blocking-time": {
+          "display": "0\u00a0ms",
+          "numeric": 0
+        },
+        "cumulative-layout-shift": {
+          "display": "0",
+          "numeric": 0.0001188617459066632
+        }
+      }
+    }
+  },
+  "studio": {
+    "before": {
+      "lighthouse": "13.5.0",
+      "fetchTime": "2026-10-02T14:41:30.735Z",
+      "categories": {
+        "performance": 81,
+        "accessibility": 100,
+        "best-practices": 100
+      },
+      "metrics": {
+        "first-contentful-paint": {
+          "display": "1.9\u00a0s",
+          "numeric": 1923.481
+        },
+        "largest-contentful-paint": {
+          "display": "2.0\u00a0s",
+          "numeric": 1985.308
+        },
+        "total-blocking-time": {
+          "display": "0\u00a0ms",
+          "numeric": 0
+        },
+        "cumulative-layout-shift": {
+          "display": "0.036",
+          "numeric": 0.035944685265446696
+        }
+      }
+    },
+    "after": {
+      "lighthouse": "13.5.0",
+      "fetchTime": "2026-10-02T15:47:28.150Z",
+      "categories": {
+        "performance": 82,
+        "accessibility": 100,
+        "best-practices": 100
+      },
+      "metrics": {
+        "first-contentful-paint": {
+          "display": "1.9\u00a0s",
+          "numeric": 1867.86
+        },
+        "largest-contentful-paint": {
+          "display": "1.9\u00a0s",
+          "numeric": 1935.376
+        },
+        "total-blocking-time": {
+          "display": "0\u00a0ms",
+          "numeric": 0
+        },
+        "cumulative-layout-shift": {
+          "display": "0.006",
+          "numeric": 0.005574746847911742
+        }
+      }
+    }
+  }
+}
