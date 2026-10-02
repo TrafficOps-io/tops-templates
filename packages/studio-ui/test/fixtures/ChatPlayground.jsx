@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { StudioUiProvider } from '../../src/i18n/StudioUiProvider.jsx';
-import { StudioChat } from '../../src/chat/index.js';
+import { StudioChat, StudioComposer } from '../../src/chat/index.js';
 import { createFakeChatPort } from './FakeChatPort.js';
 
 // StudioChat on FakeChatPort for test/chat-browser.mjs. Deliberately without ToastProvider: StudioChat must not need it.
 // Test handles: window.fake (the port), window.threadId / window.setThreadId, window.setTheme(name), window.launch(launch),
-// window.actionCalls — texts passed to the header action.
+// window.actionCalls — texts passed to the header action, window.standaloneSubmit — onSubmit of the standalone composer.
 const port = createFakeChatPort();
 window.fake = port;
 window.actionCalls = [];
@@ -15,9 +15,10 @@ export default function ChatPlayground() {
   const [threadId, setThreadId] = useState(''), [theme, setTheme] = useState('studio-dark'), [launch, setLaunch] = useState(null);
   useEffect(() => { window.threadId = threadId; }, [threadId]);
   useEffect(() => { window.setThreadId = setThreadId; window.setTheme = setTheme; window.launch = setLaunch; }, []);
-  return <div className="studio-root" data-theme={theme} style={{ height: '100vh' }}>
+  return <div className="studio-root" data-theme={theme}>
     <StudioUiProvider language="en">
-      <StudioChat port={port} threadId={threadId} onThreadChange={setThreadId} launch={launch} actions={actions} />
+      <div style={{ height: '100vh' }}><StudioChat port={port} threadId={threadId} onThreadChange={setThreadId} launch={launch} actions={actions} /></div>
+      <div id="standalone"><StudioComposer onSubmit={input => window.standaloneSubmit?.(input)} /></div>
     </StudioUiProvider>
   </div>;
 }

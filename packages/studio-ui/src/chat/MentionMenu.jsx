@@ -34,10 +34,16 @@ export default function MentionMenu({ anchor, active, children }) {
   return <div className="studio-mention-menu" style={space === null ? undefined : { '--studio-mention-space': `${space}px` }}>{children(list)}</div>;
 }
 
+// Empty result: a status message rendered instead of the listbox (a listbox may contain only options and groups).
+export function MentionEmpty() {
+  const t = useStudioText();
+  return <p role="status" className="studio-mention-menu-empty">{t('No matching references')}</p>;
+}
+
 // Options of the listbox: role="group" per kind (aria-label Sections, Scenes, …), role="option" items numbered across groups.
 export function MentionOptions({ id, groups, active, onSelect, onHover }) {
   const t = useStudioText();
-  if (!groups.length) return <p role="status" className="studio-mention-menu-empty">{t('No matching references')}</p>;
+  if (!groups.length) return null;
   let index = -1;
   return groups.map(group => <div key={group.kind} role="group" aria-label={t(MENTION_GROUP_LABELS[group.kind])} className="studio-mention-menu-group">
     <div className="studio-mention-menu-heading" aria-hidden="true">{t(MENTION_GROUP_LABELS[group.kind])}</div>

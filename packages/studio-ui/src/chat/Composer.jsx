@@ -4,7 +4,8 @@ import { ComposerPrimitive, useAui, useAuiState } from '@assistant-ui/react';
 import { useStudioText } from '../i18n/StudioUiProvider.jsx';
 import Button from '../primitives/Button.jsx';
 import { MentionChip } from '../primitives/Chips.jsx';
-import MentionMenu, { MentionOptions, optionId } from './MentionMenu.jsx';
+import MentionMenu, { MentionEmpty, MentionOptions, optionId } from './MentionMenu.jsx';
+import InlineNotice from '../primitives/InlineNotice.jsx';
 import Attachments, { AttachmentCounter, RejectedAttachments } from './Attachments.jsx';
 import ScopeChips from './ScopeChips.jsx';
 import { addMention, groupTargets, mentionAtCaret, mentionKey, removeMentionQuery } from './mentions.js';
@@ -34,7 +35,7 @@ const defaultScopeKind = scopes => (scopes.includes('project') || !scopes.length
 //   controlled pairs (internal state when the value is not passed); under StudioChat they must be controlled, the runtime
 //   reads them from StudioChat state;
 // onSubmit({ text, attachments, mentions, scope, generateImages }) — standalone mode only; returning false keeps the input;
-// disabled?, placeholder?, extra?: ReactNode (product controls in the toolbar), autoFocus?.
+// disabled?, placeholder? (product text, shown as is; the built-in default is translated), extra?: ReactNode (product controls in the toolbar), autoFocus?.
 export default function StudioComposer(props) {
   const chat = useContext(ChatComposerContext);
   return chat ? <RuntimeComposer {...props} chat={chat} /> : <StandaloneComposer {...props} />;
@@ -62,13 +63,24 @@ function useComposerParts({ port, mentionTargets, attachmentLimits, scopes, scop
 function StandaloneComposer(props) {
   const [text, setText, textControlled] = useControllable(props.value, props.onChange, props.initialText ?? '');
   const parts = useComposerParts(props);
+  // onSubmit may be async: a second submit is blocked until it settles; a rejection keeps the input and shows a notice.
+  const [pending, setPending] = useState(false), [error, setError] = useState(null), inFlight = useRef(false);
   async function submit() {
-    const result = await props.onSubmit?.({ text, attachments: parts.files, mentions: parts.mentions, scope: parts.scope, generateImages: parts.images });
+    if (inFlight.current) return;
+    inFlight.current = true; setPending(true); setError(null);
+    let result;
+    try {
+      result = await props.onSubmit?.({ text, attachments: parts.files, mentions: parts.mentions, scope: parts.scope, generateImages: parts.images });
+    } catch (failure) {
+      setError(failure ?? new Error());
+      return;
+    } finally { inFlight.current = false; setPending(false); }
     if (result === false) return;
     if (!textControlled) setText('');
     parts.reset();
   }
-  return <ComposerBody {...props} parts={parts} text={text} setText={setText} onInputText={setText} submit={submit} runtime={false} />;
+  return <ComposerBody {...props} parts={parts} text={text} setText={setText} onInputText={setText} submit={submit} runtime={false} busy={pending}
+    error={error} onDismissError={() => setError(null)} />;
 }
 
 function RuntimeComposer({ chat, ...props }) {
@@ -104,7 +116,9 @@ function RuntimeComposer({ chat, ...props }) {
   return <ComposerBody {...props} parts={parts} text={text} setText={setText} submit={submit} runtime busy={running} />;
 }
 
-function ComposerBody({ parts, text, setText, onInputText, submit, runtime, busy = false, disabled = false, placeholder = 'What would you like to create or change?', extra, autoFocus = false }) {
+const DEFAULT_PLACEHOLDER = 'What would you like to create or change?';
+
+function ComposerBody({ parts, text, setText, onInputText, submit, runtime, busy = false, error, onDismissError, disabled = false, placeholder, extra, autoFocus = false }) {
   const t = useStudioText(), id = useId(), listId = `${id}-mentions`;
   const root = useRef(null), input = useRef(null), fileInput = useRef(null);
   const [query, setQuery] = useState(null), [active, setActive] = useState(0), [rejected, setRejected] = useState([]);
@@ -116,10 +130,12 @@ function ComposerBody({ parts, text, setText, onInputText, submit, runtime, busy
     return groupTargets((targets(query.query) ?? []).filter(target => !chosen.has(mentionKey(target))));
   }, [query, mentionsEnabled, targets, mentions]);
   const options = groups.flatMap(group => group.items);
-  const menuOpen = Boolean(query) && mentionsEnabled;
+  const menuOpen = Boolean(query) && mentionsEnabled, listOpen = menuOpen && options.length > 0;
   const canSubmit = !disabled && !busy && (text.trim().length > 0 || files.length > 0);
 
-  const focusAt = caret => requestAnimationFrame(() => { input.current?.focus(); input.current?.setSelectionRange(caret, caret); });
+  const frame = useRef(0);
+  useEffect(() => () => cancelAnimationFrame(frame.current), []);
+  const focusAt = caret => { cancelAnimationFrame(frame.current); frame.current = requestAnimationFrame(() => { input.current?.focus(); input.current?.setSelectionRange(caret, caret); }); };
   const trackQuery = (value, caret) => { setQuery(mentionsEnabled ? mentionAtCaret(value, caret ?? value.length) : null); setActive(0); };
   function select(target) {
     if (!target) return;
@@ -173,18 +189,19 @@ function ComposerBody({ parts, text, setText, onInputText, submit, runtime, busy
     onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setQuery(null); }}>
     <ScopeChips scopes={parts.scopeKinds} scope={parts.scope} onScopeChange={parts.setScope} disabled={disabled} />
     <RejectedAttachments rejected={rejected} limits={limits} onDismiss={() => setRejected([])} />
+    {error && <InlineNotice tone="danger" title={t('The message was not sent')} actions={<Button variant="ghost" size="sm" onClick={onDismissError}>{t('Dismiss')}</Button>}>{error.message || t('Something went wrong.')}</InlineNotice>}
     {mentions.length > 0 && <div className="studio-chat-composer-mentions" aria-label={t('Referenced files and sections')}>
       {mentions.map(target => <MentionChip key={mentionKey(target)} target={target} onRemove={disabled ? undefined : () => parts.setMentions(mentions.filter(item => mentionKey(item) !== mentionKey(target)))} />)}
     </div>}
     <Attachments files={files} disabled={disabled} onRemove={index => parts.setFiles(files.filter((_, position) => position !== index))} />
     <div className="studio-chat-composer-field">
-      {menuOpen && <MentionMenu anchor={root} active={active}>{list => <div ref={list} id={listId} role="listbox" aria-label={t('Mention targets')} className="studio-mention-menu-list">
+      {menuOpen && <MentionMenu anchor={root} active={active}>{list => listOpen ? <div ref={list} id={listId} role="listbox" aria-label={t('Mention targets')} className="studio-mention-menu-list">
         <MentionOptions id={listId} groups={groups} active={active} onSelect={select} onHover={setActive} />
-      </div>}</MentionMenu>}
+      </div> : <MentionEmpty />}</MentionMenu>}
       <label className="studio-sr-only" htmlFor={`${id}-input`}>{t('Message to assistant')}</label>
-      <Input {...runtimeInputProps} id={`${id}-input`} ref={input} className="studio-chat-composer-input" placeholder={t(placeholder)} disabled={disabled} autoFocus={autoFocus}
-        role={mentionsEnabled ? 'combobox' : undefined} aria-autocomplete={mentionsEnabled ? 'list' : undefined} aria-expanded={mentionsEnabled ? menuOpen : undefined}
-        aria-controls={menuOpen ? listId : undefined} aria-activedescendant={menuOpen && options[active] ? optionId(listId, active) : undefined}
+      <Input {...runtimeInputProps} id={`${id}-input`} ref={input} className="studio-chat-composer-input" placeholder={placeholder ?? t(DEFAULT_PLACEHOLDER)} disabled={disabled} autoFocus={autoFocus}
+        role={mentionsEnabled ? 'combobox' : undefined} aria-autocomplete={mentionsEnabled ? 'list' : undefined} aria-expanded={mentionsEnabled ? listOpen : undefined}
+        aria-controls={listOpen ? listId : undefined} aria-activedescendant={listOpen && options[active] ? optionId(listId, active) : undefined}
         onKeyDown={keyDown}
         onChange={event => { onInputText?.(event.target.value); trackQuery(event.target.value, event.target.selectionStart); }}
         onClick={event => trackQuery(event.target.value, event.target.selectionStart)} />

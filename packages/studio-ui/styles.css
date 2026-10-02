@@ -127,7 +127,7 @@
 .studio-chat-run-progress::-webkit-progress-bar { background: var(--ui-surface-raised); }
 .studio-chat-run-progress::-webkit-progress-value { background: var(--ui-accent); }
 .studio-chat-run-progress::-moz-progress-bar { background: var(--ui-accent); }
-.studio-chat-run-stop { display: inline-flex; align-items: center; gap: var(--ui-space-1); min-height: 24px; padding: 0 var(--ui-space-2); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); background: transparent; color: var(--ui-muted); font: inherit; cursor: pointer; }
+.studio-chat-run-stop { display: inline-flex; align-items: center; gap: var(--ui-space-1); min-height: 32px; padding: 0 var(--ui-space-2); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-sm); background: transparent; color: var(--ui-muted); font: inherit; cursor: pointer; }
 .studio-chat-run-stop:hover { color: var(--ui-text); border-color: var(--ui-border-strong); }
 .studio-chat-run-stop:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 .studio-chat-run-message { flex-basis: 100%; margin: 0; color: var(--ui-muted); }
@@ -135,6 +135,15 @@
 .studio-chat-run-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--ui-space-2); }
 .studio-chat-run-actions .studio-notice { flex-basis: 100%; }
 .studio-chat-run-applied { display: inline-flex; align-items: center; gap: var(--ui-space-1); color: var(--ui-success); font-size: var(--ui-text-xs); }
+
+/* Run status variants by data-status (RunStatus): a coloured rule on the left follows the status tone. */
+.studio-chat-run-status { padding-left: var(--ui-space-2); border-left: 2px solid var(--ui-border); }
+.studio-chat-run-status:is([data-status=queued], [data-status=running]) { border-left-color: var(--ui-info); }
+.studio-chat-run-status[data-status=ready] { border-left-color: var(--ui-accent); }
+.studio-chat-run-status:is([data-status=completed], [data-status=applied]) { border-left-color: var(--ui-success); }
+.studio-chat-run-status[data-status=failed] { border-left-color: var(--ui-danger); }
+.studio-chat-run-status[data-status=interrupted] { border-left-color: var(--ui-warning); }
+.studio-chat-run-status:is([data-status=cancelled], [data-status=discarded]) { border-left-color: var(--ui-border-strong); }
 
 /* chat: result cards */
 .studio-card { display: grid; min-width: 0; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-lg); background: var(--ui-surface); overflow: hidden; font-size: var(--ui-text-sm); line-height: var(--ui-text-sm--line-height); }
@@ -146,7 +155,7 @@
 .studio-card-added { color: var(--ui-success); }
 .studio-card-removed { color: var(--ui-danger); }
 .studio-card-actions { display: inline-flex; flex: none; gap: var(--ui-space-1); }
-.studio-card-action, .studio-card-link { display: inline-flex; align-items: center; gap: var(--ui-space-1); min-height: 24px; padding: 0 var(--ui-space-2); border: 0; border-radius: var(--ui-radius-sm); background: transparent; color: var(--ui-accent); font: inherit; font-size: var(--ui-text-xs); cursor: pointer; }
+.studio-card-action, .studio-card-link { display: inline-flex; align-items: center; gap: var(--ui-space-1); min-height: 32px; padding: 0 var(--ui-space-2); border: 0; border-radius: var(--ui-radius-sm); background: transparent; color: var(--ui-accent); font: inherit; font-size: var(--ui-text-xs); cursor: pointer; }
 .studio-card-action:hover, .studio-card-link:hover { background: var(--ui-surface-raised); }
 .studio-card-action:focus-visible, .studio-card-link:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; }
 .studio-card-body { display: grid; gap: var(--ui-space-2); min-width: 0; padding: var(--ui-space-3); }
@@ -193,20 +202,20 @@
 .studio-chat-composer-extra { display: inline-flex; align-items: center; gap: var(--ui-space-1); min-width: 0; color: var(--ui-muted); font-size: var(--ui-text-xs); }
 .studio-chat-composer-send { margin-left: auto; }
 .studio-chat-composer-rejected { margin: 0; padding-left: var(--ui-space-4); }
-.studio-chat-composer-dismiss { padding: 0; border: 0; background: transparent; color: var(--ui-muted); font: inherit; font-size: var(--ui-text-xs); cursor: pointer; }
+.studio-chat-composer-dismiss { min-height: 32px; padding: 0 var(--ui-space-2); border: 0; background: transparent; color: var(--ui-muted); font: inherit; font-size: var(--ui-text-xs); cursor: pointer; }
 .studio-chat-composer-dismiss:hover { color: var(--ui-text); }
 .studio-chat-composer-dismiss:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 2px; }
 
 /* chat: scope chips */
 .studio-chat-scope { display: flex; flex-wrap: wrap; gap: var(--ui-space-1); }
 .studio-chat-scope-chip { display: inline-flex; align-items: center; border: 1px solid var(--ui-border); border-radius: var(--ui-radius-full); background: transparent; font-size: var(--ui-text-xs); line-height: var(--ui-text-xs--line-height); }
-.studio-chat-scope button { display: inline-flex; align-items: center; min-height: 24px; padding: 0 var(--ui-space-2); border: 0; border-radius: var(--ui-radius-full); background: transparent; color: var(--ui-muted); font: inherit; cursor: pointer; }
+.studio-chat-scope button { display: inline-flex; align-items: center; min-height: 32px; padding: 0 var(--ui-space-2); border: 0; border-radius: var(--ui-radius-full); background: transparent; color: var(--ui-muted); font: inherit; cursor: pointer; }
 .studio-chat-scope button:hover:not(:disabled) { color: var(--ui-text); }
 .studio-chat-scope button:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; }
 .studio-chat-scope button:disabled { cursor: not-allowed; opacity: .45; }
 .studio-chat-scope [aria-pressed=true] { color: var(--ui-accent); font-weight: 500; }
 .studio-chat-scope-chip:has([aria-pressed=true]) { border-color: color-mix(in srgb, var(--ui-accent) 50%, var(--ui-border)); background: color-mix(in srgb, var(--ui-accent) 10%, transparent); }
-.studio-chat-scope .studio-chat-scope-remove { width: 20px; min-height: 20px; padding: 0; justify-content: center; margin-right: 2px; }
+.studio-chat-scope .studio-chat-scope-remove { width: 32px; min-height: 32px; padding: 0; justify-content: center; }
 
 /* chat: mention menu */
 .studio-mention-menu { position: absolute; z-index: var(--ui-z-menu); left: 0; right: 0; bottom: calc(100% + var(--ui-space-2)); display: flex; flex-direction: column; max-height: min(20rem, var(--studio-mention-space, 20rem)); border: 1px solid var(--ui-border); border-radius: var(--ui-radius-md); background: var(--ui-surface); box-shadow: var(--ui-shadow-menu); overflow: hidden; }
@@ -257,7 +266,7 @@
 .studio-chat-threads-search:focus-within { border-color: var(--ui-border-strong); }
 .studio-chat-threads-search input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--ui-text); font: inherit; font-size: var(--ui-text-sm); }
 .studio-chat-threads-search input:focus { outline: none; }
-.studio-chat-threads-archive { display: inline-flex; align-items: center; gap: var(--ui-space-1); align-self: flex-start; min-height: 24px; padding: 0 var(--ui-space-2); border: 1px solid transparent; border-radius: var(--ui-radius-full); background: transparent; color: var(--ui-muted); font: inherit; font-size: var(--ui-text-xs); cursor: pointer; }
+.studio-chat-threads-archive { display: inline-flex; align-items: center; gap: var(--ui-space-1); align-self: flex-start; min-height: 32px; padding: 0 var(--ui-space-2); border: 1px solid transparent; border-radius: var(--ui-radius-full); background: transparent; color: var(--ui-muted); font: inherit; font-size: var(--ui-text-xs); cursor: pointer; }
 .studio-chat-threads-archive:hover { color: var(--ui-text); }
 .studio-chat-threads-archive[aria-pressed=true] { border-color: color-mix(in srgb, var(--ui-accent) 50%, var(--ui-border)); color: var(--ui-accent); background: color-mix(in srgb, var(--ui-accent) 10%, transparent); }
 .studio-chat-threads-archive:focus-visible { outline: 2px solid var(--ui-focus); outline-offset: 1px; }
@@ -279,4 +288,10 @@
   .studio-chat-header { padding-inline: var(--ui-space-2); }
   .studio-chat-feed { padding: var(--ui-space-3); }
   .studio-chat-bottom { padding: 0 var(--ui-space-3) var(--ui-space-3); }
+}
+
+/* Hit targets (spec 5.1): at least 32 px, 44 px on touch screens. */
+@media (pointer: coarse) {
+  .studio-chat-scope button, .studio-chat-run-stop, .studio-card-action, .studio-card-link, .studio-chat-composer-dismiss, .studio-chat-threads-archive, .studio-chat-threads-open { min-height: 44px; }
+  .studio-chat-scope .studio-chat-scope-remove, .studio-chat-header-button, .studio-chat-threads-more { width: 44px; height: 44px; min-height: 44px; }
 }

@@ -19,7 +19,7 @@ export default function RunStatus({ run, capabilities }) {
     active && run.step ? t('Step {current} of {total}', run.step) : '',
     capabilities?.cost && Number.isFinite(run.cost) ? formatCost(run.cost) : '',
   ].filter(Boolean);
-  return <div className="studio-chat-run-status" aria-live={active ? 'polite' : undefined}>
+  return <div className="studio-chat-run-status" data-status={run.status} aria-live={active ? 'polite' : undefined}>
     <StatusBadge tone={TONES[run.status] ?? 'neutral'}>{t(LABELS[run.status] ?? 'Completed')}</StatusBadge>
     {details.length > 0 && <span className="studio-chat-run-details">{details.join(' · ')}</span>}
     {active && Number.isFinite(run.progress) && <progress className="studio-chat-run-progress" max={1} value={run.progress} aria-label={t(LABELS[run.status])} />}

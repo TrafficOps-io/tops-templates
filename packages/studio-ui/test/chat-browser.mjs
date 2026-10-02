@@ -47,17 +47,37 @@ try {
   await page.goto(origin);
   const chat = page.getByTestId('studio-chat');
   await chat.waitFor();
-  const feed = page.getByTestId('studio-chat-feed'), composer = page.getByTestId('studio-chat-composer');
+  const feed = page.getByTestId('studio-chat-feed'), composer = chat.getByTestId('studio-chat-composer');
   const input = composer.getByRole('combobox');
   const fake = () => page.evaluate(() => window.fake.calls.map(([name]) => name));
   const lastCall = name => page.evaluate(target => window.fake.calls.filter(([call]) => call === target).at(-1), name);
   const assistant = () => feed.locator('[data-role="assistant"]').last();
   const send = async text => { await input.click(); await input.fill(text); await page.keyboard.press('Enter'); await page.waitForFunction(value => window.fake.calls.some(([name, , input]) => name === 'send' && input.text === value), text); };
+  // Hit targets (spec 5.1): every interactive element measured here is at least 32 × 32 px.
+  const assertTarget = async (locator, name) => {
+    const box = await locator.boundingBox();
+    assert.ok(box, `${name} is rendered`);
+    assert.ok(box.height >= 32 && box.width >= 32, `${name} hit target ${Math.round(box.width)}×${Math.round(box.height)} ≥ 32 px`);
+  };
   const focusedInComposer = () => page.evaluate(() => Boolean(document.activeElement?.closest('[data-testid="studio-chat-composer"]')));
 
   // Empty thread: the empty state, no toast provider anywhere.
   await feed.getByText('What shall we create?').waitFor();
   assert.equal(await page.locator('.studio-toasts, .studio-toast').count(), 0);
+
+  // Scope chips: one active chip, a non-default scope is removed by its cross; hit targets of chips, cross and archive toggle.
+  const scope = composer.getByRole('group', { name: 'Assistant task' });
+  for (const button of await scope.getByRole('button').all()) await assertTarget(button, `scope chip ${await button.textContent()}`);
+  await scope.getByRole('button', { name: 'Scene', exact: true }).click();
+  assert.equal(await scope.getByRole('button', { name: 'Scene', exact: true }).getAttribute('aria-pressed'), 'true');
+  await assertTarget(scope.getByRole('button', { name: 'Remove Scene' }), 'scope remove');
+  await scope.getByRole('button', { name: 'Remove Scene' }).click();
+  assert.equal(await scope.getByRole('button', { name: 'Project', exact: true }).getAttribute('aria-pressed'), 'true');
+  await assertTarget(page.getByTestId('studio-chat-threads').getByRole('button', { name: 'Archived' }), 'archive toggle');
+  // A rejected attachment shows a notice whose Dismiss button is a full hit target.
+  await composer.locator('input[type="file"]').setInputFiles({ name: 'tool.exe', mimeType: 'application/x-msdownload', buffer: Buffer.from('x') });
+  await assertTarget(composer.getByRole('button', { name: 'Dismiss' }), 'composer dismiss');
+  await composer.getByRole('button', { name: 'Dismiss' }).click();
 
   // Mention from the keyboard: @ → listbox with groups, ArrowDown + Enter insert a chip, Escape closes, Tab stays in the composer.
   await input.click();
@@ -77,12 +97,18 @@ try {
   await page.keyboard.press('Tab');
   assert.ok(await focusedInComposer(), 'Tab with the menu open stays inside the composer');
   await input.focus();
-  await page.keyboard.press('End');
+  await input.evaluate(element => element.setSelectionRange(element.value.length, element.value.length));
   await page.keyboard.type('m');
   await page.getByRole('listbox').waitFor();
   await page.keyboard.press('Escape');
   assert.equal(await page.getByRole('listbox').count(), 0, 'Escape closes the mention menu');
   assert.ok((await input.inputValue()).startsWith('Make a video for'), 'Escape with the menu open keeps the text');
+  // No matches: a status message outside any listbox, the input does not claim an expanded list.
+  await input.fill('Make a video for @zzz');
+  await composer.locator('.studio-mention-menu-empty[role="status"]').waitFor();
+  assert.equal(await page.getByRole('listbox').count(), 0, 'no empty listbox');
+  assert.equal(await input.getAttribute('aria-expanded'), 'false');
+  await page.keyboard.press('Escape');
   await input.fill('Make a video for');
 
   // New thread on the first send: createThread, then send into the created thread.
@@ -95,6 +121,8 @@ try {
   assert.equal(sent[1], created, 'sent into the created thread');
   assert.deepEqual(sent[2].mentions.map(target => target.id), ['scene:s2'], 'the mention travels with the message');
   await feed.locator('[data-run-status="running"]').waitFor();
+  await assertTarget(feed.getByRole('button', { name: 'Stop' }), 'run stop');
+  assert.equal(await feed.locator('.studio-chat-run-status[data-status="running"]').count(), 1, 'run status carries data-status');
   assert.equal(await input.inputValue(), '', 'the composer is cleared after send');
   assert.equal(await composer.locator('.studio-chip-mention').count(), 0, 'mentions are cleared after send');
   const threadItem = title => page.getByTestId('studio-chat-threads').locator('.studio-chat-threads-open', { hasText: title });
@@ -132,6 +160,7 @@ try {
   for (const type of ['diff', 'values', 'image', 'audio', 'video', 'file', 'operation', 'question']) assert.equal(await feed.locator(`[data-card="${type}"]`).count(), 1, `${type} card`);
   await videoCard.locator('video').waitFor();
   assert.equal((await assistant().locator('.studio-chat-markdown').textContent()).match(/Готово/g).length, 3, 'streamed text kept once after card snapshots');
+  await assertTarget(feed.locator('[data-card="values"] .studio-card-action').first(), 'card action');
   // Malformed results do not break the feed.
   await page.evaluate(() => { window.fake.emitCard({ type: 'values', section: 'Broken' }); });
   await feed.locator('[data-card="values"]', { hasText: 'Broken' }).waitFor();
@@ -231,6 +260,18 @@ try {
   await page.waitForFunction(id => window.threadId === id, created);
   await feed.locator('[data-card="video"]').waitFor();
   assert.equal(await feed.getByText('What shall we create?').count(), 0, 'switching back shows the thread messages');
+
+  // Standalone composer: an async onSubmit blocks a second submit, a rejection keeps the text and shows a notice.
+  await page.evaluate(() => { window.standaloneCalls = 0; window.standaloneSubmit = () => { window.standaloneCalls++; return new Promise((_, reject) => setTimeout(() => reject(new Error('Project creation failed')), 300)); }; });
+  const standalone = page.locator('#standalone');
+  await standalone.locator('textarea').fill('A landing for a bakery');
+  await standalone.locator('textarea').press('Enter');
+  await standalone.locator('textarea').press('Enter');
+  const standaloneNotice = standalone.getByRole('alert').filter({ hasText: 'Project creation failed' });
+  await standaloneNotice.waitFor();
+  assert.equal(await page.evaluate(() => window.standaloneCalls), 1, 'second submit blocked while pending');
+  assert.equal(await standalone.locator('textarea').inputValue(), 'A landing for a bakery', 'text kept after a rejection');
+  await standaloneNotice.getByRole('button', { name: 'Dismiss' }).click();
 
   // Narrow chat (< 560 px): the list collapses into the header menu.
   if (screenshots) { mkdirSync(screenshots, { recursive: true }); await page.screenshot({ path: `${screenshots}/chat-dark.png`, fullPage: true }); }
