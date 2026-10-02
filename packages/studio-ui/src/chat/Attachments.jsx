@@ -21,7 +21,7 @@ export function AttachmentCounter({ files = [], limits }) {
   const usage = attachmentUsage(files, limits);
   const over = usage.count >= usage.maxCount;
   return <span className="studio-chat-composer-counter" data-full={over || undefined}>
-    {t('{count} of {max} files · {size} of {total}', { count: usage.count, max: usage.maxCount, size: formatBytes(usage.bytes), total: formatBytes(usage.maxBytes) })}
+    {t('{count} of {max} files · {size} of {total}', { count: usage.count, max: usage.maxCount, size: formatBytes(usage.bytes, t), total: formatBytes(usage.maxBytes, t) })}
   </span>;
 }
 
@@ -36,7 +36,7 @@ const REASONS = {
 export function RejectedAttachments({ rejected = [], limits, onDismiss }) {
   const t = useStudioText();
   if (!rejected.length) return null;
-  const values = { count: limits?.count, size: formatBytes(limits?.bytesPerFile ?? 0), total: formatBytes(limits?.bytesTotal ?? 0) };
+  const values = { count: limits?.count, size: formatBytes(limits?.bytesPerFile ?? 0, t), total: formatBytes(limits?.bytesTotal ?? 0, t) };
   return <InlineNotice tone="danger" title={t('Some files were not attached')}
     actions={onDismiss && <button type="button" className="studio-chat-composer-dismiss" onClick={onDismiss}>{t('Dismiss')}</button>}>
     <ul className="studio-chat-composer-rejected">
