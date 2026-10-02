@@ -26,15 +26,18 @@ export const STEP_MESSAGES = Object.freeze({
   'Provider is busy ({status}), retry {attempt} of {max} in {seconds} s': ['Провайдер перегружен ({status}), повтор {attempt} из {max} через {seconds} с', 'Провайдер перевантажений ({status}), повтор {attempt} з {max} через {seconds} с'],
 });
 
-/** Translates a STEP_MESSAGES key: host t() first, then the shell dictionary, then English. */
-export function stepText(key, values = {}, { t, language } = {}) {
+/** Translates a key of a shell dictionary (English source → [ru, uk]): host t() first, then the dictionary, then English. */
+export function localizedText(dictionary, key, values = {}, { t, language } = {}) {
   const english = interpolate(key, values);
   const hosted = typeof t === 'function' ? t(key, values) : english;
   if (typeof hosted === 'string' && hosted !== english && hosted !== key) return hosted;
   const index = language === 'ru' ? 0 : language === 'uk' ? 1 : -1;
-  const local = index >= 0 ? STEP_MESSAGES[key]?.[index] : undefined;
+  const local = index >= 0 ? dictionary[key]?.[index] : undefined;
   return local ? interpolate(local, values) : english;
 }
+
+/** Translates a STEP_MESSAGES key: host t() first, then the shell dictionary, then English. */
+export const stepText = (key, values = {}, options = {}) => localizedText(STEP_MESSAGES, key, values, options);
 
 const TOOL_LABELS = {
   read_file: ['Reading {path}', 'Reading files'], read_files: ['Reading {path}', 'Reading files'],

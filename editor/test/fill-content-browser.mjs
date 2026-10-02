@@ -96,6 +96,9 @@ try {
   await chat.root.locator('.studio-chat-header').getByRole('button', { name: 'More actions', exact: true }).click();
   await chat.root.getByRole('menuitem', { name: 'AI settings', exact: true }).click();
   await page.locator('.ai-settings input[type=password]').fill('mock-key-no-paid-requests');
+  // Custom model IDs are typed in the text field behind "Enter model ID" (the picker lists the OpenRouter catalog).
+  await page.getByRole('button', { name: 'Enter model ID', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Enter model ID', exact: true }).first().click();
   await page.getByText('Text model', { exact: true }).locator('..').locator('input').fill('test/vision');
   await page.getByText('Image model', { exact: true }).locator('..').locator('input').fill('test/image');
   await page.getByRole('button', { name: 'Save connection', exact: true }).click();

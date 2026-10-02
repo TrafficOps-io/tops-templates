@@ -106,6 +106,7 @@ try {
   const beforeSettings=await page.evaluate(()=>window.retainedDraftTest.calls.length);
   await chat.root.locator('.studio-chat-header').getByRole('button',{ name:'More actions',exact:true }).click();
   await chat.root.getByRole('menuitem',{ name:'AI settings',exact:true }).click();
+  await page.getByRole('button',{ name:'Enter model ID',exact:true }).first().click();
   await page.getByLabel('Text model',{ exact:true }).fill('test/replacement');
   await page.getByRole('button',{ name:'Save connection',exact:true }).click();
   await page.getByText('Connection saved on this device.',{ exact:true }).waitFor();
@@ -119,11 +120,13 @@ try {
   await failed.locator('[data-testid="studio-chat-continue"]').click();
   await chat.apply.waitFor({ timeout:30000 });
   const continuation=await page.evaluate(index=>window.retainedDraftTest.calls.slice(index),callsBefore);
-  assert.ok(continuation.length>=3);
+  // One agent loop (no mandatory plan/review stages): set_values, then validate_draft.
+  assert.ok(continuation.length>=2);
   assert.ok(continuation.every(call=>call.model==='test/replacement'),'explicit continuation uses the saved replacement model');
   assert.equal(continuation[0].hasRetainedTitle,true,'continuation starts from retained content');
   await page.getByRole('button',{ name:'OpenRouter',exact:true }).last().click();
   const dialog=page.getByRole('dialog',{ name:'OpenRouter settings',exact:true });
+  await dialog.getByRole('button',{ name:'Enter model ID',exact:true }).first().click();
   await dialog.getByLabel('Text model',{ exact:true }).waitFor();
   const beforeApprovedSettings=await page.evaluate(()=>window.retainedDraftTest.calls.length);
   await dialog.getByLabel('Text model',{ exact:true }).fill('test/approved-replacement');
