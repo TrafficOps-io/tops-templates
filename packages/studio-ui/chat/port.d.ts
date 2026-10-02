@@ -18,16 +18,27 @@ export interface RunState { id: string; status: RunStatus; progress?: number; et
 export type ResultCardType = 'diff' | 'values' | 'image' | 'audio' | 'video' | 'file' | 'operation' | 'question';
 export interface DiffCard { type: 'diff'; path: string; added: number; removed: number; before: string; after: string }
 export interface ValuesCard { type: 'values'; section: string; changes: { path: string; before: unknown; after: unknown }[] }
-export interface ImageCard { type: 'image'; name: string; before?: string; after: string; variants?: string[]; width?: number; height?: number }
-export interface AudioCard { type: 'audio'; name: string; url: string; durationMs: number; provider?: string; status?: 'generating' | 'ready' | 'failed'; progress?: number }
-export interface VideoCard { type: 'video'; name: string; url: string; poster?: string; durationMs: number; width?: number; height?: number; provider?: string; cost?: number; status?: 'generating' | 'ready' | 'failed'; progress?: number }
+export interface ImageCard { type: 'image'; name: string; before?: string; after: string; variants?: string[]; width?: number; height?: number; cost?: number }
+/** url и durationMs обязательны при status 'ready' (или без status); при 'generating'/'failed' могут отсутствовать. */
+export interface AudioCard { type: 'audio'; name: string; url?: string; durationMs?: number; provider?: string; cost?: number; status?: 'generating' | 'ready' | 'failed'; progress?: number }
+/** url и durationMs обязательны при status 'ready' (или без status); при 'generating'/'failed' могут отсутствовать. */
+export interface VideoCard { type: 'video'; name: string; url?: string; poster?: string; durationMs?: number; width?: number; height?: number; provider?: string; cost?: number; status?: 'generating' | 'ready' | 'failed'; progress?: number }
 export interface FileCard { type: 'file'; name: string; bytes: number; url?: string; raw?: unknown }
 export interface OperationCard { type: 'operation'; label: string; target: MentionTarget; before?: string; after?: string }
-export interface QuestionCard { type: 'question'; questionId: string; text: string; options?: string[]; answered?: boolean }
+/** kind 'conflict' с options ['reviewed', 'rebase'] — ворота применения (landing); references — затронутые пути/цели. */
+export interface QuestionCard { type: 'question'; questionId: string; text: string; options?: string[]; answered?: boolean; kind?: 'conflict'; references?: string[] }
 export type ResultCard = DiffCard | ValuesCard | ImageCard | AudioCard | VideoCard | FileCard | OperationCard | QuestionCard;
 
+/**
+ * Правила контракта:
+ * - toolCallId детерминирован и уникален в пределах сообщения (нужен для part-update и стабильных ключей React).
+ *   Рекомендуемая форма — `${messageId}:${index}` по позиции части в parts, но порт вправе выбрать другой стабильный ключ
+ *   (landing использует путь файла: `r1:diff:index.tpl`). StudioChat сравнивает toolCallId только на равенство.
+ * - RunState.id равен id сообщения ассистента (иначе stop/apply/discard(runId) не находят сообщение).
+ */
 export type MessagePart = { type: 'text'; text: string } | { type: 'tool-call'; toolCallId: string; toolName: ResultCardType; result: ResultCard };
 export interface Message { id: string; role: 'user' | 'assistant'; createdAt: string; parts: MessagePart[]; status?: RunState; mentions?: MentionTarget[]; attachments?: Attachment[]; cost?: number }
+/** cost — итог за диалог (ChatHeader), считает порт. */
 export interface Thread { id: string; title: string; createdAt: string; updatedAt: string; archived?: boolean; cost?: number }
 
 export type ChatEvent =
@@ -38,19 +49,26 @@ export type ChatEvent =
   | { type: 'status'; messageId: string; status: RunState }
   | { type: 'error'; messageId?: string; code: 'conflict' | 'validation' | 'policy' | 'transport' | 'abort'; message: string };
 
-export interface SendInput { text: string; mentions: MentionTarget[]; attachments: File[]; scope: Scope; generateImages?: boolean }
-export interface ChatCapabilities { scopes: ScopeKind[]; cost: boolean; previewDraft: boolean; generateImages: boolean }
+/** mode — продуктовое поле (landing: «создать проект заново»); StudioChat его не читает. */
+export interface SendInput { text: string; mentions: MentionTarget[]; attachments: File[]; scope: Scope; generateImages?: boolean; mode?: 'create' }
+/** keepDraft — landing: «Keep draft in editor» для failed/interrupted ранов; conflictReview — порт присылает QuestionCard kind 'conflict'. */
+export interface ChatCapabilities { scopes: ScopeKind[]; cost: boolean; previewDraft: boolean; generateImages: boolean; conflictReview?: boolean; keepDraft?: boolean }
 
+/** Продуктовые методы (например registerBlockScope) в контракт не входят — они остаются на объекте адаптера. */
 export interface ChatPort {
   threads: ReadableStore<Thread[]>;
   messages(threadId: string): ReadableStore<Message[]>;
   events(threadId: string): AsyncIterable<ChatEvent>;
   send(threadId: string, input: SendInput): Promise<void>;
   stop(runId: string): Promise<void>;
-  apply(runId: string): Promise<void>;
+  /** runId везде — RunState.id, он же id сообщения ассистента. */
+  apply(runId: string, options?: { allowStaleContext?: boolean }): Promise<void>;
   discard(runId: string): Promise<void>;
   previewDraft?(runId: string): Promise<void>;
   answer?(questionId: string, answer: string): Promise<void>;
+  continueRun?(runId: string, prompt?: string): Promise<void>;
+  /** Перенести черновик рана в редактор без применения (landing). */
+  keepDraft?(runId: string): Promise<void>;
   createThread(): Promise<Thread>;
   renameThread(threadId: string, title: string): Promise<void>;
   archiveThread(threadId: string, archived: boolean): Promise<void>;
@@ -60,4 +78,6 @@ export interface ChatPort {
   attachmentLimits: AttachmentLimits;
   capabilities: ChatCapabilities;
   portalContainer?: HTMLElement;
+  /** Освободить подписки и соединения порта (EventSource и т. п.). */
+  dispose?(): void;
 }

@@ -8,7 +8,7 @@ Primitives, resizable workspace, i18n and the chat contract shared by TrafficOps
 npm install @trafficops/studio-ui @trafficops/studio-tokens
 ```
 
-Peer dependencies: `react` and `react-dom` ^19.2. `@assistant-ui/react` ^0.15 is an optional peer needed only for `StudioChat`. Styles come from `@trafficops/studio-ui/styles.css` plus the tokens and themes of `@trafficops/studio-tokens`; process them with Tailwind CSS 4 and daisyUI 5.
+Peer dependencies: `react` and `react-dom` ^19.2, `@assistant-ui/react` ^0.15 (required by `StudioChat`). Styles come from `@trafficops/studio-ui/styles.css` plus the tokens and themes of `@trafficops/studio-tokens`; process them with Tailwind CSS 4 and daisyUI 5.
 
 ## Provider and root
 
@@ -46,7 +46,41 @@ import { StudioUiProvider } from '@trafficops/studio-ui/i18n';
 
 ## Chat
 
-`ChatPort` is the contract between a product and the chat UI: see [`chat/port.d.ts`](chat/port.d.ts) (types only, no React or assistant-ui types). `StudioChat` is not shipped in this version. It will arrive in a later version as a separate lazily loaded chunk (`@trafficops/studio-ui/chat`, imported through `React.lazy`) built on `@assistant-ui/react`, with its own lightweight markdown renderer and no Streamdown dependency.
+### ChatPort
+
+`ChatPort` is the contract between a product and the chat UI: see [`chat/port.d.ts`](chat/port.d.ts) (types only, no React or assistant-ui types; `@trafficops/studio-ui/chat/port`). Optional members (`previewDraft`, `answer`, `continueRun`, `keepDraft`, `dispose`, `capabilities.conflictReview`, `capabilities.keepDraft`) may be left out; `StudioChat` hides the matching actions. Product-specific methods (for example `registerBlockScope`) are not part of the contract and stay on the adapter object. Two rules:
+
+- `RunState.id` equals the `id` of the assistant message. Otherwise `stop/apply/discard(runId)` cannot find the message.
+- `toolCallId` is deterministic and unique within a message (it keys `part-update` events and React lists). The recommended form is `` `${messageId}:${index}` `` by the part's position in `parts`; any other stable key is fine (Landing Studio uses the file path, `r1:diff:index.tpl`). `StudioChat` only compares `toolCallId` for equality.
+
+### StudioChat (`@trafficops/studio-ui/chat`)
+
+Load it lazily so the chat is a separate chunk: `const StudioChat = React.lazy(() => import('@trafficops/studio-ui/chat').then(module => ({ default: module.StudioChat })))` inside `Suspense` with a `Skeleton`. It is built on `@assistant-ui/react` with its own lightweight markdown renderer (no Streamdown).
+
+```jsx
+<StudioChat port={port} threadId={threadId} onThreadChange={setThreadId} launch={launch} actions={actions} disabled={false} footer={null} emptyState={null} className="" />
+```
+
+- `port`: `ChatPort`. `threadId`, `onThreadChange(id)`: the selected thread, controlled by the product.
+- `launch`: `{ id, text?, scope?, mentions?, attachments?: File[] }` — start a conversation from outside (see below).
+- `actions`: `{ id, label, danger?, onSelect({ text }) }[]` — product actions in the thread header menu.
+- `disabled`, `footer`, `emptyState`, `className`.
+
+### Thread model
+
+`port.createThread()` must return a real `Thread` with an id. `StudioChat` then calls `onThreadChange(id)` and subscribes to `messages(id)`. The port may keep the thread pending until the first `send` and materialise it then.
+
+### External launch
+
+An effect keyed on `launch.id` resets the composer and fills in the text, scope, mention targets and files. `launch.id` is compared for equality, so use `crypto.randomUUID()` rather than `Date.now()` (two launches in the same millisecond would not reset the composer).
+
+### Errors
+
+`StudioChat` does not use `useToast`: `send` errors appear as an `InlineNotice` in the feed, so the consumer does not need a `ToastProvider`.
+
+### Test hooks
+
+`data-testid` values (exactly this list): `studio-chat`, `studio-chat-threads`, `studio-chat-composer`, `studio-chat-feed`, `studio-chat-card` (with `data-card` set to the card type), `studio-chat-apply`, `studio-chat-keep-draft`, `studio-chat-continue`. Messages carry `data-run-id`, `data-run-status` and `data-role`.
 
 ## Tests
 

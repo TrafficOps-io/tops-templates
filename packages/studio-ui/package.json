@@ -11,6 +11,7 @@
     "./i18n": "./src/i18n/index.js",
     "./i18n/translation": "./src/i18n/translation.js",
     "./i18n/studio-translations": "./src/i18n/studio-translations.json",
+    "./chat": "./src/chat/index.js",
     "./chat/port": { "types": "./chat/port.d.ts" },
     "./styles.css": "./styles.css"
   },
@@ -25,7 +26,6 @@
     "react-dom": "^19.2.0",
     "@assistant-ui/react": "^0.15.0"
   },
-  "peerDependenciesMeta": { "@assistant-ui/react": { "optional": true } },
   "devDependencies": { "@babel/parser": "^7.29.8", "esbuild": "^0.25.0", "typescript": "^5.9.3" },
   "publishConfig": { "access": "public" }
 }

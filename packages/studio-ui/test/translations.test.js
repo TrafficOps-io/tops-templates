@@ -5,7 +5,7 @@ import { parse } from '@babel/parser';
 import messages from '../src/i18n/studio-translations.json' with { type: 'json' };
 import { translateStudio } from '../src/i18n/translation.js';
 
-const roots = ['../src/primitives/', '../src/workspace/', '../src/i18n/', '../../../editor/src/'].filter(root => existsSync(new URL(root, import.meta.url)));
+const roots = ['../src/primitives/', '../src/workspace/', '../src/i18n/', '../src/chat/', '../src/chat/cards/', '../../../editor/src/'].filter(root => existsSync(new URL(root, import.meta.url)));
 test('every literal passed to t() in studio-ui and Studio has both built-in translations', () => {
   const missing = [];
   function visit(node) {
