@@ -1,5 +1,6 @@
 // In-memory ChatPort (chat/port.d.ts) for Node tests and the browser playground.
-// Test controls: emitText(delta), emitCard(card), updateCard(toolCallId, patch), finish(), rejectSend, calls, opened.
+// Test controls: emitText(delta), emitCard(card), updateCard(toolCallId, patch), finish(status?), rejectSend, calls, opened,
+// subscribers(threadId) — number of live events() subscriptions.
 
 const MiB = 1024 * 1024;
 
@@ -13,19 +14,28 @@ function createStore(initial) {
   };
 }
 
-function createQueue() {
-  const buffer = [];
-  const waiting = [];
+// One event channel per thread; every events(threadId) call is an independent subscription (contract):
+// it receives events emitted after the call, and return() ends it and releases a pending next().
+function createChannel() {
+  const subscribers = new Set();
   let closed = false;
   return {
-    push(event) { if (closed) return; const next = waiting.shift(); if (next) next({ value: event, done: false }); else buffer.push(event); },
-    close() { closed = true; for (const next of waiting.splice(0)) next({ value: undefined, done: true }); },
+    push(event) { if (!closed) for (const subscriber of subscribers) subscriber.push(event); },
+    close() { closed = true; for (const subscriber of [...subscribers]) subscriber.end(); },
+    get size() { return subscribers.size; },
     [Symbol.asyncIterator]() {
+      const buffer = [], waiting = [];
+      let done = closed;
+      const subscriber = {
+        push(event) { const next = waiting.shift(); if (next) next({ value: event, done: false }); else buffer.push(event); },
+        end() { done = true; subscribers.delete(subscriber); for (const next of waiting.splice(0)) next({ value: undefined, done: true }); },
+      };
+      if (!done) subscribers.add(subscriber);
       return {
         next: () => buffer.length ? Promise.resolve({ value: buffer.shift(), done: false })
-          : closed ? Promise.resolve({ value: undefined, done: true })
+          : done ? Promise.resolve({ value: undefined, done: true })
           : new Promise(resolve => waiting.push(resolve)),
-        return: () => Promise.resolve({ value: undefined, done: true }),
+        return: () => { subscriber.end(); buffer.length = 0; return Promise.resolve({ value: undefined, done: true }); },
       };
     },
   };
@@ -54,7 +64,7 @@ export function createFakeChatPort({ now = () => new Date().toISOString() } = {}
     return messageStores.get(threadId);
   };
   const queue = threadId => {
-    if (!queues.has(threadId)) queues.set(threadId, createQueue());
+    if (!queues.has(threadId)) queues.set(threadId, createChannel());
     return queues.get(threadId);
   };
   const emit = (threadId, event) => queue(threadId).push(event);
@@ -84,7 +94,8 @@ export function createFakeChatPort({ now = () => new Date().toISOString() } = {}
     rejectSend: false,
     threads,
     messages: threadId => messagesStore(threadId),
-    events: threadId => queue(threadId),
+    events: threadId => ({ [Symbol.asyncIterator]: () => queue(threadId)[Symbol.asyncIterator]() }),
+    subscribers: threadId => queues.get(threadId)?.size ?? 0,
     async createThread() {
       const at = now();
       const thread = { id: nextId('t'), title: 'New chat', createdAt: at, updatedAt: at };
@@ -125,9 +136,11 @@ export function createFakeChatPort({ now = () => new Date().toISOString() } = {}
       patchMessage(threadId, messageId, message => ({ parts: message.parts.map(part => part.type === 'tool-call' && part.toolCallId === toolCallId ? { ...part, result: { ...part.result, ...patch } } : part) }));
       emit(threadId, { type: 'part-update', messageId, toolCallId, result: patch });
     },
-    finish(status = 'ready') {
-      const { messageId } = requireActive();
-      setStatus(messageId, status);
+    // extra: RunState fields (cost, message); a run cost is added to the thread total (Thread.cost).
+    finish(status = 'ready', extra = {}) {
+      const { threadId, messageId } = requireActive();
+      setStatus(messageId, status, extra);
+      if (Number.isFinite(extra.cost)) threads.set(threads.get().map(thread => thread.id === threadId ? { ...thread, cost: (thread.cost ?? 0) + extra.cost } : thread));
       active = null;
     },
     async stop(runId) { port.calls.push(['stop', runId]); setStatus(runId, 'cancelled'); if (active?.messageId === runId) active = null; },
@@ -147,6 +160,7 @@ export function createFakeChatPort({ now = () => new Date().toISOString() } = {}
       setStatus(runId, 'running');
       active = { threadId: run.threadId, messageId: runId };
     },
+    async keepDraft(runId) { port.calls.push(['keepDraft', runId]); },
     async renameThread(threadId, title) { port.calls.push(['renameThread', threadId, title]); threads.set(threads.get().map(thread => thread.id === threadId ? { ...thread, title, updatedAt: now() } : thread)); },
     async archiveThread(threadId, archived) { port.calls.push(['archiveThread', threadId, archived]); threads.set(threads.get().map(thread => thread.id === threadId ? { ...thread, archived, updatedAt: now() } : thread)); },
     async deleteThread(threadId) { port.calls.push(['deleteThread', threadId]); threads.set(threads.get().filter(thread => thread.id !== threadId)); messageStores.delete(threadId); queues.get(threadId)?.close(); queues.delete(threadId); },
@@ -156,7 +170,7 @@ export function createFakeChatPort({ now = () => new Date().toISOString() } = {}
     },
     openTarget(target) { port.opened.push(target); },
     attachmentLimits: { count: 10, bytesPerFile: 512 * MiB, bytesTotal: 5 * 1024 * MiB, accept: 'image/*,audio/*,video/*,.docx,.txt' },
-    capabilities: { scopes: ['project', 'scene', 'audio', 'script'], cost: true, previewDraft: false, generateImages: false, conflictReview: true },
+    capabilities: { scopes: ['project', 'scene', 'audio', 'script'], cost: true, previewDraft: false, generateImages: false, conflictReview: true, keepDraft: true },
     dispose() { for (const item of queues.values()) item.close(); queues.clear(); },
   };
   return port;

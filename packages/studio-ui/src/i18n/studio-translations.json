@@ -2381,5 +2381,14 @@
   "Empty or larger than {size}.": ["Пустой или больше {size}.", "Порожній або більший за {size}."],
   "All files together must fit in {total}.": ["Все файлы вместе должны умещаться в {total}.", "Усі файли разом мають вміщатися в {total}."],
   "This file type is not supported.": ["Этот тип файлов не поддерживается.", "Цей тип файлів не підтримується."],
-  "Some files were not attached": ["Часть файлов не прикреплена", "Частину файлів не прикріплено"]
+  "Some files were not attached": ["Часть файлов не прикреплена", "Частину файлів не прикріплено"],
+  "Conversation actions: {title}": ["Действия с диалогом: {title}", "Дії з діалогом: {title}"],
+  "Messages of this conversation will be deleted. Changes already applied stay in the project.": ["Сообщения этого диалога будут удалены. Уже применённые изменения останутся в проекте.", "Повідомлення цього діалогу буде видалено. Уже застосовані зміни залишаться в проєкті."],
+  "Conversation cost": ["Стоимость диалога", "Вартість діалогу"],
+  "The message was not sent": ["Сообщение не отправлено", "Повідомлення не надіслано"],
+  "The action failed": ["Действие не выполнено", "Дію не виконано"],
+  "Project assistant": ["Ассистент проекта", "Асистент проєкту"],
+  "What shall we create?": ["Что создадим?", "Що створимо?"],
+  "Describe an idea or a change. Mention sections, scenes and files with @.": ["Опишите идею или правку. Упоминайте разделы, сцены и файлы через @.", "Опишіть ідею або правку. Згадуйте розділи, сцени та файли через @."],
+  "Scroll to the latest message": ["К последнему сообщению", "До останнього повідомлення"]
 }

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RUN_STATUS, applyChatEvent, canHandleCardAction, handleCardAction, lineDiff, sendToPort, toThreadMessage } from '../src/chat/chat-model.js';
+import { RUN_STATUS, addStreamedText, applyChatEvent, canHandleCardAction, mergeStreamedText, handleCardAction, lineDiff, sendToPort, toThreadMessage } from '../src/chat/chat-model.js';
 import { createFakeChatPort } from './fixtures/FakeChatPort.js';
 
 const card = { type: 'audio', name: 'voice.mp3', status: 'generating', progress: 0.2 };
@@ -149,4 +149,37 @@ test('lineDiff isolates the changed lines with context', () => {
   const diff = lineDiff('a\nb\nc\nd\ne', 'a\nb\nX\nY\nd\ne');
   assert.deepEqual(diff, { leading: ['a', 'b'], removed: ['c'], added: ['X', 'Y'], trailing: ['d', 'e'] });
   assert.deepEqual(lineDiff('same', 'same').removed, []);
+});
+
+test('streamed text survives a new snapshot and is not duplicated once the snapshot carries text', () => {
+  const snapshot = base();
+  let streamed = {};
+  for (const delta of ['Done ', 'Done ', 'Done ']) streamed = addStreamedText(streamed, snapshot, { type: 'text-delta', messageId: 'm2', delta });
+  assert.deepEqual(mergeStreamedText(snapshot, streamed)[1].parts, [{ type: 'text', text: 'Done Done Done ' }]);
+  assert.equal(mergeStreamedText(snapshot, streamed)[0], snapshot[0], 'untouched messages keep identity');
+  // the port adds a card to its snapshot: the streamed text stays before it, a later delta starts a new segment after it
+  const withCard = snapshot.with(1, { ...snapshot[1], parts: [{ type: 'tool-call', toolCallId: 'm2:0', toolName: 'audio', result: card }] });
+  streamed = addStreamedText(streamed, withCard, { type: 'text-delta', messageId: 'm2', delta: 'More' });
+  assert.deepEqual(mergeStreamedText(withCard, streamed)[1].parts.map(part => part.text ?? part.type), ['Done Done Done ', 'tool-call', 'More']);
+  // the port switched to snapshots for this message: its text wins
+  const final = snapshot.with(1, { ...snapshot[1], parts: [{ type: 'text', text: 'Final' }] });
+  assert.deepEqual(mergeStreamedText(final, streamed)[1].parts, [{ type: 'text', text: 'Final' }]);
+  assert.equal(addStreamedText(streamed, snapshot, { type: 'text-delta', messageId: 'missing', delta: 'x' }), streamed);
+});
+
+test('FakeChatPort: every events() call is an independent subscription and return() releases a pending next()', async () => {
+  const port = createFakeChatPort();
+  const thread = await port.createThread();
+  const first = port.events(thread.id)[Symbol.asyncIterator](), second = port.events(thread.id)[Symbol.asyncIterator]();
+  assert.equal(port.subscribers(thread.id), 2);
+  await port.send(thread.id, { text: 'Hi', mentions: [], attachments: [], scope: { kind: 'project' } });
+  assert.equal((await first.next()).value.type, 'status');
+  assert.equal((await second.next()).value.type, 'status', 'both subscriptions receive the event');
+  const pending = second.next();
+  await second.return();
+  assert.deepEqual(await pending, { value: undefined, done: true });
+  assert.equal(port.subscribers(thread.id), 1);
+  port.emitText('a');
+  assert.deepEqual((await first.next()).value, { type: 'text-delta', messageId: port.messages(thread.id).get()[1].id, delta: 'a' });
+  assert.equal(port.messages(thread.id).get()[1].parts.length, 0, 'emitText does not touch messages()');
 });

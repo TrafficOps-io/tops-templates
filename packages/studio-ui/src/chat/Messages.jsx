@@ -1,4 +1,8 @@
+import { useState } from 'react';
 import { MessagePrimitive, ThreadPrimitive, useAuiState } from '@assistant-ui/react';
+import { useStudioText } from '../i18n/StudioUiProvider.jsx';
+import Button from '../primitives/Button.jsx';
+import InlineNotice from '../primitives/InlineNotice.jsx';
 import { AttachmentChip, MentionChip } from '../primitives/Chips.jsx';
 import Markdown from './Markdown.jsx';
 import RunStatus from './RunStatus.jsx';
@@ -27,9 +31,15 @@ export function UserMessage({ port }) {
 }
 
 export function AssistantMessage({ port }) {
-  const { run } = useCustom();
+  const t = useStudioText(), { run } = useCustom(), [error, setError] = useState(null);
   const can = action => canHandleCardAction(port, action);
-  const onAction = (action, card, value) => handleCardAction(port, run?.id, action, card, value);
+  // A rejected card action becomes an inline notice under the message (never a toast, never an unhandled rejection).
+  const onAction = (action, card, value) => {
+    setError(null);
+    let result;
+    try { result = handleCardAction(port, run?.id, action, card, value); } catch (failure) { setError(failure); return; }
+    Promise.resolve(result).catch(failure => setError(failure ?? new Error(t('Something went wrong.'))));
+  };
   return <MessagePrimitive.Root data-role="assistant" data-run-id={run?.id} data-run-status={run?.status} className="studio-chat-message studio-chat-message-assistant">
     {run && <RunStatus run={run} capabilities={port.capabilities} />}
     <MessagePrimitive.Parts>{({ part }) => {
@@ -38,11 +48,12 @@ export function AssistantMessage({ port }) {
       if (part.type === 'tool-call') return renderCard(part, onAction, { can, capabilities: port.capabilities });
       return <></>;
     }}</MessagePrimitive.Parts>
+    {error && <InlineNotice tone="danger" title={t('The action failed')} actions={<Button variant="ghost" size="sm" onClick={() => setError(null)}>{t('Dismiss')}</Button>}>{error.message || t('Something went wrong.')}</InlineNotice>}
     {run && <RunActions port={port} run={run} />}
   </MessagePrimitive.Root>;
 }
 
-// Feed of the current thread: one children-render function, no deprecated components={{…}} API.
+// Feed of the current thread: one children-render function, no deprecated components-prop API.
 export default function Messages({ port }) {
   return <ThreadPrimitive.Messages>{({ message }) => message.role === 'user' ? <UserMessage port={port} /> : <AssistantMessage port={port} />}</ThreadPrimitive.Messages>;
 }

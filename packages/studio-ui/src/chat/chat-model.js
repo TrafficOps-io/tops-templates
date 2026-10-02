@@ -66,6 +66,30 @@ export function applyChatEvent(messages, event) {
   return messages.with(index, message);
 }
 
+// Streamed text (text-delta) lives beside the port's snapshots: a port that streams deltas does not put that text into
+// messages() (contract rule), so a new snapshot must not wipe it. streamed: { [messageId]: { at, text }[] } — segments,
+// at = number of snapshot parts when the segment started (a delta after a new card starts a new segment).
+export function addStreamedText(streamed, messages, event) {
+  const message = messages.find(item => item.id === event.messageId);
+  if (!message || !event.delta) return streamed;
+  const at = message.parts.length, segments = streamed[message.id] ?? [], last = segments.at(-1);
+  const next = last && last.at === at ? segments.with(-1, { at, text: last.text + event.delta }) : [...segments, { at, text: event.delta }];
+  return { ...streamed, [message.id]: next };
+}
+
+// Snapshot + streamed segments → the list StudioChat renders. Once the snapshot carries text for a message, the port
+// switched to snapshots for it and the segments are ignored (no duplicates). Untouched messages keep identity.
+export function mergeStreamedText(messages, streamed) {
+  if (!streamed || !Object.keys(streamed).length) return messages;
+  return messages.map(message => {
+    const segments = streamed[message.id];
+    if (!segments?.length || message.parts.some(part => part.type === 'text' && part.text)) return message;
+    const parts = [...message.parts];
+    for (const segment of [...segments].reverse()) parts.splice(Math.min(segment.at, parts.length), 0, { type: 'text', text: segment.text });
+    return { ...message, parts };
+  });
+}
+
 /** Text of an assistant-ui AppendMessage. */
 export const appendMessageText = message => message.content.filter(part => part.type === 'text').map(part => part.text).join('\n');
 
