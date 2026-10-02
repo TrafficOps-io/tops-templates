@@ -25,6 +25,7 @@ import { activeElement, trapFocus } from './focus.js';
 import { createAiDraftValidator } from './validate-ai-draft.js';
 import { useEditorProject } from './useEditorProject.js';
 import { blockScopeSourceTargets, createBlockEditScope } from './block-edit-scope.js';
+import { liveDraftPreview } from './chat-live-preview.js';
 import { blockScopeBaseMatches, previewSelectionMatches, selectedPreviewBlocks } from './preview-selection.js';
 const CodeEditor = lazy(() => import('./CodeEditor.jsx'));
 // Чат — отдельный чанк: догружается при первом открытии вкладки AI.
@@ -314,7 +315,7 @@ function Shell({ host, onSnapshot, onNewProject, onImportProject, newProjectCrea
             : <InlineNotice tone="warning">{t('This host does not support persistent conversations.')}</InlineNotice>}</div>{tab === 'ai' && aiView === 'settings' && <AiSettings onBack={() => setAiView('assistant')} />}</>}
         </div>
       </section>
-      {editor.showPreview && <PreviewPanel pages={pages} page={page} onPageChange={editor.setPreviewPage} onSetEntry={host.capabilities.entrypoint ? entrypoint => mutate({ entrypoint }) : undefined} locked={locked} mobile={mobile} onMobileChange={setMobile} preview={editor.preview} error={editor.previewError} ready={Boolean(editor.preview)} interactive={editor.interactivePreview} paused={editor.previewPaused} updating={editor.previewBusy} onDisplayed={editor.previewDisplayed} onRefresh={refreshSelectionPreview} onTogglePaused={editor.togglePreviewPaused} selectionAvailable={aiEnabled && !editor.conversationDraft && Boolean(editor.preview?.selection)} selectionEnabled={selectionEnabled} onSelectionEnabledChange={setSelectionEnabled} selectedBlocks={selectedBlocks} selectionLocked={locked || blockSelectionBusy} selectionStale={selectionStale} onSelectionChange={selectionChanged} onSelectionDocumentChange={selectionDocumentChanged} onEditSelected={editSelectedBlocks} {...(previewExpandButton && !isApp && !expanded ? { expanded: false, onToggleExpanded: () => setExpanded(true) } : {})} note={t(editor.conversationDraft ? 'Conversation draft · Project files unchanged' : editor.interactivePreview ? 'Interactive preview · JavaScript enabled' : 'Static preview · scripts are disabled')} />}
+      {editor.showPreview && <PreviewPanel pages={pages} page={page} onPageChange={editor.setPreviewPage} onSetEntry={host.capabilities.entrypoint ? entrypoint => mutate({ entrypoint }) : undefined} entryDisabled={Boolean(editor.conversationDraft)} locked={locked} mobile={mobile} onMobileChange={setMobile} preview={editor.preview} error={editor.previewError} ready={Boolean(editor.preview)} interactive={editor.interactivePreview} paused={editor.previewPaused} updating={editor.previewBusy} onDisplayed={editor.previewDisplayed} onRefresh={refreshSelectionPreview} onTogglePaused={editor.togglePreviewPaused} selectionAvailable={aiEnabled && !editor.conversationDraft && Boolean(editor.preview?.selection)} selectionEnabled={selectionEnabled} onSelectionEnabledChange={setSelectionEnabled} selectedBlocks={selectedBlocks} selectionLocked={locked || blockSelectionBusy} selectionStale={selectionStale} onSelectionChange={selectionChanged} onSelectionDocumentChange={selectionDocumentChanged} onEditSelected={editSelectedBlocks} {...(previewExpandButton && !isApp && !expanded ? { expanded: false, onToggleExpanded: () => setExpanded(true) } : {})} note={t(editor.conversationDraft ? 'Conversation draft · Project files unchanged' : editor.interactivePreview ? 'Interactive preview · JavaScript enabled' : 'Static preview · scripts are disabled')} />}
       {dialog?.kind === 'ai-create' && <ConfirmDialog t={t} title={t('Generate a new project?')} description={t('Replaces every file in the project.')} confirmLabel={t('Create a new project')} danger
         onClose={closeDialog} onConfirm={() => { closeDialog(); createProjectWithAi().catch(report); }} />}
       {dialog && dialog.kind !== 'ai-create' && <Modal title={titles[dialog.kind]} onClose={closeDialog} onSubmit={submitDialog} confirmLabel={dialog.kind === 'action' && dialog.descriptor.input ? dialog.descriptor.label : t(['delete', 'delete-folder'].includes(dialog.kind) ? 'Delete' : 'Apply')} confirmFirst={!dialog.descriptor?.input && ['delete', 'delete-folder', 'remove-language', 'reload', 'new', 'action'].includes(dialog.kind)} busy={busy}>
@@ -376,6 +377,13 @@ function ShellChat({ host, chatRef, mounted, threadId, onThreadChange, launch, o
   const blockScope = latestRun?.scope?.kind === 'block' && !['applied', 'discarded'].includes(latestRun.state) ? latestRun.scope.editScope
     : !latestRun ? launchBlockScope(launch, composerScope) : null;
   const scopeChanged = useCallback(scope => setComposerScope({ launchId: launch?.id, scope }), [launch?.id]);
+  // Live preview of the open conversation's latest run (chat-live-preview.js).
+  const livePreviewRun = useRef(''), onPreviewDraft = chatContext.onPreviewDraft;
+  useEffect(() => {
+    const next = liveDraftPreview(latestRun, livePreviewRun.current);
+    if (next.kind === 'show') { livePreviewRun.current = next.runId; onPreviewDraft?.(next.draft); }
+    else if (next.kind === 'clear') { if (previewRunId === livePreviewRun.current) onPreviewDraft?.(null); livePreviewRun.current = ''; }
+  }, [latestRun?.id, latestRun?.state, latestRun?.checkpoint, latestRun?.result]); // eslint-disable-line react-hooks/exhaustive-deps
   const hasDraft = Boolean(latestRun?.result || latestRun?.checkpoint), { state, locale } = chatContext;
   const blockScopeStale = Boolean(blockScope && ((selectionStale && !hasDraft) || (blockScope.locale && blockScope.locale !== locale)
     || !blockScopeBaseMatches(blockScope, { files: state.files, rawValues: state.translations?.[locale] || {} })));

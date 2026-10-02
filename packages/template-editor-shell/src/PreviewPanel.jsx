@@ -83,7 +83,7 @@ function PreviewFrames({ preview, interactive, onDisplayed, title, selectionEnab
   </div>;
 }
 
-export default function PreviewPanel({ pages, page, onPageChange, onSetEntry, locked, mobile, onMobileChange, preview, error, ready, expanded, onToggleExpanded, note, interactive = false, paused = false, updating = false, onRefresh, onTogglePaused, onDisplayed, selectionAvailable = false, selectionEnabled = false, onSelectionEnabledChange, selectedBlocks = [], selectionLocked = false, selectionStale = false, onSelectionChange, onEditSelected, onSelectionDocumentChange }) {
+export default function PreviewPanel({ pages, page, onPageChange, onSetEntry, entryDisabled = false, locked, mobile, onMobileChange, preview, error, ready, expanded, onToggleExpanded, note, interactive = false, paused = false, updating = false, onRefresh, onTogglePaused, onDisplayed, selectionAvailable = false, selectionEnabled = false, onSelectionEnabledChange, selectedBlocks = [], selectionLocked = false, selectionStale = false, onSelectionChange, onEditSelected, onSelectionDocumentChange }) {
   const t = useStudioText(), current = pages.find(item => item.name === page);
   const [displayed, setDisplayed] = useState(null), [selectionDocument, setSelectionDocument] = useState(null);
   const displayedFrame = displayed || preview;
@@ -97,7 +97,7 @@ export default function PreviewPanel({ pages, page, onPageChange, onSetEntry, lo
   return <section id="preview-panel" className="preview-panel" aria-label={t('Live preview')}>
     <div className="preview-toolbar"><div className="preview-label"><span className={`status-dot ${ready && !updating ? '' : 'pending'}`} /><span>{t('LIVE PREVIEW')}</span></div>
       <Menu className="page-menu" triggerClassName="page-menu-trigger" label={t('Preview page')} disabled={!pages.length} trigger={<><span>{page || t('No pages')}</span><ChevronDown size={12} /></>}>
-        {({ close }) => <>{pages.map(item => <button key={item.name} type="button" role="menuitem" aria-current={page === item.name ? 'page' : undefined} onClick={() => { onPageChange(item.name); close(); }}><span>{item.name}</span>{item.isEntry && <Star size={12} aria-label={t('Entry page')} />}</button>)}{onSetEntry && <><hr /><button type="button" role="menuitem" disabled={locked || !current || current.isEntry} onClick={() => { onSetEntry(page); close(); }}><Star size={13} />{t('Make entry page')}</button></>}</>}
+        {({ close }) => <>{pages.map(item => <button key={item.name} type="button" role="menuitem" aria-current={page === item.name ? 'page' : undefined} onClick={() => { onPageChange(item.name); close(); }}><span>{item.name}</span>{item.isEntry && <Star size={12} aria-label={t('Entry page')} />}</button>)}{onSetEntry && <><hr /><button type="button" role="menuitem" disabled={locked || entryDisabled || !current || current.isEntry} onClick={() => { onSetEntry(page); close(); }}><Star size={13} />{t('Make entry page')}</button></>}</>}
       </Menu>
       {selectionAvailable && <button type="button" className="btn btn-ghost btn-xs preview-selection-toggle" aria-pressed={selectionEnabled} disabled={!preview || selectionLocked || selectionStale} onClick={() => onSelectionEnabledChange?.(!selectionEnabled)}><MousePointer2 size={14} /><span>{t('Select elements')}</span></button>}
       <div className="preview-run-controls">
