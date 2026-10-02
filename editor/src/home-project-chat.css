@@ -36,3 +36,4 @@
   .library-with-chat .library-search { flex-basis: 100%; }
   .library-manual-actions { justify-content: flex-start; }
 }
+.home-chat-status { margin-top: .75rem; font-size: .875rem; color: var(--ui-muted, inherit); }

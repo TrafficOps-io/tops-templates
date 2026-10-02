@@ -94,6 +94,7 @@ export default function HomeProjectChat({ busy, aiSettings, onCreate }) {
     <BriefComposer value={prompt} onChange={setPrompt} attachments={attachments} onAttachmentsChange={setAttachments}
       settings={settings} imageChoice={imageChoice} onImageChoiceChange={setImageChoice} useOnPage={useOnPage} onUseOnPageChange={setUseOnPage}
       disabled={disabled} onSubmit={submit} placeholder={kind === 'template' ? 'Describe a reusable template…' : 'Describe your landing page…'} />
+    {sending && <p className="home-chat-status" role="status">Creating project…</p>}
     {error && <p className="inline-error home-chat-error" role="alert">{error}</p>}
     <div className="home-chat-ideas" role="group" aria-label="Ideas to get started"><span>Try an idea</span>{ideas.map(([label, value]) => <button type="button" key={label} disabled={disabled || Boolean(prompt.trim())} onClick={() => chooseIdea(value)}>{label}</button>)}</div>
     <p className="home-chat-note">Send your brief to open a new project and continue the conversation.</p>

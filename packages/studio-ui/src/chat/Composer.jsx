@@ -179,7 +179,7 @@ function ComposerBody({ parts, text, setText, onInputText, submit, runtime, busy
   const Root = runtime ? ComposerPrimitive.Root : 'form';
   const Input = runtime ? ComposerPrimitive.Input : 'textarea';
   const runtimeInputProps = runtime ? { cancelOnEscape: !menuOpen, addAttachmentOnPaste: false, submitMode: 'none', maxRows: 10 } : { rows: 3, value: text };
-  return <Root ref={root} data-testid="studio-chat-composer" className="studio-chat-composer" aria-disabled={disabled || undefined}
+  return <Root ref={root} data-testid="studio-chat-composer" className="studio-chat-composer" aria-disabled={disabled || undefined} aria-busy={busy || undefined}
     onSubmit={onFormSubmit}
     onPaste={event => { const pasted = filesFromClipboard(event); if (pasted.length && parts.attachEnabled) { event.preventDefault(); addFiles(pasted); } }}
     onDragOver={event => { if (parts.attachEnabled && Array.from(event.dataTransfer?.types ?? []).includes('Files')) event.preventDefault(); }}

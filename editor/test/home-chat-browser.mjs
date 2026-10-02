@@ -93,6 +93,8 @@ try {
   }
   await pending.setViewportSize({ width: 1440, height: 1000 });
   await composer.locator('button[type=submit]').click();
+  await home.getByRole('status').filter({ hasText: 'Creating project…' }).waitFor();
+  await home.locator('form[aria-busy="true"]').waitFor();
   const chat = studioChat(pending); await showLatestThread(pending);
   await chat.user.getByText('Create a reusable ceramics template with editable content.', { exact: true }).waitFor();
   await chat.root.getByRole('button', { name: 'AI settings', exact: true }).waitFor();
