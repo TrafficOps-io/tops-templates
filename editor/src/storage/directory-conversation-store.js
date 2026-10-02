@@ -1,38 +1,61 @@
-import { CONVERSATION_LIMITS, ConflictError, ValidationError, blobReferences, sha256Hex, validateThreadFile } from '@trafficops/template-editor-core';
+import { BLOB_TAG, CONVERSATION_LIMITS, ConflictError, ValidationError, blobReferences, sha256Hex, validateThreadFile } from '@trafficops/template-editor-core';
 import { withLock } from './locks.js';
-import { fileAt, lastModified, listDirectory, readFile, readJson, removePath, writeFile } from './write.js';
+import { fileAt, listDirectory, readFile, readJson, removePath, writeFile } from './write.js';
 
 const DIR = '.trafficops/conversations', BLOBS = `${DIR}/blobs`, TOMBSTONES = '.trafficops/conversation-tombstones.json', META = '.trafficops/project.json';
-const SHA256 = /^[a-f0-9]{64}$/, MISSING = 'A conversation attachment is missing.';
-const threadPath = id => `${DIR}/${encodeURIComponent(id)}.json`;
+const SHA256 = /^[a-f0-9]{64}$/, READABLE = /^[a-z0-9_-]{1,200}$/, MISSING = 'A conversation attachment is missing.';
+const encoder = new TextEncoder(), decode = bytes => new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+// Lowercase-safe ids keep a readable name; anything else (case, reserved characters, length) is hashed, so names never
+// collide on case-insensitive file systems and stay valid on every platform.
+const nameOf = async id => READABLE.test(id) ? `${id}.json` : `~${await sha256Hex(encoder.encode(id))}.json`;
 const json = value => JSON.stringify(value, null, 2) + '\n';
 const damagedEntry = id => ({ schema: 1, id, revision: -1, damaged: true, messages: [], runs: [] });
-const idOf = name => { try { return decodeURIComponent(name.slice(0, -'.json'.length)); } catch { return name.slice(0, -'.json'.length); } };
 
-// A thread file: { file } when valid, { damaged: true } when unreadable, invalid or stored under another id's name.
+async function statOf(root, path) {
+  const handle = await fileAt(root, path);
+  try { return handle ? await handle.getFile() : null; } catch (error) { if (error?.name === 'NotFoundError') return null; throw error; }
+}
+
+// A thread file: null when absent or empty (an interrupted first write), { damaged: true } when it cannot be parsed or
+// validated or is stored under another id's name, else { file }. Other read errors propagate.
 async function readThreadFile(root, name) {
+  const bytes = await readFile(root, `${DIR}/${name}`);
+  if (!bytes?.byteLength) return null;
   try {
-    const file = await readJson(root, `${DIR}/${name}`);
-    if (file === null) return null;
-    validateThreadFile(file);
-    if (threadPath(file.id) !== `${DIR}/${name}`) throw new Error('The dialogue file name does not match its ID.');
+    const file = validateThreadFile(JSON.parse(decode(bytes)));
+    if (await nameOf(file.id) !== name) throw new Error('The dialogue file name does not match its ID.');
     return { file };
   } catch { return { damaged: true }; }
 }
 
-async function readTombstones(root) {
-  try {
-    const value = await readJson(root, TOMBSTONES);
-    return new Map(value && typeof value === 'object' && !Array.isArray(value) ? Object.entries(value).filter(([, revision]) => Number.isSafeInteger(revision) && revision > 0) : []);
-  } catch { return new Map(); }
+// sha → the sizes the thread's references claim.
+function blobSizes(value, found = new Map()) {
+  if (Array.isArray(value)) for (const item of value) blobSizes(item, found);
+  else if (plain(value)) {
+    if (Object.hasOwn(value, BLOB_TAG)) { if (!found.has(value[BLOB_TAG])) found.set(value[BLOB_TAG], new Set()); found.get(value[BLOB_TAG]).add(value.size); }
+    else for (const child of Object.values(value)) blobSizes(child, found);
+  }
+  return found;
 }
-const writeTombstones = (root, tombstones) => writeFile(root, TOMBSTONES, json(Object.fromEntries(tombstones)));
 
 /** ConversationStore over `.trafficops/conversations/` in a project folder, plus close(). One file per dialogue, blobs
  *  by sha. Writes, deletes and GC run under one lock per project; tombstones keep revisions monotonic across delete
  *  and recreate. Damaged files are listed as damaged, never overwritten or deleted, and block GC. */
-export function createDirectoryConversationStore(root, { projectId, graceMs = 10 * 60 * 1000, refreshMs = 5 * 60 * 1000, now = Date.now, channelName, locks } = {}) {
+export function createDirectoryConversationStore(root, { projectId, graceMs = 10 * 60 * 1000, refreshMs = 5 * 60 * 1000, now = Date.now, channelName, locks, onError } = {}) {
   const lockName = `trafficops-conversations:${projectId}`, listeners = new Set();
+  const report = error => { try { onError?.(error); } catch { /* Reporting cannot fail an operation. */ } };
+  // Tolerant: a corrupt tombstones file is reported and read as empty, so it never blocks writes.
+  const readTombstones = async () => {
+    const bytes = await readFile(root, TOMBSTONES);
+    if (!bytes?.byteLength) return new Map();
+    try {
+      const value = JSON.parse(decode(bytes));
+      if (!plain(value)) throw new Error('not a revision map');
+      return new Map(Object.entries(value).filter(([, revision]) => Number.isSafeInteger(revision) && revision > 0));
+    } catch (error) { report(new ValidationError(`${TOMBSTONES} is not valid: ${error.message}`, { cause: error })); return new Map(); }
+  };
+  const writeTombstones = tombstones => writeFile(root, TOMBSTONES, json(Object.fromEntries(tombstones)));
   const locked = fn => withLock(lockName, fn, { locks });
   let channel = null, closed = false;
   const channelOf = () => {
@@ -46,14 +69,14 @@ export function createDirectoryConversationStore(root, { projectId, graceMs = 10
   };
   const post = message => { try { channelOf()?.postMessage(message); } catch { /* The change is committed; peers refresh on their next read. */ } };
   const threadNames = async () => (await listDirectory(root, DIR)).filter(entry => entry.kind === 'file' && entry.name.endsWith('.json')).map(entry => entry.name);
-  const current = async id => (await readThreadFile(root, `${encodeURIComponent(id)}.json`)) ?? { file: null };
+  const current = async id => (await readThreadFile(root, await nameOf(id))) ?? { file: null };
 
   return {
     async listThreads() {
       const threads = [];
       for (const name of await threadNames()) {
         const entry = await readThreadFile(root, name);
-        if (entry) threads.push(entry.damaged ? damagedEntry(idOf(name)) : entry.file);
+        if (entry) threads.push(entry.damaged ? damagedEntry(name.slice(0, -'.json'.length)) : entry.file);
       }
       return threads;
     },
@@ -63,11 +86,16 @@ export function createDirectoryConversationStore(root, { projectId, graceMs = 10
         const existing = await current(file.id);
         if (existing.damaged) throw new ConflictError('The dialogue file is damaged and cannot be overwritten. Repair or remove it first.');
         if ((existing.file?.revision ?? 0) !== expectedRevision) throw new ConflictError('The dialogue changed elsewhere. Reload before saving.');
-        for (const sha of blobReferences(file)) if (!await fileAt(root, `${BLOBS}/${sha}`)) throw new ValidationError('The dialogue references a missing attachment.');
-        const tombstones = await readTombstones(root);
+        // A truncated blob counts as missing, so the adapter re-uploads it.
+        for (const [sha, sizes] of blobSizes(file)) {
+          const blob = await statOf(root, `${BLOBS}/${sha}`);
+          if (!blob || [...sizes].some(size => size !== blob.size)) throw new ValidationError('The dialogue references a missing attachment.');
+        }
+        const tombstones = await readTombstones();
         const revision = Math.max(existing.file?.revision ?? 0, tombstones.get(file.id) ?? 0) + 1;
-        await writeFile(root, threadPath(file.id), json({ ...file, revision }));
-        if (tombstones.delete(file.id)) await writeTombstones(root, tombstones);
+        await writeFile(root, `${DIR}/${await nameOf(file.id)}`, json({ ...file, revision }));
+        // The write is committed; a stale tombstone only ever raises a later revision.
+        if (tombstones.delete(file.id)) { try { await writeTombstones(tombstones); } catch (error) { report(error); } }
         post({ threadId: file.id, revision });
         return { revision };
       });
@@ -80,20 +108,28 @@ export function createDirectoryConversationStore(root, { projectId, graceMs = 10
         const { revision } = existing.file;
         if (revision !== expectedRevision) throw new ConflictError('The dialogue changed elsewhere. Reload before deleting it.');
         // The tombstone is written first, so a failed removal can never let the revision restart.
-        const tombstones = await readTombstones(root);
+        const tombstones = await readTombstones();
         tombstones.set(id, Math.max(revision, tombstones.get(id) ?? 0));
-        await writeTombstones(root, tombstones);
-        await removePath(root, threadPath(id));
+        await writeTombstones(tombstones);
+        await removePath(root, `${DIR}/${await nameOf(id)}`);
         post({ threadId: id, revision });
       });
     },
     async putBlob(sha, bytes) {
       if (bytes.byteLength > CONVERSATION_LIMITS.blob) throw new Error('A conversation attachment exceeds 24 MiB.');
       if (await sha256Hex(bytes) !== sha) throw new ValidationError('The conversation attachment does not match its hash.');
-      const path = `${BLOBS}/${sha}`, modified = await lastModified(root, path);
-      if (modified === null) return writeFile(root, path, bytes);
-      // Rewriting under the lock moves an old blob out of the GC grace window before a thread references it again.
-      if (now() - modified > refreshMs) await locked(() => writeFile(root, path, bytes));
+      const path = `${BLOBS}/${sha}`, existing = await statOf(root, path);
+      if (!existing) {
+        try { await writeFile(root, path, bytes); } catch (error) {
+          // Best effort: drop an empty or partial file, unless another window has completed the same blob meanwhile.
+          try { if ((await statOf(root, path))?.size !== bytes.byteLength) await removePath(root, path); } catch { /* The write error is what matters. */ }
+          throw error;
+        }
+        return;
+      }
+      // A truncated blob is repaired; rewriting an old one under the lock moves it out of the GC grace window before a
+      // thread references it again.
+      if (existing.size !== bytes.byteLength || now() - existing.lastModified > refreshMs) await locked(() => writeFile(root, path, bytes));
     },
     async getBlob(sha) {
       const bytes = typeof sha === 'string' && SHA256.test(sha) ? await readFile(root, `${BLOBS}/${sha}`) : null;
@@ -117,8 +153,8 @@ export function createDirectoryConversationStore(root, { projectId, graceMs = 10
         for (const { name, kind } of await listDirectory(root, BLOBS)) {
           if (signal?.aborted) return;
           if (kind !== 'file' || !SHA256.test(name) || referenced.has(name)) continue;
-          const modified = await lastModified(root, `${BLOBS}/${name}`);
-          if (modified !== null && now() - modified > graceMs) await removePath(root, `${BLOBS}/${name}`);
+          const blob = await statOf(root, `${BLOBS}/${name}`);
+          if (blob && now() - blob.lastModified > graceMs) await removePath(root, `${BLOBS}/${name}`);
         }
       });
     },

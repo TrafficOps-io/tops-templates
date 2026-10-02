@@ -44,12 +44,18 @@ test('a deleted thread recreated with expectedRevision 0 continues its revisions
   assert.equal((await store.writeThread(thread(), { expectedRevision: 0 })).revision, 4);
 });
 
-test('ids with tombstones, slashes, colons and spaces map to encoded file names', async t => {
-  const { root, open } = harness(t), store = open(), ids = ['tombstones', 'conversation-tombstones', 'a/b', 'x:y', 'with space', '__proto__', '../up'];
-  for (const id of ids) await store.writeThread(thread(id), { expectedRevision: 0 });
-  const names = [...root.children.get('.trafficops').children.get('conversations').children.keys()].sort();
-  assert.deepEqual(names, ids.map(id => `${encodeURIComponent(id)}.json`).sort());
-  assert.deepEqual((await store.listThreads()).map(file => [file.id, file.revision]).sort(), ids.map(id => [id, 1]).sort());
+test('safe lowercase ids use readable file names; every other id uses a hashed name', async t => {
+  const { root, open } = harness(t), store = open(), names = () => [...root.children.get('.trafficops').children.get('conversations').children.keys()].sort();
+  const readable = ['tombstones', 'conversation-tombstones', 'a', 'thread_1-x', '__proto__', 'z'.repeat(160)];
+  const hashed = ['A', 'Thread', 'a/b', 'x:y', 'with space', 'star*', '中'.repeat(160), 'a b'.repeat(53), '../up', 'tombstones.json'];
+  for (const id of [...readable, ...hashed]) await store.writeThread(thread(id), { expectedRevision: 0 });
+  assert.deepEqual(names(), [...readable.map(id => `${id}.json`), ...await Promise.all(hashed.map(async id => `~${await sha256Hex(bytes(id))}.json`))].sort());
+  assert.ok(names().every(name => name.length <= 205 && /^[~a-z0-9_.-]+$/.test(name)), 'names are short and portable');
+  assert.notEqual(names().indexOf('a.json'), -1); assert.notEqual(names().indexOf(`~${await sha256Hex(bytes('A'))}.json`), -1, "'A' and 'a' are distinct files");
+  await store.writeThread({ ...thread('A'), title: 'Upper' }, { expectedRevision: 1 });
+  const listed = new Map((await store.listThreads()).map(file => [file.id, file]));
+  assert.deepEqual([...listed.keys()].sort(), [...readable, ...hashed].sort());
+  assert.deepEqual([listed.get('a').title, listed.get('a').revision, listed.get('A').title, listed.get('A').revision], ['Dialogue', 1, 'Upper', 2]);
   await store.deleteThread('a/b', { expectedRevision: 1 });
   await store.deleteThread('__proto__', { expectedRevision: 1 });
   assert.equal((await store.writeThread(thread('a/b'), { expectedRevision: 0 })).revision, 2);
@@ -63,22 +69,27 @@ test('a damaged thread file is listed as damaged, blocks GC, cannot be overwritt
   const { root, open } = harness(t, { now: () => time, graceMs: 0 }), store = open();
   const loose = bytes('loose'), looseSha = await sha256Hex(loose);
   await store.putBlob(looseSha, loose);
-  await writeFile(root, `${DIR}/bad%20one.json`, '{oops');
+  const hashedName = `~${await sha256Hex(bytes('Bad One'))}`;
+  await writeFile(root, `${DIR}/bad-one.json`, '{oops');
+  await writeFile(root, `${DIR}/${hashedName}.json`, JSON.stringify({ schema: 1, id: 'Bad One', revision: -4, messages: [], runs: [] }));
   await writeFile(root, `${DIR}/wrong.json`, JSON.stringify(thread('other', { revision: 1 })));
   await writeFile(root, `${DIR}/schema.json`, JSON.stringify({ schema: 9, id: 'schema' }));
   await writeFile(root, `${DIR}/notes.txt`, 'not a thread');
   const listed = (await store.listThreads()).sort((a, b) => a.id.localeCompare(b.id));
   const damaged = id => ({ schema: 1, id, revision: -1, damaged: true, messages: [], runs: [] });
-  assert.deepEqual(listed, [damaged('bad one'), damaged('schema'), damaged('wrong')]);
+  assert.deepEqual(listed, [damaged('bad-one'), damaged('schema'), damaged('wrong'), damaged(hashedName)].sort((a, b) => a.id.localeCompare(b.id)));
   time = 5000;
   await store.collectGarbage();
   assert.ok(await lastModified(root, `${DIR}/blobs/${looseSha}`), 'GC is skipped while a thread file is damaged');
-  await assert.rejects(store.writeThread(thread('bad one'), { expectedRevision: 0 }), conflict);
-  await assert.rejects(store.writeThread(thread('bad one'), { expectedRevision: -1 }), conflict);
-  await assert.rejects(store.deleteThread('bad one', { expectedRevision: -1 }), conflict);
-  await assert.rejects(store.deleteThread('bad one', { expectedRevision: 0 }), conflict);
-  assert.equal(await readText(root, `${DIR}/bad%20one.json`), '{oops');
-  for (const name of ['bad%20one.json', 'wrong.json', 'schema.json']) root.children.get('.trafficops').children.get('conversations').children.delete(name);
+  for (const id of ['bad-one', 'Bad One']) {
+    await assert.rejects(store.writeThread(thread(id), { expectedRevision: 0 }), conflict);
+    await assert.rejects(store.writeThread(thread(id), { expectedRevision: -1 }), conflict);
+    await assert.rejects(store.deleteThread(id, { expectedRevision: -1 }), conflict);
+    await assert.rejects(store.deleteThread(id, { expectedRevision: 0 }), conflict);
+  }
+  assert.equal(await readText(root, `${DIR}/bad-one.json`), '{oops');
+  assert.match(await readText(root, `${DIR}/${hashedName}.json`), /-4/);
+  for (const name of ['bad-one.json', `${hashedName}.json`, 'wrong.json', 'schema.json']) root.children.get('.trafficops').children.get('conversations').children.delete(name);
   await store.collectGarbage();
   assert.equal(await lastModified(root, `${DIR}/blobs/${looseSha}`), null, 'GC runs once the damaged files are gone');
   assert.equal(await readText(root, `${DIR}/notes.txt`), 'not a thread');
@@ -176,4 +187,61 @@ test('thread writes, deletes and GC take the project lock; watch posts { threadI
   await custom.writeThread(thread('c'), { expectedRevision: 0 });
   for (let i = 0; i < 100 && !heard.length; i++) await pause(10);
   assert.deepEqual(heard, [{ threadId: 'c', revision: 1 }]);
+});
+
+const failingWritable = (handle, error) => { handle.createWritable = async () => ({ write: async () => { throw error; }, close: async () => {}, abort: async () => {} }); return handle; };
+
+test('putBlob rewrites a truncated blob, removes a partial new blob and writeThread rejects a size mismatch as validation', async t => {
+  const { root, open } = harness(t), store = open(), data = bytes('full payload'), sha = await sha256Hex(data);
+  await writeFile(root, `${DIR}/blobs/${sha}`, data.slice(0, 4));
+  const ref = { $trafficopsBlob: sha, encoding: 'bytes', size: data.byteLength };
+  await assert.rejects(store.writeThread(thread('t', { messages: [{ id: 'm', file: ref }] }), { expectedRevision: 0 }), validation, 'a truncated blob counts as missing');
+  await store.putBlob(sha, data);
+  assert.equal(new TextDecoder().decode(await store.getBlob(sha)), 'full payload');
+  assert.equal((await store.writeThread(thread('t', { messages: [{ id: 'm', file: ref }] }), { expectedRevision: 0 })).revision, 1);
+  const other = bytes('other'), otherSha = await sha256Hex(other), blobs = root.children.get('.trafficops').children.get('conversations').children.get('blobs');
+  const getFileHandle = blobs.getFileHandle.bind(blobs);
+  blobs.getFileHandle = async (name, options) => name === otherSha ? failingWritable(await getFileHandle(name, options), new Error('disk fail')) : getFileHandle(name, options);
+  await assert.rejects(store.putBlob(otherSha, other), /disk fail/);
+  assert.equal(blobs.children.has(otherSha), false, 'the partial blob is removed');
+});
+
+test('an empty thread file counts as absent for listing, writes and GC', async t => {
+  let time = 1000;
+  const { root, open } = harness(t, { now: () => time, graceMs: 0 }), store = open(), loose = bytes('loose'), looseSha = await sha256Hex(loose);
+  await store.putBlob(looseSha, loose);
+  await writeFile(root, `${DIR}/t1.json`, '');
+  assert.deepEqual(await store.listThreads(), []);
+  time = 2000; await store.collectGarbage();
+  assert.equal(await lastModified(root, `${DIR}/blobs/${looseSha}`), null, 'an empty file does not block GC');
+  await store.deleteThread('t1', { expectedRevision: 5 });
+  assert.equal((await store.writeThread(thread(), { expectedRevision: 0 })).revision, 1);
+  assert.equal((await store.listThreads())[0].revision, 1);
+});
+
+test('tombstone failures: a failed clear after a commit is reported and still posts; a corrupt file is reported and tolerated', async t => {
+  const errors = [], { root, projectId, open } = harness(t, { onError: error => errors.push(error) }), store = open(), peer = open();
+  let calls = 0; peer.watch(() => { calls++; });
+  await store.writeThread(thread(), { expectedRevision: 0 });
+  await store.deleteThread('t1', { expectedRevision: 1 });
+  failingWritable(await root.children.get('.trafficops').getFileHandle('conversation-tombstones.json'), new Error('tombstone fail'));
+  assert.equal((await store.writeThread(thread(), { expectedRevision: 0 })).revision, 2);
+  assert.deepEqual(errors.map(error => error.message), ['tombstone fail']);
+  for (let i = 0; i < 100 && calls < 3; i++) await pause(10);
+  assert.equal(calls, 3, 'the committed write is still announced');
+  delete root.children.get('.trafficops').children.get('conversation-tombstones.json').createWritable;
+  await writeFile(root, TOMBSTONES, '{broken');
+  assert.equal((await store.writeThread(thread(), { expectedRevision: 2 })).revision, 3);
+  assert.equal(errors.length, 2); assert.match(errors[1].message, /conversation-tombstones\.json/);
+  assert.ok(projectId);
+});
+
+test('read errors other than a missing file are rethrown, not treated as damage', async t => {
+  const { root, open } = harness(t), store = open();
+  await store.writeThread(thread(), { expectedRevision: 0 });
+  const handle = root.children.get('.trafficops').children.get('conversations').children.get('t1.json');
+  handle.getFile = async () => { throw Object.assign(new Error('not readable'), { name: 'NotReadableError' }); };
+  await assert.rejects(store.listThreads(), /not readable/);
+  await assert.rejects(store.writeThread(thread(), { expectedRevision: 1 }), /not readable/);
+  await assert.rejects(store.collectGarbage(), /not readable/);
 });
