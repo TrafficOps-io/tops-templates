@@ -159,7 +159,7 @@ try {
   page = await newPage(detached);
   const expected = await seedFolder();
   await page.reload();
-  await page.getByRole('tab', { name: 'Content', exact: true }).click();
+  await page.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click();
   await page.getByLabel('Page title', { exact: false }).waitFor();
   assert.equal(await page.getByLabel('Page title', { exact: false }).inputValue(), 'Recovered field value');
   await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'Recovered field value', exact: true }).waitFor();
@@ -168,7 +168,7 @@ try {
   assert.equal(saved.projectId, expected.projectId);
   assert.deepEqual(saved.files, expected.files);
   await page.reload();
-  await page.getByRole('tab', { name: 'Content', exact: true }).click();
+  await page.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click();
   await page.getByLabel('Page title', { exact: false }).waitFor();
   assert.equal(await page.getByLabel('Page title', { exact: false }).inputValue(), 'Recovered field value');
   assert.deepEqual((await readWorkspace()).files, expected.files);
@@ -200,7 +200,7 @@ try {
   page = await newPage(malformed);
   const malformedExpected = await seedFolder({ invalidSettings: true });
   await page.reload();
-  await page.getByRole('tab', { name: 'Content', exact: true }).click();
+  await page.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click();
   await page.getByRole('alert').filter({ hasText: 'Your recovery copy is open' }).waitFor();
   await page.getByLabel('Page title', { exact: false }).waitFor();
   assert.equal(await page.getByLabel('Page title', { exact: false }).inputValue(), 'Recovered field value');
@@ -215,9 +215,9 @@ try {
   assert.equal(await readWorkspace(), null);
   await page.getByRole('button', { name: `Open ${recovered.projects[0].name}`, exact: true }).click();
   await page.getByRole('alert').filter({ hasText: 'Your device copy is open' }).waitFor();
-  await page.getByRole('tab', { name: 'Content', exact: true }).click();
+  await page.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click();
   assert.equal(await page.getByLabel('Page title', { exact: false }).inputValue(), 'Recovered field value');
-  await page.reload(); await page.getByRole('tab', { name: 'Content', exact: true }).click();
+  await page.reload(); await page.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click();
   assert.equal(await page.getByLabel('Page title', { exact: false }).inputValue(), 'Recovered field value');
   assert.equal((await readLibrary()).projects[0].id, malformedExpected.projectId);
   console.log('PASS: malformed folder values open recovery, retain the same cached ID and reopen its device copy from Projects and after reload.');
@@ -239,11 +239,11 @@ try {
     });
   }, source);
   await page.reload();
-  await page.getByRole('tab', { name: 'Content', exact: true }).click();
+  await page.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click();
   await page.getByLabel('Page title', { exact: false }).waitFor();
   const other = await conflict.newPage();
   await other.goto(url);
-  await other.getByRole('tab', { name: 'Content', exact: true }).click();
+  await other.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click();
   await other.locator('.studio-toolbar > strong').filter({ hasText: /^Deleted landing$/ }).waitFor();
   await other.evaluate(() => new Promise((resolve, reject) => {
     const request = indexedDB.open('trafficops-studio-library', 1);
@@ -262,7 +262,7 @@ try {
   await conflictStatus.waitFor();
   assert.ok(await conflictStatus.locator('.studio-badge-danger').count() === 1, 'the conflict badge uses the danger tone');
   await page.locator('.studio-navigation').getByRole('button', { name: 'Save as new project', exact: true }).click();
-  await page.getByRole('tab', { name: 'Content', exact: true }).click();
+  await page.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click();
   await page.locator('.studio-toolbar > strong').filter({ hasText: /^Deleted landing \(recovered\)$/ }).waitFor();
   const rescue = await poll(readLibrary, value => value.projects.length === 1 && value.projects[0].settings.title === 'Rescued unsaved value', 'conflict rescue commit');
   assert.notEqual(rescue.projects[0].id, 'deleted-project');
@@ -272,7 +272,7 @@ try {
   assert.deepEqual(rescue.projects[0].files['images/pixel.png'], [0, 1, 255]);
   assert.deepEqual(rescue.projects[0].folders, ['empty', 'images']);
   await page.reload();
-  await page.getByRole('tab', { name: 'Content', exact: true }).click();
+  await page.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click();
   await page.getByLabel('Page title', { exact: false }).waitFor();
   assert.equal(await page.getByLabel('Page title', { exact: false }).inputValue(), 'Rescued unsaved value');
   await page.locator('.studio-navigation').getByRole('button', { name: 'Projects', exact: true }).click();
