@@ -36,7 +36,7 @@ test('save then load in a fresh adapter round-trips the document, with revisions
   assert.equal(JSON.stringify((await store.listThreads())[0]).includes(big), false);
 });
 
-test('a stale document is rejected locally before any I/O', async () => {
+test('a save from a revision that was never published is rejected before any I/O', async () => {
   const store = createMemoryConversationStore(), a = port(store);
   const document = await a.load();
   await assert.rejects(a.save(addThread(document, 't1'), { expectedRevision: 0 }), error => error.code === 'conflict');

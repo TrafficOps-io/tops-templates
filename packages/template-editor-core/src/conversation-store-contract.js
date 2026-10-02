@@ -3,7 +3,10 @@ import { BLOB_TAG, canonicalJson, sha256Hex } from './conversation-format.js';
 /** Runner-agnostic cases every ConversationStore must pass. createStore({ graceMs }) returns a fresh, empty store.
  *  Cases are run as run(createStore, { openPeer }). openPeer(store) must return another instance over the same backing
  *  (a different window). Stores that signal via BroadcastChannel must pass a real peer, because a channel never hears
- *  its own posts; the default (identity) only suits stores that notify their own instance (e.g. the memory store). */
+ *  its own posts; the default (identity) only suits stores that notify their own instance (e.g. the memory store).
+ *  Error codes: a thread that references a missing blob, and a putBlob whose bytes do not match the hash, must reject
+ *  with code 'validation' (the conversation port re-uploads blobs only on that code). Foreign-run and oversize
+ *  rejections only need to be errors other than 'conflict'. */
 function check(condition, message) { if (!condition) throw new Error(`Store contract: ${message}`); }
 async function rejects(promise, predicate, message) {
   try { await promise; } catch (error) { check(predicate(error), `${message} (got ${error?.code || ''} ${error?.message})`); return; }
@@ -14,6 +17,7 @@ const bytes = text => new TextEncoder().encode(text);
 const conflict = error => error?.code === 'conflict';
 
 const rejected = error => error instanceof Error && !(error instanceof TypeError) && Boolean(error.message);
+const validation = error => rejected(error) && error.code === 'validation';
 const notConflict = error => rejected(error) && !conflict(error);
 async function waitFor(condition, ms = 2000) { const end = Date.now() + ms; while (!condition() && Date.now() < end) await new Promise(resolve => setTimeout(resolve, 10)); return condition(); }
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -60,7 +64,7 @@ export const conversationStoreContract = [
     const got = await store.getBlob(sha);
     check(got instanceof Uint8Array, 'getBlob returns a Uint8Array');
     check(new TextDecoder().decode(got) === 'blob', 'getBlob returns the stored bytes');
-    await rejects(store.putBlob('0'.repeat(64), data), notConflict, 'a hash mismatch is rejected');
+    await rejects(store.putBlob('0'.repeat(64), data), validation, 'a hash mismatch is rejected with code validation');
     await rejects(store.getBlob('f'.repeat(64)), rejected, 'a missing blob is rejected');
   } },
   { name: 'returns copies, never the stored objects', async run(createStore) {
@@ -75,7 +79,7 @@ export const conversationStoreContract = [
   { name: 'rejects threads that reference missing blobs, foreign runs or exceed limits', async run(createStore) {
     const store = await createStore();
     const ref = fileRef('a'.repeat(64), 1);
-    await rejects(store.writeThread(thread('t1', { messages: [{ id: 'm', attachment: ref }] }), { expectedRevision: 0 }), notConflict, 'a missing blob reference is rejected');
+    await rejects(store.writeThread(thread('t1', { messages: [{ id: 'm', attachment: ref }] }), { expectedRevision: 0 }), validation, 'a missing blob reference is rejected with code validation');
     await rejects(store.writeThread(thread('t2', { runs: [{ id: 'r', threadId: 'other' }] }), { expectedRevision: 0 }), notConflict, 'a foreign run is rejected');
     await rejects(store.writeThread(thread('t3', { title: 'x'.repeat(16 * 1024 * 1024) }), { expectedRevision: 0 }), error => rejected(error) && /16 MiB/.test(error.message), 'an oversize thread is rejected');
     check((await store.listThreads()).length === 0, 'rejected writes store nothing');

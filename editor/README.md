@@ -255,7 +255,6 @@ PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/pwa-access-brows
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/agent-browser.mjs editor/dist
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/ai-panel-ui-browser.mjs editor/dist
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/retained-draft-settings-browser.mjs
-PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/durable-ai-recovery-browser.mjs
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/autosave-browser.mjs
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/interactive-preview-browser.mjs
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright node editor/test/interactive-preview-security-browser.mjs
