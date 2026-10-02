@@ -19,7 +19,7 @@ const sameJson = (left, right) => JSON.stringify(left) === JSON.stringify(right)
 const tracked = meta => JSON.stringify([meta.projectId, meta.kind, meta.name, meta.contentRevision ?? 0, meta.appliedAiRuns || [], meta.sourceTemplateId ?? null]);
 /** @param {any} value @returns {any} */
 const HISTORY_BLOBS = 10000, TOO_LARGE = 'Project history exceeds 512 MiB. Export without history or archive older dialogues.';
-const encoder = new TextEncoder();
+const encoder = new TextEncoder(), OS_FILES = new Set(['.DS_Store', 'Thumbs.db', 'desktop.ini']);
 // sha → size, from every blob reference in a split value.
 function blobSizes(value, found = new Map()) {
   if (Array.isArray(value)) for (const item of value) blobSizes(item, found);
@@ -61,11 +61,17 @@ export async function createFolderHost({ root, meta, language = 'en', messages =
   const actions = () => kind() === 'landing' && createProjectRoot ? [{ id: 'save-template', label: t('Save as template'), intent: /** @type {const} */ ('secondary'),
     input: { label: t('Template name'), value: state?.name || '', maxLength: 200, help: t('Creates an independent template from your current files and field values.') } }] : [];
 
+  // project.json reads as missing. A folder that is gone or no longer permitted (listing it fails) or emptied
+  // completely is access loss, reported by its error name so the App can offer to reconnect; otherwise a conflict.
+  async function missingMeta(message) {
+    for await (const name of root.keys()) if (!OS_FILES.has(name)) return new ConflictError(message);
+    return new DOMException('The project folder is no longer available.', 'NotFoundError');
+  }
   // Serialized with saves. Re-reading an unchanged folder keeps the revision, so a second reader (the conversation
   // runtime opens the project for an initial request) never makes the editor's state stale.
   async function readState() {
     const tree = await readProjectTree(root), values = await readValues(root), disk = /** @type {any} */ (await readProjectMeta(root));
-    if (!disk) throw new ConflictError('The project metadata is missing from the folder.');
+    if (!disk) throw await missingMeta('The project metadata is missing from the folder.');
     if (disk.projectId !== projectId) throw new ConflictError('The folder belongs to a different project.');
     const current = withoutBrief(disk);
     if (state && projectSnapshotEqual(savedDisk, tree) && sameJson(values, savedValues) && tracked(current) === tracked(diskMeta)) { diskMeta = current; return state; }
@@ -104,7 +110,8 @@ export async function createFolderHost({ root, meta, language = 'en', messages =
           let target;
           try { target = validatePortableMetadata({ ...diskMeta, name: next.name, contentRevision, appliedAiRuns: next.appliedAiRuns || [] }); } catch (error) { throw new ValidationError(error.message, { cause: error }); }
           const disk = /** @type {any} */ (await readProjectMeta(root));
-          if (!disk || tracked(withoutBrief(disk)) !== tracked(diskMeta)) throw new ConflictError('Project metadata changed outside Studio. Reload the folder before saving.');
+          if (!disk) throw await missingMeta('Project metadata changed outside Studio. Reload the folder before saving.');
+          if (tracked(withoutBrief(disk)) !== tracked(diskMeta)) throw new ConflictError('Project metadata changed outside Studio. Reload the folder before saving.');
           if (!sameJson(await readValues(root), savedValues)) throw new ConflictError('Project values changed outside Studio. Reload the folder before saving.');
           try {
             if (filesChanged) { unrecorded = true; await syncProjectTree(root, savedDisk, tree); }

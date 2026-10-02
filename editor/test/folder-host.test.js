@@ -264,3 +264,32 @@ test('history exports pack in the archive worker, store blobs uncompressed, and 
   assert.deepEqual(posted, ['pack', 'read']);
   await sample.dispose();
 });
+
+// The App classifies access loss by error name anywhere in the cause chain (flows.js accessLost).
+const lost = name => error => { for (let cause = error; cause; cause = cause.cause) if (cause.name === name) return error.code !== 'conflict'; return false; };
+const vanish = (root, name) => {
+  const fail = async () => { throw new DOMException('The folder is gone.', name); };
+  root.keys = root.values = root.entries = async function* () { await fail(); };
+  root.getDirectoryHandle = root.getFileHandle = root.removeEntry = fail;
+};
+
+test('a project root that is gone or no longer permitted rejects open and save as access loss, not a conflict', async () => {
+  for (const name of ['NotFoundError', 'NotAllowedError']) {
+    const { root, meta } = await project(), sample = await host(root, meta), opened = await sample.project.open();
+    vanish(root, name);
+    await assert.rejects(sample.project.save({ ...opened, files: { ...opened.files, 'styles.css': 'a' } }), lost(name), `save ${name}`);
+    await assert.rejects(sample.project.open(), lost(name), `open ${name}`);
+  }
+  // Emptied completely (project.json and every file gone): NotFoundError as well.
+  const { root, meta } = await project(), sample = await host(root, meta), opened = await sample.project.open();
+  root.children.clear();
+  await assert.rejects(sample.project.save({ ...opened, files: { ...opened.files, 'styles.css': 'a' } }), lost('NotFoundError'), 'save emptied');
+  await assert.rejects(sample.project.open(), lost('NotFoundError'), 'open emptied');
+});
+
+test('project.json removed or replaced while the files remain is still a conflict', async () => {
+  const { root, meta } = await project(), sample = await host(root, meta), opened = await sample.project.open();
+  await removePath(root, '.trafficops/project.json');
+  await assert.rejects(sample.project.save({ ...opened, files: { ...opened.files, 'styles.css': 'a' } }), conflict);
+  await assert.rejects(sample.project.open(), conflict);
+});
