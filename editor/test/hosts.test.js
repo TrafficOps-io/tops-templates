@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runHostConformance, ConflictError, PolicyError, ValidationError, TransportError, runOperation, LIMITS, createZip, readZipProject } from '@trafficops/template-editor-core';
-import { createStudioHost } from '../src/hosts/StudioHost.js';
 import { createHttpHost } from '../embedded/src/HttpHost.js';
-import { MemoryDirectoryHandle } from './support/fs-access.js';
+import { createFolderHost } from '../src/hosts/FolderHost.js';
+import { readText, writeFile } from '../src/storage/write.js';
+import { memoryFolderHost, memoryProject } from './support/folder-host.js';
 import { httpServer } from './support/http-server.js';
 
 import { thirdHost } from './support/third-host.js';
@@ -11,9 +12,8 @@ import { createStudioAiPort } from '../src/hosts/StudioAiPort.js';
 import { createConversationSession } from '@trafficops/template-editor-shell/conversation-runtime';
 const knownIds = ['safe-html-v1', 'fast-landings-v1'];
 const source = '@layout\n<h1>Local project</h1>\n@endlayout';
-test('StudioHost conforms using the actual File System Access adapter', async () => {
-  const directory = new MemoryDirectoryHandle('Local', { 'index.tpl': source });
-  const result = await runHostConformance(() => createStudioHost({ directory }), { knownIds, faults: {
+test('FolderHost conforms using the actual File System Access adapter', async () => {
+  const result = await runHostConformance(() => memoryFolderHost({ files: { 'index.tpl': source } }), { knownIds, faults: {
     validation: host => host.project.import(new Uint8Array([0, 1])),
     policy: async host => host.project.export(await host.project.open(), { format: 'source', locale: 'en', history: { group: 'drafts', id: '1' } }),
   } });
@@ -34,9 +34,9 @@ test('third host conforms without inheriting safe HTML or server lifecycle assum
   assert.equal(host.capabilities.inlinePreview, true); assert.equal((await host.analyzer.analyze(state)).previewAvailable, false);
   await assert.rejects(host.analyzer.render(state, { locale: 'en' }), e => e.code === 'policy');
 });
-test('AI-enabled StudioHost and HttpHost conform with a conversations port; dropping it is rejected', async () => {
+test('AI-enabled FolderHost and HttpHost conform with a conversations port; dropping it is rejected', async () => {
   const ai = () => createStudioAiPort({ storage: { load: async () => ({ apiKey: '', model: '', imageModel: '' }), save: async value => value, remove: async () => {} } });
-  const studio = () => createStudioHost({ directory: new MemoryDirectoryHandle('Local', { 'index.tpl': source }), ai: ai() });
+  const studio = () => memoryFolderHost({ files: { 'index.tpl': source }, ai: ai() });
   const http = () => createHttpHost({ endpoint: 'https://app.test/project', aiEndpoint: 'https://app.test/ai', csrf: 'csrf', fetchImpl: httpServer({ aiEnabled: true, conversationsEnabled: true }).fetchImpl });
   for (const factory of [studio, http]) {
     const sample = await factory();
@@ -91,16 +91,16 @@ test('conformance rejects null optional ports rather than treating them as absen
   await assert.rejects(runHostConformance(() => ({ ...thirdHost(), ai: null }), { knownIds }), /ai port/);
 });
 test('folder conflict retains dirty content until an explicit reload accepts disk changes', async () => {
-  const directory = new MemoryDirectoryHandle('Local', { 'index.tpl': source, 'styles.css': 'old' });
-  const host = createStudioHost({ directory }), state = await host.project.open();
-  directory.children.get('styles.css').value = new TextEncoder().encode('external');
+  const { root, meta } = await memoryProject({ files: { 'index.tpl': source, 'styles.css': 'old' } });
+  const host = await createFolderHost({ root, meta }), state = await host.project.open();
+  await writeFile(root, 'styles.css', 'external');
   const dirty = { ...state, files: { ...state.files, 'styles.css': 'local' } };
   await assert.rejects(host.project.save(dirty), e => e.code === 'conflict');
   await assert.rejects(() => host.project.save(dirty), error => error.code === 'conflict');
   const reloaded = await host.project.open();
   assert.notEqual(reloaded.revision, state.revision); assert.equal(reloaded.files['styles.css'], 'external');
   assert.equal(dirty.files['styles.css'], 'local');
-  assert.equal(new TextDecoder().decode(directory.children.get('styles.css').value), 'external');
+  assert.equal(await readText(root, 'styles.css'), 'external');
 });
 test('HTTP lifecycle keeps save+publish atomic and restore preserves unsaved files', async () => {
   const server = httpServer(), host = await createHttpHost({ endpoint: 'https://app.test/project', csrf: 'csrf', fetchImpl: server.fetchImpl });
@@ -143,6 +143,18 @@ test('user-managed AI keeps credentials in its storage port and checks the direc
   await assert.rejects(ai.begin(), e => e.code === 'conflict');
   await ai.finish(); await ai.settings.remove();
   assert.equal((await ai.settings.load()).configured, false);
+});
+
+test('the user-managed AI port is always enabled: settings and transport reach storage and fetch directly', async () => {
+  const calls = [], connection = { apiKey: 'user-owned-test-key', model: 'model', imageModel: '' };
+  const fetchImpl = async () => { calls.push('fetch'); return Response.json({}); };
+  const ai = createStudioAiPort({ fetchImpl, storage: { load: async () => { calls.push('load'); return connection; }, save: async value => { calls.push('save'); return value; }, remove: async () => { calls.push('remove'); } } });
+  assert.equal((await ai.settings.load()).configured, true);
+  await ai.settings.save(connection); await ai.settings.test();
+  const retained = await ai.begin();
+  assert.equal(retained.fetchImpl, fetchImpl);
+  await ai.finish(); await ai.settings.remove();
+  assert.deepEqual(calls, ['load', 'save', 'load', 'fetch', 'load', 'remove']);
 });
 
 test('HTTP host distinguishes template releases and live pages from their working drafts', async () => {

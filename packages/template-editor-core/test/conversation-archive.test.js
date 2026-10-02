@@ -47,12 +47,10 @@ test('new layout round-trips per-dialogue files and deduplicated blobs through t
   assert.ok(names.includes(`${DIR}/thread-1.json`));
   assert.ok(names.includes(`${DIR}/${conversationThreadFileName('Thread Two')}`));
   assert.equal(names.filter(name => name.startsWith(`${DIR}/blobs/`)).length, 4);
-  assert.ok(!names.includes('.trafficops/conversations.json'));
   const imported = readZipProject(bytes, { history: true });
   assert.deepEqual({ ...imported.files }, files);
   assert.deepEqual(imported.metadata, metadata);
   assert.deepEqual(imported.folders, []);
-  assert.equal(imported.conversations, undefined);
   assert.deepEqual(imported.conversationFiles.threads.map(item => item.id).sort(), ['Thread Two', 'thread-1']);
   assert.ok(imported.conversationFiles.blobs instanceof Map);
   const restored = await conversationDocumentFromFiles(imported.conversationFiles, 'project-1');
@@ -125,7 +123,6 @@ test('new history is validated: dialogue files, referenced blobs, identity and b
   const missing = thread('a', { messages: [{ id: 'm', data: { $trafficopsBlob: 'b'.repeat(64), encoding: 'bytes', size: 1 } }] });
   assert.throws(() => readZipProject(raw({ [`${DIR}/a.json`]: json(missing) }), { history: true }), /missing/);
   assert.throws(() => readZipProject(raw({ [`${DIR}/a.json`]: json(thread('a')) }, { 'index.tpl': strToU8('x') }), { history: true }), /identity/);
-  assert.throws(() => readZipProject(raw({ [`${DIR}/a.json`]: json(thread('a')), '.trafficops/conversations.json': json({ schema: 1, projectId: 'project-1', revision: 0, threads: [], runs: [] }) }), { history: true }), /two/i);
   const split = await splitThread(thread('a', { runs: [{ id: 'r1', threadId: 'a', base: { files: { 'a.bin': new Uint8Array([1, 2, 3]) } } }] }));
   const [[sha]] = split.blobs;
   const forged = readZipProject(raw({ [`${DIR}/a.json`]: json(split.thread), [`${DIR}/blobs/${sha}`]: new Uint8Array([9, 9, 9]) }), { history: true });
@@ -133,7 +130,6 @@ test('new history is validated: dialogue files, referenced blobs, identity and b
   await assert.rejects(conversationDocumentFromFiles({ threads: [split.thread], blobs: new Map() }, 'project-1'), /missing/);
   assert.throws(() => createZip(files, { metadata, conversationFiles: { threads: [split.thread], blobs: new Map() } }), /missing/);
   await assert.rejects(async () => createZip(files, { conversationFiles: await conversationFilesFromDocument(document()) }), /identity/);
-  await assert.rejects(async () => createZip(files, { metadata, conversations: document(), conversationFiles: await conversationFilesFromDocument(document()) }), /two/i);
   const oversized = { [`${DIR}/blobs/${'c'.repeat(64)}`]: new Uint8Array(CONVERSATION_LIMITS.blob + 1) };
   assert.throws(() => readZipProject(raw(oversized), { history: true }), /too large/);
 });
@@ -143,15 +139,9 @@ test('generated (hosting) ZIPs never contain history', async () => {
   assert.deepEqual(Object.keys(zip), ['index.html']);
 });
 
-test('the legacy conversations.json entry still reads, with and without history', () => {
-  const legacy = { schema: 1, projectId: 'project-1', revision: 2, threads: [{ id: 't1', title: 'Old' }], runs: [] };
-  const bytes = createZip(files, { metadata, conversations: legacy });
-  assert.ok(Object.keys(unzipSync(bytes)).includes('.trafficops/conversations.json'));
-  for (const options of [undefined, { history: false }, { history: true }]) {
-    const imported = readZipProject(bytes, options);
-    assert.deepEqual(imported.conversations, legacy);
-    assert.equal(imported.conversationFiles, undefined);
-  }
+test('a single-file conversations.json history is no longer read: the archive is rejected', () => {
+  const legacy = json({ schema: 1, projectId: 'project-1', revision: 2, threads: [{ id: 't1', title: 'Old' }], runs: [] });
+  for (const options of [undefined, { history: true }]) assert.throws(() => readZipProject(raw({ '.trafficops/conversations.json': legacy }), options), /Unsafe file path/);
 });
 
 test('ids must be well-formed UTF-16: lone surrogates would collide once encoded as UTF-8', () => {

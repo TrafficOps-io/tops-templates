@@ -68,7 +68,7 @@ export interface ConversationStore {
 export interface ConversationFiles { threads: ConversationThreadFile[]; blobs: Map<string, Uint8Array> }
 /** history: Studio's editable-project import. Allows LIMITS.portableArchive and `.trafficops/conversations/**` entries. */
 export interface ZipReadOptions { history?: boolean }
-export interface ImportedProject { files: ProjectFiles; folders: string[]; settings: Values; entrypoint?: string | null; metadata?: PortableMetadata; conversations?: ConversationDocument; conversationFiles?: ConversationFiles }
+export interface ImportedProject { files: ProjectFiles; folders: string[]; settings: Values; entrypoint?: string | null; metadata?: PortableMetadata; conversationFiles?: ConversationFiles }
 export interface ExportOptions extends LocaleOptions { format: 'source' | 'html'; continueUrl?: string; history?: HistoryTarget; includeHistory?: boolean }
 export interface Download { name: string; bytes: Uint8Array; mime: string }
 export interface ProjectPort {
@@ -158,7 +158,7 @@ export function projectFolders(files: ProjectFiles, folders?: string[]): string[
 export function readZip(bytes: Uint8Array, options?: ZipReadOptions): ProjectFiles;
 export function readZipProject(bytes: Uint8Array, options?: ZipReadOptions): ImportedProject;
 export function inspectZip(bytes: Uint8Array, options?: ZipReadOptions): Map<string, { size: number; directory: boolean; kind: 'user' | 'sidecar' | 'thread' | 'blob' | 'historyFolder' }>;
-export const CONVERSATION_LIMITS: Readonly<{ threads: number; runs: number; messages: number; total: number; nodes: number; depth: number; encoded: number; threadEncoded: number; blob: number }>;
+export const CONVERSATION_LIMITS: Readonly<{ threads: number; runs: number; messages: number; total: number; nodes: number; depth: number; threadEncoded: number; blob: number }>;
 export function clonePortablePayload<T>(value: T): T;
 export function validateConversationDocument(value: unknown, expectedProjectId?: string): ConversationDocument;
 export const BLOB_TAG: '$trafficopsBlob';
@@ -186,9 +186,7 @@ export function conversationFilesFromDocument(document: ConversationDocument): P
 /** Verifies blob hashes and joins; threads in the result carry no store revision. */
 export function conversationDocumentFromFiles(files: { threads: ConversationThreadFile[]; blobs: Map<string, Uint8Array> | Record<string, Uint8Array> }, projectId: string): Promise<ConversationDocument>;
 export function validatePortableMetadata(value: unknown): PortableMetadata;
-export function encodePortablePayload(value: unknown): string;
-export function decodePortablePayload(text: string): any;
-export function createZip(files: ProjectFiles, options?: { generated?: boolean; directories?: string[]; settings?: Values; metadata?: PortableMetadata; conversations?: ConversationDocument; conversationFiles?: ConversationFiles }): Uint8Array;
+export function createZip(files: ProjectFiles, options?: { generated?: boolean; directories?: string[]; settings?: Values; metadata?: PortableMetadata; conversationFiles?: ConversationFiles }): Uint8Array;
 export function renameFile(files: ProjectFiles, from: string, to: string): ProjectFiles;
 export function encodeProject(files: ProjectFiles): Record<string, { text: string } | { base64: string }>;
 export function decodeProject(files: Record<string, { text: string } | { base64: string }>): ProjectFiles;

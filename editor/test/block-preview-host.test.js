@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {parseProject,validateValues} from '@trafficops/template-runtime';
-import {createStudioHost} from '../src/hosts/StudioHost.js';
+import {memoryFolderHost} from './support/folder-host.js';
 import {createBlockEditScope,blockScopeValueTargets,setBlockScopeValue,assertBlockDraftScope} from '../../packages/template-editor-shell/src/block-edit-scope.js';
 
 test('Studio preview metadata authorizes one repeated leaf, preserves defaults, and accounts for hidden/shared consumers', async t => {
@@ -15,7 +15,7 @@ test('Studio preview metadata authorizes one repeated leaf, preserves defaults, 
     'other.tpl':'@layout\n<footer>{{title}}</footer>\n@endlayout',
   };
   const rawValues = {rows:[{},{}]};
-  const host = createStudioHost({language:'en',initial:{files,folders:[],settings:rawValues},ai:{}});
+  const host = await memoryFolderHost({language:'en',files,values:rawValues,ai:{}});
   const state = await host.project.open(), frame = await host.livePreview.render(state,{locale:'en',page:'index.html'});
   assert.ok(frame.selection?.token);
   assert.equal(frame.selection.blockInstances.filter(instance => instance.label === 'Row').length,2);
@@ -30,6 +30,6 @@ test('Studio preview metadata authorizes one repeated leaf, preserves defaults, 
   assert.throws(() => setBlockScopeValue(scope,rawValues,['rows',1,'body'],'Other row'),/shared outside the selection/);
   const exportFiles = (await host.analyzer.render(state,{locale:'en'}));
   assert.doesNotMatch(exportFiles['index.html'],/data-tops-block-instance/);
-  const withoutAi = createStudioHost({language:'en',initial:{files,folders:[],settings:rawValues}});
+  const withoutAi = await memoryFolderHost({language:'en',files,values:rawValues});
   assert.equal((await withoutAi.livePreview.render(await withoutAi.project.open(),{locale:'en'})).selection,undefined);
 });

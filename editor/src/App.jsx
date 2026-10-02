@@ -329,7 +329,7 @@ export default function App() {
     }).then(result => result && confirmImport(result));
   }
   async function confirmImport({ imported, name }) {
-    const kind = imported.metadata?.kind, history = Boolean(imported.conversationFiles?.threads.length || imported.conversations?.threads.length);
+    const kind = imported.metadata?.kind, history = Boolean(imported.conversationFiles?.threads.length);
     const label = rootSource() === 'opfs' ? 'Import' : 'Choose folder…';
     const where = rootSource() === 'opfs' ? 'It is stored in this browser.' : 'Choose an empty folder for it; Studio never overwrites an existing project.';
     const answer = await folders.ask(kind
@@ -339,7 +339,7 @@ export default function App() {
     return perform(async () => folders.withRoot(await answer.rooting, async root => {
       // A projectId Studio already knows becomes a copy: new identity, remapped history (D1).
       const identity = importIdentity(imported.metadata, (await listKnownProjects()).map(entry => entry.projectId));
-      let conversations = imported.conversationFiles ? await conversationDocumentFromFiles(imported.conversationFiles, imported.metadata.projectId) : imported.conversations || null;
+      let conversations = imported.conversationFiles ? await conversationDocumentFromFiles(imported.conversationFiles, imported.metadata.projectId) : null;
       if (conversations) conversations = identity.copy ? remapConversation(conversations, identity.projectId) : interruptImportedRuns(conversations);
       await preserveCurrent();
       const meta = await createProjectInRoot(root, { projectId: identity.projectId, kind: kind || (answer.id === 'template' ? 'template' : 'landing'), name: identity.copy ? `${name.slice(0, 108)} (copy)` : name,

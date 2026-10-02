@@ -8,15 +8,13 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const VALUES_ENTRY = '.trafficops/values.json';
 const METADATA_ENTRY = '.trafficops/project.json';
-const CONVERSATIONS_ENTRY = '.trafficops/conversations.json';
 // Folder format v1 history: one file per dialogue plus content-addressed blobs.
 const HISTORY_DIR = '.trafficops/conversations/', BLOBS_DIR = `${HISTORY_DIR}blobs/`;
 const THREAD_ENTRY = /^\.trafficops\/conversations\/((?:[a-z0-9_-]{1,200}|~[a-f0-9]{64})\.json)$/, BLOB_ENTRY = /^\.trafficops\/conversations\/blobs\/([a-f0-9]{64})$/;
 const HISTORY_BLOBS = 10000;
 const MiB = 1024 * 1024;
-// runs is per dialogue; total/nodes bound the joined in-memory document; encoded bounds the legacy single-file sidecar (removed in phase 2).
-export const CONVERSATION_LIMITS = Object.freeze({ threads: 100, runs: 100, messages: 500, total: 512 * MiB, encoded: 192 * MiB, nodes: 2000000, depth: 64, threadEncoded: 16 * MiB, blob: 24 * MiB });
-const BYTES_TAG = '$trafficopsBytes';
+// runs is per dialogue; total/nodes bound the joined in-memory document.
+export const CONVERSATION_LIMITS = Object.freeze({ threads: 100, runs: 100, messages: 500, total: 512 * MiB, nodes: 2000000, depth: 64, threadEncoded: 16 * MiB, blob: 24 * MiB });
 
 // A lone surrogate becomes U+FFFD in UTF-8, so two ill-formed ids could share a file name.
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
@@ -50,7 +48,6 @@ export function clonePortablePayload(value) {
     let result;
     if (Array.isArray(item)) result = item.map(child => visit(child, depth + 1));
     else {
-      if (Object.hasOwn(item, BYTES_TAG)) throw new Error('Reserved project history key.');
       result = Object.fromEntries(Object.entries(item).map(([key, child]) => { total += encoder.encode(key).length; return [key, visit(child, depth + 1, key)]; }));
     }
     ancestors.delete(item);
@@ -111,28 +108,6 @@ export function validatePortableMetadata(value) {
     result.appliedAiRuns = [...new Set(value.appliedAiRuns.map(id => identifier(id, 'applied AI run ID')))];
   }
   return result;
-}
-
-export function encodePortablePayload(value) {
-  const detached = clonePortablePayload(value);
-  return JSON.stringify(detached, (_key, item) => {
-    if (!(item instanceof Uint8Array)) return item;
-    let binary = '';
-    for (let offset = 0; offset < item.length; offset += 8192) binary += String.fromCharCode(...item.subarray(offset, offset + 8192));
-    return { [BYTES_TAG]: btoa(binary) };
-  });
-}
-
-export function decodePortablePayload(text) {
-  if (typeof text !== 'string' || encoder.encode(text).length > CONVERSATION_LIMITS.encoded) throw new Error('Portable project data is too large.');
-  const value = JSON.parse(text, (_key, item) => {
-    if (!item || typeof item !== 'object' || !Object.hasOwn(item, BYTES_TAG)) return item;
-    const base64 = item[BYTES_TAG];
-    if (Object.keys(item).length !== 1 || typeof base64 !== 'string' || base64.length > Math.ceil(CONVERSATION_LIMITS.blob / 3) * 4 || base64.length % 4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(base64)) throw new Error('Invalid portable binary data.');
-    const binary = atob(base64);
-    return Uint8Array.from(binary, character => character.charCodeAt(0));
-  });
-  return clonePortablePayload(value);
 }
 
 export function safePath(path) {
@@ -200,7 +175,7 @@ function entryKind(path, directory, history) {
     throw new Error(`Invalid project history entry: ${path.slice(0, 100)}`);
   }
   if (path === '.trafficops/') return 'sidecar';
-  if ([VALUES_ENTRY, METADATA_ENTRY, CONVERSATIONS_ENTRY].includes(path)) { if (directory) throw new Error(`Invalid metadata entry: ${path}`); return 'sidecar'; }
+  if ([VALUES_ENTRY, METADATA_ENTRY].includes(path)) { if (directory) throw new Error(`Invalid metadata entry: ${path}`); return 'sidecar'; }
   safePath(directory ? path.slice(0, -1) : path);
   return 'user';
 }
@@ -242,7 +217,7 @@ export function inspectZip(bytes, { history = false } = {}) {
     if ((flags & 1) || ![0, 8].includes(method)) throw new Error(`Encrypted or unsupported ZIP entry: ${path}`);
     if (((view.getUint32(at + 38, true) >>> 16) & 0xf000) === 0xa000) throw new Error(`ZIP symlinks are unsupported: ${path}`);
     const entryLimit = kind === 'thread' ? CONVERSATION_LIMITS.threadEncoded : kind === 'blob' ? CONVERSATION_LIMITS.blob : kind === 'historyFolder' ? 0
-      : path === CONVERSATIONS_ENTRY ? LIMITS.total : path === METADATA_ENTRY ? 64 * 1024 : isText(path) ? LIMITS.text : LIMITS.file;
+      : path === METADATA_ENTRY ? 64 * 1024 : isText(path) ? LIMITS.text : LIMITS.file;
     if (size > entryLimit || size === 0xffffffff || compressed === 0xffffffff) throw new Error(`ZIP entry is too large: ${path}`);
     if (local + 30 > start || view.getUint32(local, true) !== 0x04034b50) throw new Error(`Invalid local ZIP header: ${path}`);
     const localNameLength = view.getUint16(local + 26, true), localExtraLength = view.getUint16(local + 28, true);
@@ -270,7 +245,7 @@ export function readZipProject(bytes, { history = false } = {}) {
   const entries = inspectZip(bytes, { history });
   const unzipped = unzipSync(bytes);
   const files = Object.create(null), threads = [], blobs = new Map();
-  let settings = {}, metadata, conversations;
+  let settings = {}, metadata;
   for (const [path, info] of entries) {
     if (info.directory) continue;
     const data = unzipped[path];
@@ -284,20 +259,17 @@ export function readZipProject(bytes, { history = false } = {}) {
       settings = JSON.parse(decoder.decode(data));
       if (!settings || Array.isArray(settings) || typeof settings !== 'object') throw new Error('Project values must be a JSON object.');
     } else if (path === METADATA_ENTRY) metadata = validatePortableMetadata(JSON.parse(decoder.decode(data)));
-    else if (path === CONVERSATIONS_ENTRY) conversations = validateConversationDocument(decodePortablePayload(decoder.decode(data)));
     else files[path] = isText(path) ? decoder.decode(data) : data;
   }
-  if (conversations && (!metadata || conversations.projectId !== metadata.projectId)) throw new Error('Portable history does not match project identity.');
   const hasHistory = [...entries.values()].some(info => ['thread', 'blob', 'historyFolder'].includes(info.kind));
   if (hasHistory && !metadata) throw new Error('Portable history requires project identity.');
-  if (hasHistory && conversations) throw new Error('This ZIP contains two project histories.');
   // Only referenced blobs are returned; an unreferenced blob in the archive is dropped.
   const referenced = new Map();
   for (const thread of threads) for (const sha of blobReferences(thread)) {
     if (!blobs.has(sha)) throw new Error('A conversation attachment is missing from the ZIP.');
     referenced.set(sha, blobs.get(sha));
   }
-  const portable = { ...(metadata ? { metadata } : {}), ...(conversations ? { conversations } : {}), ...(hasHistory ? { conversationFiles: { threads, blobs: referenced } } : {}) };
+  const portable = { ...(metadata ? { metadata } : {}), ...(hasHistory ? { conversationFiles: { threads, blobs: referenced } } : {}) };
   validateProject(files);
   let folders = [...entries].filter(([, info]) => info.directory && info.kind === 'user').map(([path]) => path.slice(0, -1));
   // A downloaded GitHub/project archive often has a single enclosing folder.
@@ -311,8 +283,8 @@ export function readZipProject(bytes, { history = false } = {}) {
 }
 
 /** conversationFiles: `{ threads, blobs }` from conversationFilesFromDocument (or readZipProject), written as the
- *  folder layout. `conversations` is the legacy single-entry history. Neither is written into a generated ZIP. */
-export function createZip(files, { generated = false, directories = [], settings, metadata, conversations, conversationFiles } = {}) {
+ *  folder layout. It is never written into a generated ZIP. */
+export function createZip(files, { generated = false, directories = [], settings, metadata, conversationFiles } = {}) {
   validateProject(files, { generated });
   const folders = validateFolders(files, directories);
   const entries = Object.fromEntries(folders.map(path => [`${path}/`, new Uint8Array()]));
@@ -323,19 +295,14 @@ export function createZip(files, { generated = false, directories = [], settings
     entries[VALUES_ENTRY] = data;
   }
   if (!generated && metadata) entries[METADATA_ENTRY] = strToU8(JSON.stringify(validatePortableMetadata(metadata)));
-  if (!generated && conversations) {
-    if (!metadata) throw new Error('Portable history requires project identity.');
-    entries[CONVERSATIONS_ENTRY] = strToU8(encodePortablePayload(validateConversationDocument(conversations, metadata.projectId)));
-  }
   if (Object.values(entries).reduce((sum, bytes) => sum + bytes.byteLength, 0) > LIMITS.total) throw new Error('The portable project exceeds 32 MiB. Export without history or reduce its size.');
   if (Object.keys(entries).length > LIMITS.count) throw new Error('Too many entries for a project ZIP.');
-  if (!generated && conversationFiles) Object.assign(entries, historyEntries(conversationFiles, { metadata, conversations }));
+  if (!generated && conversationFiles) Object.assign(entries, historyEntries(conversationFiles, { metadata }));
   return zipSync(entries, { level: 6 });
 }
 
-function historyEntries({ threads = [], blobs = new Map() }, { metadata, conversations }) {
+function historyEntries({ threads = [], blobs = new Map() }, { metadata }) {
   if (!metadata) throw new Error('Portable history requires project identity.');
-  if (conversations) throw new Error('Choose one of two project history formats.');
   if (threads.length > CONVERSATION_LIMITS.threads) throw new Error(`A project ZIP holds at most ${CONVERSATION_LIMITS.threads} dialogues.`);
   const byHash = blobs instanceof Map ? blobs : new Map(Object.entries(blobs)), entries = {}, written = new Set();
   let total = 0;

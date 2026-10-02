@@ -102,7 +102,7 @@ export function useEditorProject(host, onSnapshot, recovered, externalBusy = fal
   }, [save]);
   const applyConversationDraft = useCallback(async (run, { allowStaleContext = false } = {}) => {
     if (applying.current) throw new Error('Changes are already being applied.');
-    if (!run?.result?.files || !run.base || !run.result.valid || run.result.discussion || run.recoveredConflict || !['ready', 'interrupted'].includes(run.state)) throw new Error('This conversation has no validated draft ready to apply.');
+    if (!run?.result?.files || !run.base || !run.result.valid || run.result.discussion || !['ready', 'interrupted'].includes(run.state)) throw new Error('This conversation has no validated draft ready to apply.');
     // Autosaving hosts persist pending edits first; explicit-save hosts (PW Apps) must not save the user's unsaved edits implicitly.
     const persists = Boolean(host.capabilities.autosave);
     if (persists) await flush(); else if (savePromise.current) await savePromise.current;

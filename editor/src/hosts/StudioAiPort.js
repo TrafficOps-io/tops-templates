@@ -4,49 +4,27 @@ import { ConflictError, PolicyError, runOperation } from '@trafficops/template-e
 import { loadOpenRouterSettings, saveOpenRouterSettings, clearOpenRouterSettings } from '../openrouter-settings.js';
 
 /** @returns {import('@trafficops/template-editor-core').AiPort} */
-export function createStudioAiPort({ fetchImpl = globalThis.fetch, storage = { load: loadOpenRouterSettings, save: saveOpenRouterSettings, remove: clearOpenRouterSettings }, isEnabled = () => true } = {}) {
+export function createStudioAiPort({ fetchImpl = globalThis.fetch, storage = { load: loadOpenRouterSettings, save: saveOpenRouterSettings, remove: clearOpenRouterSettings } } = {}) {
   // Addressed runs never share a cancellation slot. Legacy callers retain
   // their exclusive slot because they finish without an identifier.
   const active = new Set();
   const legacy = Symbol('legacy-ai-request');
-  function assertEnabled() {
-    if (!isEnabled()) throw new PolicyError('AI is available only in the installed Studio app.');
-  }
-  // A connection may outlive the installed-app view that created it.
-  /** @type {typeof globalThis.fetch} */
-  const guardedFetch = async (...args) => { assertEnabled(); return fetchImpl(...args); };
   const configured = value => ({ ...value, configured: Boolean(value.apiKey) });
   /** @type {import('@trafficops/template-editor-core').UserAiSettings} */
   const settings = {
     owner: 'user',
-    load: ({ signal } = {}) => runOperation(signal, async () => {
-      assertEnabled();
-      const value = await storage.load();
-      assertEnabled();
-      return configured(value);
-    }),
-    save: (value, { signal } = {}) => runOperation(signal, async () => {
-      assertEnabled();
-      const saved = await storage.save({ ...value, apiKey: validateOpenRouterApiKey(value.apiKey) });
-      assertEnabled();
-      return configured(saved);
-    }, 'validation'),
-    remove: ({ signal } = {}) => runOperation(signal, async () => {
-      assertEnabled();
-      await storage.remove();
-      assertEnabled();
-    }),
+    load: ({ signal } = {}) => runOperation(signal, async () => configured(await storage.load())),
+    save: (value, { signal } = {}) => runOperation(signal, async () => configured(await storage.save({ ...value, apiKey: validateOpenRouterApiKey(value.apiKey) })), 'validation'),
+    remove: ({ signal } = {}) => runOperation(signal, async () => { await storage.remove(); }),
     test: ({ signal } = {}) => runOperation(signal, async () => {
-      assertEnabled();
       const value = await storage.load();
-      assertEnabled();
       if (!value.apiKey) throw new PolicyError('Add your OpenRouter connection in Settings first.');
       const key = validateOpenRouterApiKey(value.apiKey);
       let response;
       try {
-        response = await guardedFetch('https://openrouter.ai/api/v1/key', { signal, headers: { Authorization: `Bearer ${key}` } });
+        response = await fetchImpl('https://openrouter.ai/api/v1/key', { signal, headers: { Authorization: `Bearer ${key}` } });
       } catch (error) {
-        if (error instanceof PolicyError || signal?.aborted || error?.name === 'AbortError') throw error;
+        if (signal?.aborted || error?.name === 'AbortError') throw error;
         throw new Error('Could not reach OpenRouter. Check your network connection and try again.');
       }
       if (!response.ok) {
@@ -70,13 +48,11 @@ export function createStudioAiPort({ fetchImpl = globalThis.fetch, storage = { l
       const token = runId ?? legacy;
       let acquired = false;
       return runOperation(signal, async () => {
-        assertEnabled();
         if (active.has(token) || active.has(legacy) || token === legacy && active.size) throw new ConflictError('An AI request is already running.');
         active.add(token); acquired = true;
         const connection = await storage.load();
-        assertEnabled();
         if (!connection.apiKey) throw new PolicyError('Add your OpenRouter connection in Settings first.');
-        return { ...configured(connection), apiKey: validateOpenRouterApiKey(connection.apiKey), fetchImpl: guardedFetch };
+        return { ...configured(connection), apiKey: validateOpenRouterApiKey(connection.apiKey), fetchImpl };
       }).catch(error => { if (acquired) active.delete(token); throw error; });
     },
     async finish({ runId } = {}) { active.delete(runId ?? legacy); },

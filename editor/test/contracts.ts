@@ -1,11 +1,11 @@
 import type { EditorHost, ProjectPort, AnalyzerPort, PreviewPort, LifecyclePort, AiPort, DialectDescriptor } from '@trafficops/template-editor-core';
-import { createStudioHost } from '../src/hosts/StudioHost.js';
+import { createFolderHost } from '../src/hosts/FolderHost.js';
 import { thirdHost } from './support/third-host.js';
 import { createStudioAiPort } from '../src/hosts/StudioAiPort.js';
 const third: EditorHost = thirdHost();
 const userAi: AiPort = createStudioAiPort();
 import { createHttpHost } from '../embedded/src/HttpHost.js';
-const studio: EditorHost = createStudioHost();
+const studio: EditorHost = await createFolderHost({ root: {} as FileSystemDirectoryHandle });
 const http: Promise<EditorHost> = createHttpHost({ endpoint: '/project', csrf: 'test' });
 // The adapters are checked directly; these assertions prevent a disconnected
 // declaration-only contract from passing while implementations drift.

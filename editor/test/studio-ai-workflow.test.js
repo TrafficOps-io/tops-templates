@@ -9,7 +9,9 @@ setAiRetrySleepForTesting(async () => {});
 import { attachmentAssets, attachmentMessage, readImageAttachments, validateAttachments } from '@trafficops/template-editor-shell/ai-attachments';
 import { validateDraft } from './support/ai-validator.js';
 import { starterProject } from '../src/starter.js';
-import { createStudioProject, cloneStudioProject } from '../src/studio-library.js';
+import { copyProject, createProjectInRoot } from '../src/storage/project-root.js';
+import { readProjectMeta, resolvePendingAi } from '../src/storage/project-meta.js';
+import { MemoryDirectoryHandle } from './support/fs-access.js';
 import { aiProjectContext } from '../../packages/template-editor-shell/src/ai-context.js';
 import { createAiDiagnostics } from '../../packages/template-editor-shell/src/ai-diagnostics.js';
 
@@ -206,9 +208,12 @@ test('attachment validation bounds input, excludes reference-only images from as
   assert.ok(Array.isArray(attachmentMessage('Brief', refs)));
   assert.throws(() => validateAttachments(Array.from({ length: 5 }, () => attachment())), /up to 4/);
   assert.throws(() => validateAttachments([{ ...attachment(), mime: 'image/svg+xml' }]), /PNG/);
-  const project = createStudioProject({ kind: 'landing', name: 'AI refs', files: starterProject(true), aiPrompt: 'Use photos', aiAttachments: refs, aiGenerateImages: true });
-  assert.deepEqual(project.aiAttachments, refs);
-  assert.equal(cloneStudioProject(project).aiAttachments, undefined);
+  const root = new MemoryDirectoryHandle('refs'), copy = new MemoryDirectoryHandle('copy');
+  await createProjectInRoot(root, { kind: 'landing', name: 'AI refs', files: starterProject(true), brief: { id: 'brief-1', prompt: 'Use photos', mode: 'create', generateImages: true, attachments: refs } });
+  const handoff = await resolvePendingAi(root, await readProjectMeta(root));
+  assert.deepEqual(handoff.attachments.map(({ name, mime, dataUrl }) => ({ name, mime, dataUrl })), refs.map(({ name, mime, dataUrl }) => ({ name, mime, dataUrl })));
+  await copyProject(root, copy);
+  assert.equal((await readProjectMeta(copy)).pendingAi, undefined, 'a copy never inherits the creation brief');
 });
 
 test('content planning, writing and review send actual fields and values without source or large unrelated documents', async () => {
