@@ -14,6 +14,7 @@ test('PWA capabilities require installed display mode, never a launch query', ()
   assert.equal(installedDisplayMode({ ...browser, navigator: { standalone: true } }), true);
   assert.equal(installedDisplayMode({ ...browser, matchMedia: query => ({ matches: query === '(display-mode: standalone)' }) }), true);
   assert.equal(installedDisplayMode({ ...browser, matchMedia: query => ({ matches: query === '(display-mode: minimal-ui)' }) }), true);
+  assert.equal(installedDisplayMode({ ...browser, matchMedia: query => ({ matches: query === '(display-mode: window-controls-overlay)' }) }), true);
   assert.equal(installedDisplayMode({ ...browser, matchMedia: query => ({ matches: query === '(display-mode: fullscreen)' }) }), false);
 });
 

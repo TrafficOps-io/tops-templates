@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { studioChat } from './support/studio-chat.js';
+import { studioChat, newProjectControl } from './support/studio-chat.js';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
@@ -75,11 +75,12 @@ async function openTestPage() {
     };
   });
   await page.goto(`http://127.0.0.1:${server.address().port}`);
-  await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
   return page;
 }
 async function createAiProject(page, name, prompt, withAttachment = false) {
-  await page.getByRole('button', { name: 'New project', exact: true }).click();
+  await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
+  await (await newProjectControl(page)).click();
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
   await dialog.getByRole('button', { name: 'With AI', exact: true }).click();
   await dialog.getByText('Project options', { exact: true }).click();
@@ -149,7 +150,7 @@ try {
   assert.equal(missing.project.aiPrompt, pendingPrompt); assert.equal(missing.project.aiStarted, true); assert.equal(missing.project.kind, 'landing');
   assert.equal(missing.project.aiGenerateImages, undefined, 'an unconfigured creation must not persist an implicit image-generation opt-out');
   assert.match(missing.run.error, /connection|key/i);
-  await unconfiguredChat.root.getByRole('button', { name: 'AI settings', exact: true }).click();
+  await unconfiguredChat.root.getByRole('button', { name: 'Connect OpenRouter', exact: true }).click();
   await unconfigured.locator('.ai-settings input[type=password]').waitFor();
   await unconfigured.getByRole('button', { name: 'Back to assistant', exact: true }).click();
   await unconfigured.reload(); await showLatestThread(unconfigured);
@@ -163,7 +164,8 @@ try {
   const prompt = 'Create a studio launch landing with a clear heading and introductory copy.';
   await createAiProject(page, 'AI launch', prompt, true);
   await page.waitForFunction(() => typeof window.libraryAiTest.release === 'function');
-  assert.equal(providerCalls.length, 2);
+  assert.equal(providerCalls.length, 1, 'the first request starts the write tool loop directly');
+  assert.deepEqual(providerCalls.map(call => call.step), [1], 'no mandatory stage precedes the saved brief write');
   const claimed = providerCalls[0].records.find(record => record.name === 'AI launch');
   assert.equal(claimed.aiAttachments.length, 1); assert.equal(claimed.aiAttachments[0].useOnPage, true);
   assert.equal(claimed.aiStarted, true); assert.equal(claimed.aiPrompt, prompt);
@@ -177,7 +179,8 @@ try {
   assert.ok((await records(page))[0].files['index.tpl'].includes('Your next idea'), 'partial streamed source never replaces the canonical starter');
   await page.evaluate(() => window.libraryAiTest.release());
   const ready = await waitForRun(page, 'AI launch', 'ready');
-  assert.equal(providerCalls.length, 4, 'successful host validation skips a summary-only provider request');
+  assert.equal(providerCalls.length, 2, 'successful host validation skips a summary-only provider request');
+  assert.deepEqual(providerCalls.map(call => call.step), [1, 2], 'write and validate are the complete successful tool loop');
   assert.ok(ready.run.result.valid); assert.ok(ready.run.result.files['index.tpl'].includes('AI studio launch'));
   const assetPath = `images/reference-${claimed.aiAttachments[0].id}.png`;
   assert.ok(ready.run.result.files[assetPath] && typeof ready.run.result.files[assetPath] === 'object', 'an image marked Use on page is part of the independent draft');
@@ -195,7 +198,7 @@ try {
   await page.reload(); await showLatestThread(page);
   await chat.user.getByText(prompt, { exact: true }).waitFor(); await chat.status('applied').waitFor();
   await page.waitForTimeout(800);
-  assert.equal(providerCalls.length, 4, 'reload never restarts a paid generation');
+  assert.equal(providerCalls.length, 2, 'reload never restarts a paid generation');
   await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'AI studio launch', exact: true }).waitFor();
 
   // Stopping an incomplete stream retains the canonical starter and dialog history.
@@ -208,7 +211,7 @@ try {
   assert.equal(cancelled.project.aiStarted, true);
   assert.ok(cancelled.project.files['index.tpl'].includes('Your next idea'));
   assert.equal(cancelled.document.threads[0].messages[0].prompt, 'A project whose creation will be cancelled.');
-  assert.equal(providerCalls.length, 6);
+  assert.equal(providerCalls.length, 3);
 
   // Later failure preserves each completed source operation for explicit review.
   await page.getByRole('button', { name: 'Projects', exact: true }).first().click();
@@ -225,13 +228,17 @@ try {
   assert.ok((await failedRun.locator('[data-testid="studio-chat-card"][data-card="diff"]').filter({ hasText: 'index.tpl' }).innerText()).includes('AI studio launch'));
   assert.equal(await chat.apply.count(), 0, 'an unvalidated failed draft cannot be applied');
   await failedRun.locator('[data-testid="studio-chat-continue"]').waitFor(); await failedRun.locator('[data-testid="studio-chat-keep-draft"]').waitFor();
-  assert.equal(providerCalls.length, 10, 'a persistent pre-tool 503 gets one recovery without replaying completed writes');
+  const failedCalls = providerCalls.filter(call => call.outcome === 'error');
+  assert.deepEqual(failedCalls.map(call => call.step), [1, 2, 3, 4, 5], 'the completed write is followed by one failed request and three bounded pre-output retries');
+  assert.equal(failedCalls.filter(call => call.step === 1).length, 1, 'recovery never replays the completed source write');
+  for (const call of failedCalls.slice(1)) assert.equal(call.body.messages.filter(message => message.role === 'tool' && message.tool_call_id === 'library-call-1').length, 1, 'each retry retains one completed write result in its tool history');
+  assert.equal(providerCalls.length, 8, 'persistent pre-output 503 recovery obeys the existing three-retry policy');
   await page.reload(); await showLatestThread(page);
   await chat.run(failed.run.id).locator('[data-testid="studio-chat-continue"]').waitFor();
   await page.waitForTimeout(800);
   const restored = await waitForRun(page, 'Recovered creation', 'failed');
   assert.ok(restored.run.result.files['index.tpl'].includes('AI studio launch'));
-  assert.equal(providerCalls.length, 10, 'retained failed work never causes automatic payment after reload');
+  assert.equal(providerCalls.length, 8, 'retained failed work never causes automatic payment after reload');
   assert.deepEqual(errors, []);
   console.log('PASS: PWA library AI creation, durable message and claim before fetch, retained image asset, manual review/apply, reload without requests, missing-key history, stop, and retained failed source.');
 } catch (error) {

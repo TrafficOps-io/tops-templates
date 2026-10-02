@@ -31,7 +31,7 @@ Installation uses the [open skills CLI](https://github.com/vercel-labs/skills). 
 
 ### `trafficops-template-authoring`
 
-Use this skill when asking an agent to create or edit `.tpl` projects for the CLI or Template Studio. It covers typed parameters, sections, repeaters, includes, local assets, safe interpolation, portable runtime limits, generation, and output inspection.
+Use this skill when asking an agent to create or edit `.tpl` projects for the CLI or Landing Studio. It covers typed parameters, sections, repeaters, includes, local assets, safe interpolation, portable runtime limits, generation, and output inspection.
 
 Example request:
 

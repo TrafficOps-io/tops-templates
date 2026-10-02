@@ -5,7 +5,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { createStudioProject } from '../src/studio-library.js';
 import { generateEditorPreview } from '@trafficops/template-runtime';
-import { openThread, studioChat } from './support/studio-chat.js';
+import { openThread, studioChat, showPane } from './support/studio-chat.js';
 
 // Production PWA, disposable browser storage and fully synthetic providers.
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -111,7 +111,7 @@ async function pollSaved(matches, label) {
   assert.fail('Durable autosave did not finish: ' + label);
 }
 const preview = () => page.locator('iframe.is-visible').contentFrame();
-const previewSettled = () => page.locator('.preview-frame-stack[aria-busy="false"]').waitFor();
+const previewSettled = async () => { await showPane(page, 'Preview'); await page.locator('.preview-frame-stack[aria-busy="false"]').waitFor(); };
 const chat = () => studioChat(page);
 const latestRun = () => chat().assistant.last();
 const composer = () => chat().prompt;
@@ -121,22 +121,26 @@ async function runFinished() {
   await latestRun().and(page.locator('[data-run-status="ready"], [data-run-status="completed"], [data-run-status="failed"], [data-run-status="cancelled"]')).waitFor({ timeout: 20000 });
 }
 async function startRun(button) {
+  await showPane(page, 'Edit');
   const count = await chat().assistant.count();
   await button.click();
   await page.waitForFunction(before => document.querySelectorAll('[data-testid="studio-chat-feed"] [data-role="assistant"]').length > before, count);
   await runFinished();
 }
 // The block scope chip of the composer: the assistant restriction set by "Edit selected".
-const blockScopeChip = () => chat().scope.getByRole('button', { name: 'Block', pressed: true, exact: true });
+const blockScopeChip = () => chat().activeScope('Block');
 // Draft preview is an explicit RunActions button of an applicable (ready) run.
 async function reviewLatest() {
+  await showPane(page, 'Edit');
   await latestRun().getByRole('button', { name: 'Preview draft', exact: true }).click();
+  await showPane(page, 'Preview');
   await page.getByText('Conversation draft · Project files unchanged', { exact: true }).waitFor();
   await page.locator('.preview-selection-toggle').waitFor({ state: 'hidden' });
   await page.locator('.preview-panel').scrollIntoViewIfNeeded();
   await previewSettled();
 }
 async function editorReady() {
+  await showPane(page, 'Preview');
   await page.locator('.preview-selection-toggle').waitFor();
   const collapse = page.getByRole('button', { name: 'Collapse editor', exact: true });
   if (await collapse.count()) await collapse.click();
@@ -148,6 +152,7 @@ async function editorReady() {
   assert.ok((await page.locator('iframe.is-visible').boundingBox()).height > 200, 'The responsive preview has a drawable and clickable viewport');
 }
 async function selectBlocks({ multiple = false } = {}) {
+  await showPane(page, 'Preview');
   const toggle = page.getByRole('button', { name: 'Select elements', exact: true });
   await toggle.waitFor();
   if (await toggle.getAttribute('aria-pressed') !== 'true') await toggle.click();
@@ -164,6 +169,7 @@ async function selectBlocks({ multiple = false } = {}) {
   assert.equal(await chat().composer.getByRole('button', { name: 'Generate images', exact: true }).count(), 0, 'Scoped mode exposes no image-generation action');
 }
 async function generate(prompt) {
+  await showPane(page, 'Edit');
   await composer().fill(prompt);
   await startRun(chat().send);
   assert.equal(await runStatus(), 'ready', await latestRun().innerText());
@@ -171,6 +177,7 @@ async function generate(prompt) {
   assert.equal(await latestRun().locator('[data-testid="studio-chat-apply"]').isEnabled(), true);
 }
 async function capture(width, phase) {
+  await showPane(page, 'Preview');
   await page.locator('.preview-panel').scrollIntoViewIfNeeded();
   await previewSettled();
   await preview().locator('body').evaluate(() => window.scrollTo(0, 0));
@@ -178,7 +185,7 @@ async function capture(width, phase) {
   if (phase === 'source-ready') assert.equal(await preview().locator('.source-improved').count(), 3);
   if (['content-ready', 'clarified-ready'].includes(phase)) await preview().getByText(contentValue, { exact: true }).waitFor();
   await preview().locator('body').evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-  const metrics = await page.evaluate(() => ({ viewport: innerWidth, documentWidth: document.documentElement.scrollWidth, chips: document.querySelectorAll('.preview-selection-chip').length, scopeVisible: Boolean(document.querySelector('[data-testid="studio-chat-composer"] .studio-chat-scope [aria-pressed="true"]')) }));
+  const metrics = await page.evaluate(() => ({ viewport: innerWidth, documentWidth: document.documentElement.scrollWidth, chips: document.querySelectorAll('.preview-selection-chip').length, scopeVisible: Boolean(document.querySelector('[data-testid="studio-chat-composer"] .studio-chat-scope-trigger')) }));
   assert.ok(metrics.documentWidth <= width + 1, `No horizontal overflow at ${width}px ${phase}`);
   const screenshot = `${out}/${width}-${phase}.png`; await page.screenshot({ path: screenshot, fullPage: true });
   report.screenshots.push(screenshot); report.states.push({ width, phase, ...metrics });
@@ -208,7 +215,7 @@ try {
         return new Response(response.body, { status: response.status, headers: { 'Content-Type': response.contentType } });
       };
     });
-    await page.goto(origin); await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
+    await page.goto(origin); await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
     await page.evaluate(async fixture => {
       const open = (name, initialize) => new Promise((resolve, reject) => { const request = indexedDB.open(name, 1); request.onupgradeneeded = () => initialize?.(request.result); request.onerror = () => reject(request.error); request.onsuccess = () => resolve(request.result); });
       const library = await open('trafficops-studio-library');
@@ -221,23 +228,23 @@ try {
     assert.equal(await page.locator('.preview-selection-toggle').getAttribute('aria-pressed'), 'false');
     await selectBlocks({ multiple: true });
     const frozenLabels = await page.locator('.ai-block-scope li').allTextContents();
-    await preview().locator('[data-block="Comment body"]').nth(1).click();
+    await showPane(page, 'Preview'); await preview().locator('[data-block="Comment body"]').nth(1).click();
     await page.waitForFunction(() => document.querySelectorAll('.preview-selection-chip').length === 1);
     assert.deepEqual(await page.locator('.ai-block-scope li').allTextContents(), frozenLabels, 'Changing preview selection retains the explicit assistant restriction');
-    await blockScopeChip().waitFor(); assert.equal(await chat().scope.getByRole('button', { name: 'Project', pressed: true, exact: true }).count(), 0, 'Preview selection changes never silently switch to ordinary editing');
+    await showPane(page, 'Edit'); await blockScopeChip().waitFor(); assert.equal(await chat().activeScope('Project').count(), 0, 'Preview selection changes never silently switch to ordinary editing');
     await previewSettled();
-    await preview().locator('[data-block="Comment body"]').nth(1).click();
+    await showPane(page, 'Preview'); await preview().locator('[data-block="Comment body"]').nth(1).click();
     await page.waitForFunction(() => document.querySelectorAll('.preview-selection-chip').length === 2);
     await capture(width, 'content-prompt');
     const callStart = report.providerRequests.length;
     await generate('Change only the second comment body to the requested new text. Preserve all other comments, the form and template.');
-    await preview().getByText(contentValue, { exact: true }).waitFor();
+    await showPane(page, 'Preview'); await preview().getByText(contentValue, { exact: true }).waitFor();
     assert.deepEqual(await saved(), baseline, 'Reviewed content remains a draft until Apply');
     const contentRequests = report.providerRequests.slice(callStart);
     assert.deepEqual(contentRequests.map(request => request.tools.includes('submit_plan') ? 'plan' : request.tools.includes('submit_review') ? 'review' : 'write'), ['plan', 'write', 'write', 'review']);
     assert.ok(contentRequests[1].tools.includes('set_block_value') && !contentRequests[1].tools.includes('replace_block'), 'Content intent exposes only scoped leaf writes');
     await capture(width, 'content-ready');
-    await latestRun().locator('[data-testid="studio-chat-apply"]').click();
+    await showPane(page, 'Edit'); await latestRun().locator('[data-testid="studio-chat-apply"]').click();
     const contentSaved = await pollSaved(value => value.settings.comments[1].body === contentValue, 'selected content Apply');
     const expectedValues = structuredClone(initialValues); expectedValues.comments[1].body = contentValue;
     assert.deepEqual(contentSaved.settings, expectedValues); assert.deepEqual(contentSaved.files, baseline.files);
@@ -248,20 +255,20 @@ try {
 
     // Before the first send the Selected blocks panel follows the composer scope: removing the Block chip hides it.
     await selectBlocks();
-    await chat().scope.getByRole('button', { name: 'Remove Block', exact: true }).click();
-    await chat().scope.getByRole('button', { name: 'Project', pressed: true, exact: true }).waitFor();
+    await showPane(page, 'Edit'); await chat().scope.getByRole('button', { name: 'Remove Block', exact: true }).click();
+    await showPane(page, 'Edit'); await chat().activeScope('Project').waitFor();
     await page.getByRole('group', { name: 'Selected blocks', exact: true }).waitFor({ state: 'detached', timeout: 5000 });
 
     // A source fragment is shared: editing one rendered body updates all three.
     intent = 'source'; await selectBlocks();
     await generate('Add the source-improved class to the shared comment body template for every instance. Preserve all content.');
-    await page.getByText('Template changes affect all 3 instances of these source blocks.', { exact: true }).waitFor({ timeout: 5000 });
+    await showPane(page, 'Edit'); await page.getByText('Template changes affect all 3 instances of these source blocks.', { exact: true }).waitFor({ timeout: 5000 });
     await page.waitForFunction(() => document.querySelector('iframe.is-visible'));
-    await preview().locator('.source-improved').nth(2).waitFor();
+    await showPane(page, 'Preview'); await preview().locator('.source-improved').nth(2).waitFor();
     assert.equal(await preview().locator('.source-improved').count(), 3);
     assert.deepEqual(await saved(), contentSaved, 'Reviewed source is not saved before Apply');
     await capture(width, 'source-ready');
-    await latestRun().locator('[data-testid="studio-chat-apply"]').click();
+    await showPane(page, 'Edit'); await latestRun().locator('[data-testid="studio-chat-apply"]').click();
     const sourceSaved = await pollSaved(value => value.files['index.tpl'].includes('class="source-improved"'), 'shared source Apply');
     assert.deepEqual(sourceSaved.settings, expectedValues);
     assert.equal(sourceSaved.files['styles.css'], baseline.files['styles.css']); assert.equal(sourceSaved.files['private.txt'], baseline.files['private.txt']);
@@ -276,19 +283,19 @@ try {
     assert.equal(await runStatus(), 'failed');
     // A failed run is never applicable: no Apply/Preview, only Continue generation (and Keep draft where the port offers it).
     assert.equal(await latestRun().locator('[data-testid="studio-chat-apply"]').count(), 0, 'An unreviewed failure cannot be applied');
-    await latestRun().locator('[data-testid="studio-chat-continue"]').waitFor();
+    await showPane(page, 'Edit'); await latestRun().locator('[data-testid="studio-chat-continue"]').waitFor();
     assert.deepEqual(await saved(), sourceSaved);
     const recoveryCalls = report.providerRequests.length;
     await page.reload(); await editorReady();
     await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
-    await chat().root.waitFor(); await openThread(chat(), recoveryPrompt);
-    await latestRun().and(page.locator('[data-run-status="failed"]')).waitFor();
+    await showPane(page, 'Edit'); await chat().root.waitFor(); await openThread(chat(), recoveryPrompt);
+    await showPane(page, 'Edit'); await latestRun().and(page.locator('[data-run-status="failed"]')).waitFor();
     assert.equal(report.providerRequests.length, recoveryCalls, 'Recovery restores the scoped draft without provider calls');
     await capture(width, 'recovered-draft');
     // A clarifying continuation retains completed work and its original scope.
     failAfterWrite = false; clarifyNextPlan = true;
     await startRun(latestRun().locator('[data-testid="studio-chat-continue"]'));
-    await latestRun().locator('.studio-chat-markdown').getByText('What final wording should replace the retained comment draft?', { exact: true }).first().waitFor();
+    await showPane(page, 'Edit'); await latestRun().locator('.studio-chat-markdown').getByText('What final wording should replace the retained comment draft?', { exact: true }).first().waitFor();
     assert.deepEqual(await saved(), sourceSaved, 'Clarifying a retained draft preserves durable source and values');
     contentValue = 'Confirmed selected comment after clarification';
     const answer = 'Keep the same selected second comment and use the confirmed final wording.';
@@ -299,18 +306,18 @@ try {
     await reviewLatest(); await preview().getByText(contentValue, { exact: true }).waitFor();
     assert.ok(report.providerRequests.some(request => JSON.stringify(request.messages).includes(answer)), 'Continuation receives the clarification inside the frozen scope');
     await capture(width, 'clarified-ready');
-    await latestRun().getByRole('button', { name: 'Discard', exact: true }).click();
-    await latestRun().and(page.locator('[data-run-status="discarded"]')).waitFor();
+    await showPane(page, 'Edit'); await latestRun().getByRole('button', { name: 'Discard', exact: true }).click();
+    await showPane(page, 'Edit'); await latestRun().and(page.locator('[data-run-status="discarded"]')).waitFor();
     // Discarding the previewed draft returns the preview to the current project.
     await page.getByText('Conversation draft · Project files unchanged', { exact: true }).waitFor({ state: 'detached', timeout: 5000 });
-    await page.locator('.preview-panel').scrollIntoViewIfNeeded();
+    await showPane(page, 'Preview'); await page.locator('.preview-panel').scrollIntoViewIfNeeded();
     await previewSettled();
-    await preview().getByText(expectedValues.comments[1].body, { exact: true }).waitFor();
+    await showPane(page, 'Preview'); await preview().getByText(expectedValues.comments[1].body, { exact: true }).waitFor();
     assert.deepEqual(await saved(), sourceSaved, 'Discard preserves saved source and raw values');
     const discardedCalls = report.providerRequests.length;
     await page.reload(); await editorReady(); await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
-    await chat().root.waitFor(); await openThread(chat(), recoveryPrompt);
-    await latestRun().and(page.locator('[data-run-status="discarded"]')).waitFor();
+    await showPane(page, 'Edit'); await chat().root.waitFor(); await openThread(chat(), recoveryPrompt);
+    await showPane(page, 'Edit'); await latestRun().and(page.locator('[data-run-status="discarded"]')).waitFor();
     assert.equal(await latestRun().getByRole('button', { name: 'Preview draft', exact: true }).count(), 0, 'Discard clears the latest durable draft');
     assert.equal(report.providerRequests.length, discardedCalls, 'Discarded history never restarts generation on reload');
     const conversations = await savedConversations();

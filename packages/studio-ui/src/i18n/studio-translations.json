@@ -2443,5 +2443,25 @@
   "Show {count} more": ["Показать ещё {count}", "Показати ще {count}"],
   "Set up OpenRouter": ["Настройте OpenRouter", "Налаштуйте OpenRouter"],
   "Connect OpenRouter": ["Подключить OpenRouter", "Підключити OpenRouter"],
-  "Add your OpenRouter API key and choose a text model. Save the connection to start chatting without reloading Studio.": ["Добавьте API-ключ OpenRouter и выберите текстовую модель. Сохраните подключение, чтобы начать диалог без перезагрузки Studio.", "Додайте API-ключ OpenRouter і виберіть текстову модель. Збережіть підключення, щоб почати діалог без перезавантаження Studio."]
+  "Add your OpenRouter API key and choose a text model. Save the connection to start chatting without reloading Studio.": ["Добавьте API-ключ OpenRouter и выберите текстовую модель. Сохраните подключение, чтобы начать диалог без перезагрузки Studio.", "Додайте API-ключ OpenRouter і виберіть текстову модель. Збережіть підключення, щоб почати діалог без перезавантаження Studio."],
+  "Code": ["Код", "Код"],
+  "More options": ["Другие действия", "Інші дії"],
+  "Save now": ["Сохранить сейчас", "Зберегти зараз"],
+  "1 page": ["1 страница", "1 сторінка"],
+  "Workspace panels": ["Панели рабочей области", "Панелі робочої області"],
+  "File actions": ["Действия с файлом", "Дії з файлом"],
+  "Upload files": ["Загрузить файлы", "Завантажити файли"],
+  "Preview is up to date": ["Превью актуально", "Попередній перегляд актуальний"],
+  "Content actions": [
+    "Действия с содержимым",
+    "Дії з вмістом"
+  ],
+  "Export retained edits": [
+    "Экспортировать сохранённые здесь изменения",
+    "Експортувати збережені тут зміни"
+  ],
+  "Manage conversations": [
+    "Управление диалогами",
+    "Керування діалогами"
+  ]
 }

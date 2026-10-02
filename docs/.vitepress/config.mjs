@@ -1,5 +1,5 @@
 import {readFileSync} from 'node:fs';
-import {bundledLanguages} from 'shiki';
+import {bundledLanguages, bundledThemes} from 'shiki';
 import {defineConfig} from 'vitepress';
 
 const repository = 'https://github.com/TrafficOps-io/tops-templates';
@@ -18,20 +18,34 @@ const tplLanguage = {
   embeddedLangs: ['html', 'php'],
 };
 
+// Keep the existing syntax theme, with a readable variable accent on the
+// warm code surface. The stock orange is below WCAG AA for small code text.
+const {default: githubLight} = await bundledThemes['github-light']();
+const docsLightTheme = {
+  ...githubLight,
+  name: 'trafficops-light',
+  tokenColors: githubLight.tokenColors.map(token => token.settings.foreground?.toLowerCase() === '#e36209'
+    ? {...token, settings: {...token.settings, foreground: '#b7432f'}}
+    : token),
+};
+
 export default defineConfig({
   lang: 'en-US',
   title: 'TrafficOps Templates',
   description: 'A template language and local-first tools for building static pages.',
   base: '/tops-templates/',
-  appearance: 'force-dark',
+  appearance: true,
   cleanUrls: true,
   lastUpdated: true,
   srcExclude: ['README.md'],
   head: [
-    ['meta', {name: 'theme-color', content: '#1d1a19'}],
+    ['meta', {name: 'theme-color', content: '#fbf7f2', media: '(prefers-color-scheme: light)'}],
+    ['meta', {name: 'theme-color', content: '#1d1a19', media: '(prefers-color-scheme: dark)'}],
+    ['link', {rel: 'icon', type: 'image/svg+xml', href: '/tops-templates/favicon.svg'}],
   ],
   markdown: {
     lineNumbers: true,
+    theme: {light: docsLightTheme, dark: 'github-dark'},
     languages: [bundledLanguages.html, bundledLanguages.php, tplLanguage],
     config(md) {
       md.renderer.rules.code_inline = (tokens, index) => {
@@ -41,8 +55,8 @@ export default defineConfig({
     },
   },
   themeConfig: {
-    siteTitle: 'TrafficOps Templates',
-    logo: '/logo.svg',
+    siteTitle: 'Traffic<span class="docs-brand-accent">Ops</span><span class="docs-brand-product">Templates</span>',
+    logo: {light: '/logo.svg', dark: '/logo-dark.svg', alt: 'TrafficOps'},
     search: {
       provider: 'local',
       options: {
@@ -66,10 +80,15 @@ export default defineConfig({
     nav: [
       {text: 'Guide', link: '/guide/getting-started'},
       {text: 'Language', link: '/guide/language'},
-      {text: 'PHP', link: '/guide/php'},
-      {text: 'CLI & Editor', link: '/guide/tooling'},
-      {text: 'Agent skills', link: '/guide/skills'},
-      {text: 'Editor', link: 'https://trafficops-templates.netlify.app'},
+      {
+        text: 'Tools',
+        items: [
+          {text: 'PHP', link: '/guide/php'},
+          {text: 'CLI & Editor', link: '/guide/tooling'},
+          {text: 'Agent skills', link: '/guide/skills'},
+        ],
+      },
+      {text: 'Landing Studio', link: 'https://studio.trafficops.io'},
     ],
     sidebar: [
       {
@@ -93,7 +112,7 @@ export default defineConfig({
         text: 'Integration',
         items: [
           {text: 'PHP and Laravel', link: '/guide/php'},
-          {text: 'CLI and Template Studio', link: '/guide/tooling'},
+          {text: 'CLI and Landing Studio', link: '/guide/tooling'},
           {text: 'Agent skills', link: '/guide/skills'},
           {text: 'Publishing the docs', link: '/guide/documentation'},
         ],

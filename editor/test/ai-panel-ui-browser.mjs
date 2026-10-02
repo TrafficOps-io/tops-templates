@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { createStudioProject } from '../src/studio-library.js';
-import { studioChat } from './support/studio-chat.js';
+import { studioChat, showPane } from './support/studio-chat.js';
 
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = resolve(process.argv[2] || 'editor/dist'), out = '/tmp/studio-ai-panel-ui';
@@ -69,7 +69,7 @@ try {
         return failure();
       };
     });
-    await page.goto(origin); await page.getByRole('heading',{name:'Ideas become pages.',exact:true}).waitFor();
+    await page.goto(origin); await page.getByRole('heading',{name:'Projects',exact:true}).waitFor();
     await page.evaluate(async ({fixture,model}) => {
       async function open(name,initialize) { return new Promise((resolve,reject) => { const request=indexedDB.open(name,1); request.onupgradeneeded=()=>initialize?.(request.result); request.onsuccess=()=>resolve(request.result); request.onerror=()=>reject(request.error); }); }
       const library = await open('trafficops-studio-library'); await new Promise((resolve,reject) => { const tx=library.transaction(['projects','preferences'],'readwrite'); tx.objectStore('projects').put({...fixture,revision:1}); tx.objectStore('preferences').put(fixture.id,'active-project'); tx.oncomplete=resolve; tx.onerror=()=>reject(tx.error); }); library.close();
@@ -132,9 +132,9 @@ try {
     const ready=chat.status('ready'); await ready.waitFor({timeout:15000});
     await capture('ready','Apply',ready);
     await ready.locator('[data-testid="studio-chat-apply"]').click();
-    await page.locator('.browser-frame').scrollIntoViewIfNeeded(); // on a phone the preview is below the chat
+    await showPane(page,'Preview'); // on a phone the preview is its own panel
     await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading',{name:'Polski tytuł',exact:true}).waitFor();
-    await chat.apply.waitFor({state:'detached'});
+    await showPane(page,'Edit'); await chat.apply.waitFor({state:'detached'});
     await chat.status('applied').getByText('Changes applied',{exact:true}).waitFor();
     expect(!(await chat.apply.count()),'Apply closes reviewed draft actions',{width});
     await context.close();

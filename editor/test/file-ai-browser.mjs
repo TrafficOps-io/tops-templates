@@ -6,7 +6,7 @@ import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deflateSync } from 'node:zlib';
 import { createStudioProject } from '../src/studio-library.js';
-import { studioChat } from './support/studio-chat.js';
+import { studioChat, newProjectControl, showPane } from './support/studio-chat.js';
 
 // Runs against an existing production build. All provider traffic is intercepted
 // before it reaches the network, and every context owns synthetic IndexedDB data.
@@ -90,14 +90,15 @@ async function pollSavedFile(page,path,matches) {
   assert.fail('Selected file was not durably saved: '+path);
 }
 async function selectFile(page,path) {
-  await page.getByRole('tab', {name:'Files',exact:true}).click();
+  await page.getByRole('tab', {name:'Code',exact:true}).click();
+  await showPane(page,'Files');
   await page.locator('.file-sidebar').getByTitle(path,{exact:true}).click();
 }
 async function openAssistant(page,path) {
   await selectFile(page,path);
   await page.getByRole('button', {name:'Edit file with AI',exact:true}).click();
   const chat = studioChat(page), panel = chat.root;
-  await chat.scope.getByRole('button',{name:'File',pressed:true,exact:true}).waitFor();
+  await chat.activeScope('File').waitFor();
   await chat.composer.locator('.studio-chip-mention').getByText('@'+path,{exact:true}).waitFor();
   assert.equal(await page.getByRole('dialog',{name:'Edit file with AI',exact:true}).count(),0,'Selected-file action opens a scoped conversation');
   assert.equal(await panel.getByLabel('Use on page',{exact:true}).count(),0,'Single-file attachments have no page-placement control');
@@ -199,7 +200,7 @@ try {
       };
     },{editedBase64:editedPng.toString('base64'),changedCss,stylesheet});
     await page.goto(origin);
-    await page.getByRole('heading',{name:'Ideas become pages.',exact:true}).waitFor();
+    await page.getByRole('heading',{name:'Projects',exact:true}).waitFor();
     await page.evaluate(async ({fixture,model,imageModel}) => {
       const open = (name,initialize) => new Promise((resolve,reject) => {const request=indexedDB.open(name,1);request.onupgradeneeded=()=>initialize?.(request.result);request.onerror=()=>reject(request.error);request.onsuccess=()=>resolve(request.result);});
       const library = await open('trafficops-studio-library');
@@ -319,12 +320,12 @@ try {
   const browserContext=await browser.newContext({viewport:{width:1280,height:900}});
   await browserContext.route('**/*',route=>{const url=route.request().url();if(url.startsWith(origin+'/'))return route.continue();report.blockedExternalRequests.push({width:1280,url:new URL(url).origin+new URL(url).pathname});return route.abort();});
   const tab=activePage=await browserContext.newPage();tab.on('pageerror',error=>report.pageErrors.push({width:1280,message:error.message}));
-  await tab.goto(origin);await tab.getByRole('heading',{name:'Ideas become pages.',exact:true}).waitFor();
-  await tab.getByRole('button',{name:'New project',exact:true}).click();
+  await tab.goto(origin);await tab.getByRole('heading',{name:'Projects',exact:true}).waitFor();
+  await (await newProjectControl(tab)).click();
   const create=tab.getByRole('dialog',{name:'New project',exact:true});
   await create.getByRole('textbox',{name:'Project name',exact:true}).fill('Ordinary browser selected-file QA');
   await create.getByRole('button',{name:'Create landing',exact:true}).click();
-  await tab.getByRole('tab',{name:'Files',exact:true}).click();
+  await tab.getByRole('tab',{name:'Code',exact:true}).click();
   assert.equal(await tab.getByRole('button',{name:'Edit file with AI',exact:true}).count(),0,'Ordinary browser tab respects the existing PWA AI gate');
   assert.equal(await tab.getByRole('dialog',{name:'Edit file with AI',exact:true}).count(),0);
   report.states.push({width:1280,phase:'ordinary-browser-pwa-gate'});await browserContext.close();

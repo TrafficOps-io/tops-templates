@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { join, extname, resolve } from 'node:path';
+import { newProjectControl } from './support/studio-chat.js';
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = resolve(process.argv[2] || 'editor/dist');
@@ -66,7 +67,7 @@ try {
     };
   });
   await page.goto(`http://127.0.0.1:${server.address().port}`);
-  await page.getByRole('button', { name: 'New project', exact: true }).click();
+  await (await newProjectControl(page)).click();
   await page.getByRole('button', { name: 'From template', exact: true }).click();
   await page.getByRole('textbox', { name: 'Project name', exact: true }).fill('Browser test');
   await page.getByRole('button', { name: 'Create landing', exact: true }).click();
@@ -115,7 +116,7 @@ try {
   const ready = chat.status('ready'); await ready.waitFor();
   // A completed diff card opens its file in the source editor.
   await ready.locator('[data-testid="studio-chat-card"][data-card="diff"]').filter({ hasText: 'index.tpl' }).getByRole('button', { name: 'Open', exact: true }).click();
-  await page.getByRole('tab', { name: 'Files', selected: true, exact: true }).waitFor();
+  await page.getByRole('tab', { name: 'Code', selected: true, exact: true }).waitFor();
   await page.locator('.source-heading').getByText('index.tpl', { exact: true }).waitFor();
   await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
   await ready.locator('[data-testid="studio-chat-card"][data-card="diff"]').filter({ hasText: 'styles.css' }).waitFor();
@@ -147,7 +148,7 @@ try {
   await page.evaluate(() => window.aiTest.release());
   await chat.status('ready').locator('[data-testid="studio-chat-apply"]').click();
   await chat.status('applied').waitFor();
-  await page.getByRole('tab', { name: 'Files', exact: true }).click();
+  await page.getByRole('tab', { name: 'Code', exact: true }).click();
   await page.locator('.file-sidebar').getByTitle('index.tpl', { exact: true }).click();
   await inspectSource('Corrected title');
   assert.equal(await page.getByRole('button', { name: 'styles.css', exact: true }).count(), 0);

@@ -6,7 +6,7 @@ import { extname, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createStudioProject } from '../src/studio-library.js';
 import { readZipProject } from '@trafficops/template-editor-core';
-import { studioChat } from './support/studio-chat.js';
+import { studioChat, saveNow, switchProject } from './support/studio-chat.js';
 
 // Real OPFS handles and real IndexedDB in a disposable profile. Some managed
 // macOS runners crash Chromium while cloning native directory handles. Set
@@ -81,7 +81,7 @@ try {
     };
   }, { nativeHandles });
   page = await context.newPage(); page.setDefaultTimeout(20000); page.on('pageerror', error => report.errors.push(error.message));
-  await page.goto(origin); await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
+  await page.goto(origin); await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
   await page.evaluate(async ({ fixture, document }) => {
     const open = (name, initialize) => new Promise((done, reject) => { const request = indexedDB.open(name, 1); request.onupgradeneeded = () => initialize?.(request.result); request.onsuccess = () => done(request.result); request.onerror = () => reject(request.error); });
     const write = (db, stores, callback) => new Promise((done, reject) => { const tx = db.transaction(stores, 'readwrite'); callback(tx); tx.oncomplete = done; tx.onabort = () => reject(tx.error); });
@@ -117,7 +117,7 @@ try {
   await page.getByLabel('Page title', { exact: false }).fill('Folder content after reload');
   await poll(async () => ({ storage: await readStorage(), folder: await readFolder('continuity-folder') }), value => value.storage.records[0]?.settings.title === 'Folder content after reload' && JSON.parse(value.folder.files['.trafficops/values.json'] || '{}').title === 'Folder content after reload', 'folder autosave also updates the same cache record');
   await page.reload(); await page.getByRole('tab', { name: 'Content', exact: true }).click(); await page.getByLabel('Page title', { exact: false }).waitFor(); assert.equal(await page.getByLabel('Page title', { exact: false }).inputValue(), 'Folder content after reload');
-  await page.getByRole('button', { name: 'Projects', exact: true }).click(); await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor(); assert.equal(await page.locator('.library-grid:not(.starter-grid) .library-card').count(), 1);
+  await page.getByRole('button', { name: 'Projects', exact: true }).click(); await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor(); assert.equal(await page.locator('.library-project-list .library-card').count(), 1);
   report.checks.push(`${nativeHandles ? 'native handle survives IndexedDB cloning' : 'OPFS handle restores through the name-reference bridge'} and reload; folder changes update one gallery/cache record`);
   await page.evaluate(async () => {
     const root = await navigator.storage.getDirectory(), source = await root.getDirectoryHandle('continuity-folder'), target = await root.getDirectoryHandle('alternate-folder', { create: true });
@@ -129,15 +129,15 @@ try {
   assert.equal((await readStorage()).bindings[0].name, 'continuity-folder', 'Cancelling a same-ID alternate folder must retain the existing durable binding');
   report.checks.push('cancel alternate same-ID folder leaves the existing binding untouched');
   await chooseFolder('untouched-empty-folder'); await page.getByRole('button', { name: 'Open folder', exact: true }).click();
-  await page.getByText('Folder: untouched-empty-folder', { exact: false }).first().waitFor(); await page.getByRole('button', { name: 'Save draft', exact: true }).waitFor();
+  await page.getByText('Folder: untouched-empty-folder', { exact: false }).first().waitFor(); await page.locator('.studio-toolbar').waitFor();
   await delay(700); assert.deepEqual((await readFolder('untouched-empty-folder')).entries, [], 'Opening an empty folder must not write starter files or assistant sidecars');
   storage = await readStorage(); assert.equal(storage.records.length, 2); const emptyRecord = storage.records.find(record => record.id !== fixture.id); assert.ok(emptyRecord);
-  await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+  await saveNow(page);
   folder = await poll(() => readFolder('untouched-empty-folder'), value => value.metadata?.projectId === emptyRecord.id && Object.hasOwn(value.files, 'index.tpl'), 'explicit Save writes the in-memory starter');
   assert.ok(folder.files['index.tpl'].length); assert.equal((await readStorage()).records.length, 2);
   await page.reload(); await page.getByText('Folder: untouched-empty-folder', { exact: false }).first().waitFor(); assert.equal((await readStorage()).records.length, 2);
   report.checks.push('empty folder remains unchanged until explicit Save; saved starter retains its ID after reload');
-  await page.getByLabel('Switch project', { exact: true }).selectOption(fixture.id); await page.getByText('Folder: continuity-folder', { exact: false }).first().waitFor();
+  await switchProject(page, fixture.name); await page.getByText('Folder: continuity-folder', { exact: false }).first().waitFor();
   await chooseFolder('race-transfer-folder'); await page.evaluate(() => { window.__writeHeld = false; window.__holdTransferWrite = true; }); await page.getByRole('button', { name: 'Save to folder', exact: true }).click(); await page.waitForFunction(() => window.__writeHeld === true);
   await page.evaluate(() => new Promise((done, reject) => {
     const request = indexedDB.open('trafficops-studio-library', 1); request.onerror = () => reject(request.error); request.onsuccess = () => { const db = request.result, tx = db.transaction('projects', 'readwrite'), store = tx.objectStore('projects'), get = store.get('folder-continuity-project'); get.onsuccess = () => { const record = get.result; record.revision++; record.contentRevision++; record.updatedAt = Date.now(); record.settings.title = 'Changed by another window during copy'; store.put(record); }; tx.oncomplete = () => { db.close(); done(); }; tx.onabort = () => { db.close(); reject(tx.error); }; };

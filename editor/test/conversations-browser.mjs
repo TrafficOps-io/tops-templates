@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { readZipProject } from '@trafficops/template-editor-core';
-import { studioChat } from './support/studio-chat.js';
+import { studioChat, newProjectControl, saveNow, switchProject } from './support/studio-chat.js';
 
 const require = createRequire(import.meta.url), { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = resolve(process.argv[2] || 'editor/dist');
@@ -66,7 +66,7 @@ try {
     await new Promise((resolve, reject) => { const tx = db.transaction('settings', 'readwrite'); tx.objectStore('settings').put({ id: 'openrouter', apiKey: 'mock-key-never-sent', model: 'test/model', imageModel: '' }); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); }); db.close();
   });
   async function newBlank(name) {
-    await page.getByRole('button', { name: 'New project', exact: true }).click();
+    await (await newProjectControl(page)).click();
     const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
     await dialog.getByRole('button', { name: 'From scratch', exact: true }).click();
     await dialog.getByRole('textbox', { name: 'Project name', exact: true }).fill(name);
@@ -103,17 +103,17 @@ try {
   await chat.send.click();
   await page.waitForFunction(() => Boolean(window.mockAi.release.TASK_B));
   await waitDoc(list => list[0].runs.filter(run => run.state === 'running').length === 2, 'two concurrent runs');
-  const originalId = (await records())[0].id;
+  const { id: originalId, name: originalName } = (await records())[0];
   await page.getByRole('tab', { name: 'Content', exact: true }).click();
   await page.getByRole('textbox', { name: /Page title/ }).fill('Manual title while AI runs');
-  await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+  await saveNow(page);
   await page.waitForFunction(async () => (await window.readStore('trafficops-studio-library', 'projects')).some(record => record.settings.title === 'Manual title while AI runs'));
   assert.equal((await records())[0].settings.title, 'Manual title while AI runs');
   await newBlank('Another project');
   await waitDoc(list => list.find(doc => doc.projectId === originalId).runs.filter(run => run.state === 'running').length === 2, 'runs survive project switch');
   await page.evaluate(() => { window.mockAi.release.TASK_A(); window.mockAi.release.TASK_B(); });
   await waitDoc(list => list.find(doc => doc.projectId === originalId).runs.every(run => run.state === 'ready'), 'independent completed drafts');
-  await page.getByRole('combobox', { name: 'Switch project', exact: true }).selectOption(originalId);
+  await switchProject(page, originalName);
   await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
   await chat.root.waitFor(); await openThreadWith('TASK_A');
   await chat.status('ready').waitFor(); await chat.cards('diff').filter({ hasText: 'a.css' }).waitFor();

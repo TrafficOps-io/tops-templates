@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
-import { FileCode2, LayoutTemplate, Sparkles } from 'lucide-react';
+import { FileCode2, LayoutTemplate } from 'lucide-react';
 import { Skeleton } from '@trafficops/studio-ui/primitives';
 import { resolveImageGeneration } from '@trafficops/template-editor-shell/ai-image-choice';
 import { FILE_ATTACHMENT_ACCEPT, FILE_ATTACHMENT_LIMITS, readFileAiAttachments } from '@trafficops/template-editor-shell/file-ai-attachments';
@@ -36,7 +36,7 @@ export function BriefComposer({ value, onChange, attachments, onAttachmentsChang
   </Suspense>;
 }
 
-const ideas = [
+export const briefIdeas = [
   ['Product launch', 'Create a landing page for a new product. Include a clear value proposition, product benefits, social proof, and a strong call to action.'],
   ['Personal portfolio', 'Create a personal portfolio with an introduction, selected projects, an about section, and a contact section.'],
   ['Service business', 'Create a page for a service business with a clear offer, services, customer testimonials, and a contact form.'],
@@ -84,7 +84,7 @@ export default function HomeProjectChat({ busy, aiSettings, onCreate }) {
 
   return <div className="home-project-chat" ref={root}>
     <div className="home-chat-intro">
-      <span className="home-chat-kicker"><Sparkles size={15} aria-hidden="true" />YOUR IDEAS, WITH AI</span>
+      <span className="home-chat-kicker">NEW PROJECT / WITH AI</span>
       <h2 id="library-title">Ideas become pages.</h2>
       <p>Describe what you have in mind. Build it together.</p>
     </div>
@@ -96,7 +96,7 @@ export default function HomeProjectChat({ busy, aiSettings, onCreate }) {
       disabled={disabled} onSubmit={submit} placeholder={kind === 'template' ? 'Describe a reusable template…' : 'Describe your landing page…'} />
     {sending && <p className="home-chat-status" role="status">Creating project…</p>}
     {error && <p className="inline-error home-chat-error" role="alert">{error}</p>}
-    <div className="home-chat-ideas" role="group" aria-label="Ideas to get started"><span>Try an idea</span>{ideas.map(([label, value]) => <button type="button" key={label} disabled={disabled || Boolean(prompt.trim())} onClick={() => chooseIdea(value)}>{label}</button>)}</div>
+    <div className="home-chat-ideas" role="group" aria-label="Ideas to get started"><span>Try an idea</span>{briefIdeas.map(([label, value]) => <button type="button" key={label} disabled={disabled || Boolean(prompt.trim())} onClick={() => chooseIdea(value)}>{label}</button>)}</div>
     <p className="home-chat-note">Send your brief to open a new project and continue the conversation.</p>
   </div>;
 }

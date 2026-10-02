@@ -9,7 +9,7 @@ import { openThread, studioChat } from './support/studio-chat.js';
 // Production UI and disposable browser storage. No provider or filesystem actions.
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const AxeBuilder = createRequire(import.meta.url)('@axe-core/playwright').default;
-const root = resolve(process.argv[2] || 'editor/dist'), out = '/tmp/studio-conversation-ui-browser';
+const root = resolve(process.argv[2] || 'editor/dist'), out = process.env.STUDIO_CONVERSATION_SCREENSHOTS || '/tmp/studio-conversation-ui-browser';
 await mkdir(out, { recursive: true });
 const source = '@template "Conversation UI"\n@section page "Page"\n@param title String = "Collection" label="Title"\n@endsection\n@layout\n<html><head><link rel="stylesheet" href="styles.css"></head><body><section data-block="Main hero"><h1>{{title}}</h1><p>Neutral collection demo.</p></section><article data-block="Comment">First comment</article><article data-block="Comment">Second comment</article></body></html>\n@endlayout\n';
 const imageBytes = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jp1sAAAAASUVORK5CYII=', 'base64'));
@@ -50,7 +50,7 @@ try {
     const conversations = await open('trafficops-studio-conversations', db => { db.createObjectStore('documents', { keyPath: 'projectId' }); db.createObjectStore('disk-sync', { keyPath: 'projectId' }); }); await write(conversations, ['documents'], tx => tx.objectStore('documents').put(document)); conversations.close();
     const settings = await open('trafficops-template-studio-ai', db => db.createObjectStore('settings', { keyPath: 'id' })); await write(settings, ['settings'], tx => tx.objectStore('settings').put({ id: 'openrouter', apiKey: 'mock-no-provider-ui-test', model: 'test/text-model', imageModel: '' })); settings.close();
   }, { fixture, document });
-  await page.reload(); const chat = studioChat(page), panel = chat.root; await chat.root.waitFor();
+  await page.reload(); await page.getByRole('tab', { name: 'Conversations', exact: true }).click(); const chat = studioChat(page), panel = chat.root; await chat.root.waitFor();
   const prompt = chat.prompt;
   // Next to the preview the chat is narrower than 560 px: the conversation list is offered by the header menu "Conversations".
   assert.equal(await chat.threads.isVisible(), false);
@@ -87,7 +87,7 @@ try {
   await panel.getByRole('textbox', { name: 'Conversation title', exact: true }).fill('Collection spacing review'); await panel.getByRole('textbox', { name: 'Conversation title', exact: true }).press('Enter');
   await panel.getByRole('heading', { name: 'Collection spacing review', exact: true }).waitFor();
   // Without the preview the chat is wide enough for the conversation list column (search, archive, delete).
-  const wideChat = async () => { await chat.root.waitFor(); if (!await chat.threads.isVisible()) { await page.getByRole('button', { name: 'Hide preview', exact: true }).click(); await chat.threads.waitFor(); } };
+  const wideChat = async () => { await page.getByRole('tab', { name: 'Conversations', exact: true }).click(); await chat.root.waitFor(); if (!await chat.threads.isVisible()) { await page.getByRole('button', { name: 'Hide preview', exact: true }).click(); await chat.threads.waitFor(); } };
   await wideChat();
   const threadMenu = async (title, item) => { await chat.threadActions(title).click(); await panel.getByRole('menuitem', { name: item, exact: true }).click(); };
   const archived = panel.getByRole('button', { name: 'Archived', exact: true });
@@ -99,7 +99,7 @@ try {
   await page.reload(); await wideChat(); await chat.thread('Collection spacing review').waitFor(); report.checks.push('rename/archive/restore/search persist after reload');
   await chat.thread('Plan the landing').click(); await chat.user.locator('.studio-chip-mention').filter({ hasText: '@Main hero' }).getByRole('button').click();
   // A saved section reference opens its source file at the section (as the former conversation panel did).
-  await page.getByRole('tab', { name: 'Files', selected: true, exact: true }).waitFor({ timeout: 5000 }); await page.locator('.source-heading').getByText('index.tpl', { exact: true }).waitFor();
+  await page.getByRole('tab', { name: 'Code', selected: true, exact: true }).waitFor({ timeout: 5000 }); await page.locator('.source-heading').getByText('index.tpl', { exact: true }).waitFor();
   await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
   await threadMenu('Plan the landing', 'Archive'); await archived.click(); await threadMenu('Plan the landing', 'Delete conversation');
   const confirmation = page.getByRole('dialog', { name: 'Delete conversation?', exact: true }); await confirmation.getByText('Messages of this conversation will be deleted. Changes already applied stay in the project.', { exact: true }).waitFor(); await confirmation.getByRole('button', { name: 'Delete permanently', exact: true }).click(); await confirmation.waitFor({ state: 'detached' });
@@ -146,11 +146,11 @@ try {
   await openMentions(); await page.waitForFunction(() => { const picker = document.querySelector('.studio-mention-menu'), panel = picker?.closest('.studio-chat'); return picker && panel && picker.getBoundingClientRect().top >= panel.getBoundingClientRect().top; }); const pickerGeometry = await listbox.evaluate(element => ({ top: element.getBoundingClientRect().top, panelTop: element.closest('.studio-chat').getBoundingClientRect().top })); assert.ok(pickerGeometry.top >= pickerGeometry.panelTop, JSON.stringify(pickerGeometry)); const ancestorScroll = await page.evaluate(() => ({ page: scrollY, thread: document.querySelector('[data-testid="studio-chat-feed"]').scrollTop })); await prompt.press('ArrowUp'); const selectedGeometry = await listbox.getByRole('option', { selected: true }).evaluate(element => { const option = element.getBoundingClientRect(), picker = element.closest('[role="listbox"]').getBoundingClientRect(); return { visible: option.top >= picker.top && option.bottom <= picker.bottom + 1 }; }); assert.equal(selectedGeometry.visible, true); assert.deepEqual(await page.evaluate(() => ({ page: scrollY, thread: document.querySelector('[data-testid="studio-chat-feed"]').scrollTop })), ancestorScroll); await listbox.getByRole('option', { selected: true }).click(); await openMentions(); await listbox.getByRole('option').first().click();
   await page.screenshot({ path: `${out}/short-viewport.png`, fullPage: true }); report.checks.push('720px viewport keeps composer visible with references and the conversation list');
   await page.setViewportSize({ width: 1280, height: 1000 });
-  await page.getByRole('tab', { name: 'Files', exact: true }).click(); await page.locator('.file-sidebar').getByTitle('styles.css', { exact: true }).click(); await page.getByRole('button', { name: 'Edit file with AI', exact: true }).click(); await chat.scope.getByRole('button', { name: 'File', pressed: true, exact: true }).waitFor(); await composerMentions.filter({ hasText: '@styles.css' }).waitFor(); assert.equal(await page.locator('.file-ai-modal').count(), 0); report.checks.push('file action routes to scoped conversation');
+  await page.getByRole('tab', { name: 'Code', exact: true }).click(); await page.locator('.file-sidebar').getByTitle('styles.css', { exact: true }).click(); await page.getByRole('button', { name: 'Edit file with AI', exact: true }).click(); await chat.activeScope('File').waitFor(); await composerMentions.filter({ hasText: '@styles.css' }).waitFor(); assert.equal(await page.locator('.file-ai-modal').count(), 0); report.checks.push('file action routes to scoped conversation');
   await openThread(chat, 'Adjust selected stylesheet'); await panel.getByRole('heading', { name: 'Adjust selected stylesheet', exact: true }).waitFor(); await chat.run('run-file').waitFor(); assert.equal(await chat.run('run-file').getAttribute('data-run-status'), 'ready');
-  await prompt.fill('Expand the layout beyond this stylesheet.'); await chat.scope.getByRole('button', { name: 'Remove File', exact: true }).click(); await chat.scope.getByRole('button', { name: 'Project', pressed: true, exact: true }).waitFor(); assert.equal(await prompt.inputValue(), 'Expand the layout beyond this stylesheet.'); assert.equal(await composerMentions.innerText(), '@styles.css'); report.checks.push('removing a file scope returns to the project scope and retains the prompt and its reference');
+  await prompt.fill('Expand the layout beyond this stylesheet.'); await chat.scope.getByRole('button', { name: 'Remove File', exact: true }).click(); await chat.activeScope('Project').waitFor(); assert.equal(await prompt.inputValue(), 'Expand the layout beyond this stylesheet.'); assert.equal(await composerMentions.innerText(), '@styles.css'); report.checks.push('removing a file scope returns to the project scope and retains the prompt and its reference');
   await openMentions(); await prompt.pressSequentially('index'); await listbox.getByRole('option', { name: 'index.tpl', exact: true }).click(); assert.equal(await prompt.inputValue(), 'Expand the layout beyond this stylesheet. '); assert.equal(await composerMentions.count(), 2); report.checks.push('mention picker after a completed sentence preserves the prompt');
-  await page.getByRole('button', { name: 'Export', exact: true }).click(); await page.getByRole('menuitem', { name: /Editable project/ }).click(); const dialog = page.getByRole('dialog', { name: 'Export', exact: true }); await dialog.waitFor(); assert.equal(await dialog.getByRole('checkbox', { name: 'Include conversation history' }).isChecked(), true); await dialog.getByRole('button', { name: 'Cancel', exact: true }).click(); report.checks.push('one export menu; history default');
+  await page.getByRole('button', { name: 'Export', exact: true }).click(); await page.getByRole('menuitem', { name: /Editable project/ }).click(); const dialog = page.getByRole('dialog', { name: 'Export', exact: true }); await dialog.waitFor(); assert.equal(await dialog.getByRole('combobox', { name: 'Export destination' }).count(), 0); assert.equal(await dialog.getByRole('heading', { name: 'Editable project', exact: true }).count(), 1); assert.equal(await dialog.getByRole('checkbox', { name: 'Include conversation history' }).isChecked(), true); await dialog.getByRole('button', { name: 'Cancel', exact: true }).click(); report.checks.push('one export menu; history default');
   await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'Collection', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Select elements', exact: true }).click();
   await page.getByRole('button', { name: 'Choose sections', exact: true }).click();
@@ -182,6 +182,22 @@ try {
   report.checks.push('Discard of a failed run keeps its draft out of the next send');
 
   for (const width of [1024, 320]) { await page.setViewportSize({ width, height: 1000 }); await page.screenshot({ path: `${out}/${width}.png`, fullPage: true }); const geometry = await page.evaluate(() => ({ viewport: innerWidth, document: document.documentElement.scrollWidth, panel: document.querySelector('[data-testid="studio-chat"]').getBoundingClientRect().width, overflow: [...document.querySelectorAll('body *')].map(element => ({ tag: element.tagName, class: element.className?.baseVal || element.className, right: element.getBoundingClientRect().right })).filter(item => item.right > innerWidth + 1).slice(0, 15) })); assert.ok(geometry.document <= width + 1, `No clipping at ${width}: ${JSON.stringify(geometry)}`); report.widths.push(geometry); }
+  await page.setViewportSize({ width: 390, height: 844 });
+  const retainedPrompt = await prompt.inputValue();
+  await chat.root.locator('.studio-chat-header').getByRole('button', { name: 'Conversations', exact: true }).click();
+  await chat.root.getByRole('menuitem', { name: 'Manage conversations', exact: true }).click();
+  const management = chat.root.getByTestId('studio-chat-management'); await management.waitFor();
+  const managementBlocking = [];
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate(name => document.documentElement.setAttribute('data-theme', `studio-${name}`), theme);
+    await page.screenshot({ path: `${out}/management-${theme}-390.png` });
+    const { violations } = await new AxeBuilder({ page }).include('[data-testid="studio-chat-management"]').withTags(['wcag2a', 'wcag2aa']).analyze();
+    for (const violation of violations) { const line = `[management/${theme}] ${violation.id} (${violation.impact}) ${violation.help}`; report.axe.push(line); if (['critical', 'serious'].includes(violation.impact)) managementBlocking.push(line); }
+  }
+  assert.deepEqual(managementBlocking, [], 'axe: no critical/serious violations in active narrow management');
+  await management.getByRole('button', { name: 'Close', exact: true }).click(); await management.waitFor({ state: 'hidden' });
+  assert.equal(await prompt.inputValue(), retainedPrompt, 'narrow management preserves the current composer');
+  report.checks.push('active PWA conversation management at 390px, retained composer, axe in both themes');
   assert.deepEqual(report.errors, []); await context.close();
 } finally { await browser?.close(); server.close(); await writeFile(`${out}/report.json`, JSON.stringify(report, null, 2)); }
 console.log(JSON.stringify(report, null, 2));

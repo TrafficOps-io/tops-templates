@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { saveNow } from './support/studio-chat.js';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -69,7 +70,7 @@ async function newPage(context) {
   result.setDefaultTimeout(20000);
   result.on('pageerror', error => errors.push(error.message));
   await result.goto(url);
-  await result.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
+  await result.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
   return result;
 }
 
@@ -163,7 +164,7 @@ try {
   await page.getByLabel('Page title', { exact: false }).waitFor();
   assert.equal(await page.getByLabel('Page title', { exact: false }).inputValue(), 'Recovered field value');
   await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'Recovered field value', exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+  await saveNow(page);
   const saved = await poll(readWorkspace, value => value?.dirty === false && value.detached === true, 'detached recovery commit after Save draft');
   assert.equal(saved.projectId, expected.projectId);
   assert.deepEqual(saved.files, expected.files);
@@ -173,7 +174,7 @@ try {
   assert.equal(await page.getByLabel('Page title', { exact: false }).inputValue(), 'Recovered field value');
   assert.deepEqual((await readWorkspace()).files, expected.files);
   await page.getByLabel('Page title', { exact: false }).fill('Recovered value saved twice');
-  await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+  await saveNow(page);
   const sameProject = await poll(readLibrary, value => value.projects.length === 1 && value.projects[0].settings.title === 'Recovered value saved twice', 'second detached save after reload updates the same cache revision');
   assert.equal(sameProject.projects[0].id, expected.projectId);
   const disk = await page.evaluate(async nativeHandles => {
@@ -207,7 +208,7 @@ try {
   await poll(readWorkspace, value => value?.detached === true, 'failed folder read retains detached recovery');
   assert.deepEqual((await readWorkspace()).files, malformedExpected.files);
   await page.locator('.studio-navigation').getByRole('button', { name: 'Projects', exact: true }).click();
-  await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
   const recovered = await poll(readLibrary, value => value.projects.length === 1, 'leaving recovery retains the same logical project in the device cache');
   assert.equal(recovered.projects[0].id, malformedExpected.projectId);
   assert.deepEqual(recovered.projects[0].files, malformedExpected.files);
@@ -244,7 +245,7 @@ try {
   const other = await conflict.newPage();
   await other.goto(url);
   await other.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click();
-  await other.locator('.studio-toolbar > strong').filter({ hasText: /^Deleted landing$/ }).waitFor();
+  await other.locator('.studio-toolbar .studio-project-name').filter({ hasText: /^Deleted landing$/ }).waitFor();
   await other.evaluate(() => new Promise((resolve, reject) => {
     const request = indexedDB.open('trafficops-studio-library', 1);
     request.onerror = () => reject(request.error);
@@ -257,13 +258,13 @@ try {
     };
   }));
   await page.getByLabel('Page title', { exact: false }).fill('Rescued unsaved value');
-  await page.locator('.studio-navigation').getByRole('button', { name: 'Save as new project', exact: true }).waitFor();
+  await page.locator('.studio-toolbar').getByRole('button', { name: 'Save as new project', exact: true }).waitFor();
   const conflictStatus = page.locator('.studio-toolbar [role="status"]').filter({ hasText: 'Not saved: conflict' });
   await conflictStatus.waitFor();
   assert.ok(await conflictStatus.locator('.studio-badge-danger').count() === 1, 'the conflict badge uses the danger tone');
-  await page.locator('.studio-navigation').getByRole('button', { name: 'Save as new project', exact: true }).click();
+  await page.locator('.studio-toolbar').getByRole('button', { name: 'Save as new project', exact: true }).click();
   await page.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click();
-  await page.locator('.studio-toolbar > strong').filter({ hasText: /^Deleted landing \(recovered\)$/ }).waitFor();
+  await page.locator('.studio-toolbar .studio-project-name').filter({ hasText: /^Deleted landing \(recovered\)$/ }).waitFor();
   const rescue = await poll(readLibrary, value => value.projects.length === 1 && value.projects[0].settings.title === 'Rescued unsaved value', 'conflict rescue commit');
   assert.notEqual(rescue.projects[0].id, 'deleted-project');
   assert.equal(rescue.active, rescue.projects[0].id);
@@ -276,8 +277,8 @@ try {
   await page.getByLabel('Page title', { exact: false }).waitFor();
   assert.equal(await page.getByLabel('Page title', { exact: false }).inputValue(), 'Rescued unsaved value');
   await page.locator('.studio-navigation').getByRole('button', { name: 'Projects', exact: true }).click();
-  await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
-  assert.equal(await page.locator('.library-grid:not(.starter-grid) .library-card').count(), 1);
+  await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
+  assert.equal(await page.locator('.library-project-list .library-card').count(), 1);
   assert.deepEqual(errors, []);
   console.log('PASS: deleting a project in another tab stops stale saves; Save as new project preserves edits, assets and folders.');
 } catch (error) {

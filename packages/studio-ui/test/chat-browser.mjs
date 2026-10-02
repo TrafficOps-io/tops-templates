@@ -69,20 +69,52 @@ try {
   await feed.getByText('What shall we create?').waitFor();
   assert.equal(await page.locator('.studio-toasts, .studio-toast').count(), 0);
 
-  // Scope chips: one active chip, a non-default scope is removed by its cross; hit targets of chips, cross and archive toggle.
-  const scope = composer.getByRole('group', { name: 'Assistant task' });
-  for (const button of await scope.getByRole('button').all()) await assertTarget(button, `scope chip ${await button.textContent()}`);
-  await scope.getByRole('button', { name: 'Scene', exact: true }).click();
-  assert.equal(await scope.getByRole('button', { name: 'Scene', exact: true }).getAttribute('aria-pressed'), 'true');
+  // Scope menu: one trigger in the toolbar named by the active scope opens a menu of menuitemradio items (the active one checked,
+  // arrows, Escape back to the trigger); a non-default scope is removed by its cross; hit targets of trigger, items, cross and archive toggle.
+  const scope = composer.getByRole('group', { name: 'Assistant task' }), scopeMenu = scope.getByRole('menu', { name: 'Assistant task' });
+  const isFocused = locator => locator.evaluate(element => element === document.activeElement);
+  assert.equal(await composer.locator('.studio-chat-composer-toolbar .studio-chat-scope').count(), 1, 'the scope control sits in the toolbar');
+  const projectTrigger = scope.getByRole('button', { name: 'Project', exact: true });
+  await assertTarget(projectTrigger, 'scope trigger');
+  assert.equal(await projectTrigger.getAttribute('aria-haspopup'), 'menu');
+  assert.equal(await scope.getByRole('button').count(), 1, 'the default scope has no cross');
+  await projectTrigger.click();
+  assert.deepEqual(await scopeMenu.getByRole('menuitemradio').allTextContents(), ['Project', 'Scene', 'Audio', 'Script']);
+  for (const item of await scopeMenu.getByRole('menuitemradio').all()) await assertTarget(item, `scope item ${await item.textContent()}`);
+  assert.equal(await scopeMenu.getByRole('menuitemradio', { checked: true }).textContent(), 'Project');
+  assert.ok(await isFocused(scopeMenu.getByRole('menuitemradio', { name: 'Project' })), 'the checked item takes focus');
+  await page.keyboard.press('ArrowDown');
+  assert.ok(await isFocused(scopeMenu.getByRole('menuitemradio', { name: 'Scene' })), 'ArrowDown moves to the next item');
+  await page.keyboard.press('Escape');
+  assert.equal(await scopeMenu.count(), 0, 'Escape closes the menu');
+  assert.ok(await isFocused(projectTrigger), 'Escape returns focus to the trigger');
+  await page.keyboard.press('ArrowUp');
+  await scopeMenu.waitFor();
+  await page.keyboard.press('End'); await page.keyboard.press('Enter');
+  await scope.getByRole('button', { name: 'Script', exact: true }).waitFor();
+  assert.ok(await isFocused(scope.getByRole('button', { name: 'Script', exact: true })), 'picking an item returns focus to the trigger');
+  await scope.getByRole('button', { name: 'Script', exact: true }).click();
+  await scopeMenu.getByRole('menuitemradio', { name: 'Scene' }).click();
+  assert.equal(await scopeMenu.count(), 0, 'a pick closes the menu');
   await assertTarget(scope.getByRole('button', { name: 'Remove Scene' }), 'scope remove');
   await scope.getByRole('button', { name: 'Remove Scene' }).click();
-  assert.equal(await scope.getByRole('button', { name: 'Project', exact: true }).getAttribute('aria-pressed'), 'true');
-  assert.deepEqual(await page.evaluate(() => window.scopes), [{ kind: 'scene' }, { kind: 'project' }], 'onScopeChange reports the chip and its removal, not the mount');
+  await projectTrigger.waitFor();
+  await projectTrigger.click(); await page.mouse.click(5, 5);
+  assert.equal(await scopeMenu.count(), 0, 'a click outside closes the menu');
+  assert.deepEqual(await page.evaluate(() => window.scopes), [{ kind: 'script' }, { kind: 'scene' }, { kind: 'project' }], 'onScopeChange reports picks and the removal, not the mount');
   await assertTarget(page.getByTestId('studio-chat-threads').getByRole('button', { name: 'Archived' }), 'archive toggle');
   // A rejected attachment shows a notice whose Dismiss button is a full hit target.
+  // The attachment budget appears only once a file is attached; the attach button is always there.
+  assert.equal(await composer.locator('.studio-chat-composer-counter').count(), 0, 'no budget without attachments');
+  assert.ok(await composer.getByRole('button', { name: 'Attach files' }).isVisible());
   await composer.locator('input[type="file"]').setInputFiles({ name: 'tool.exe', mimeType: 'application/x-msdownload', buffer: Buffer.from('x') });
   await assertTarget(composer.getByRole('button', { name: 'Dismiss' }), 'composer dismiss');
   await composer.getByRole('button', { name: 'Dismiss' }).click();
+  assert.equal(await composer.locator('.studio-chat-composer-counter').count(), 0, 'a rejected file does not show the budget');
+  await composer.locator('input[type="file"]').setInputFiles({ name: 'brief.txt', mimeType: 'text/plain', buffer: Buffer.from('brief') });
+  assert.match(await composer.locator('.studio-chat-composer-counter').textContent(), /^1 of 10 files · /);
+  await composer.getByRole('button', { name: 'Remove brief.txt' }).click();
+  assert.equal(await composer.locator('.studio-chat-composer-counter').count(), 0, 'the budget hides with the last file');
 
   // Mention from the keyboard: @ → listbox with groups, ArrowDown + Enter insert a chip, Escape closes, Tab stays in the composer.
   await input.click();
@@ -349,6 +381,55 @@ try {
   assert.deepEqual(errors, [], 'no page errors');
   await page.close();
 
+  // Narrow management uses the same ThreadList callbacks and preserves the composer across its native overlay.
+  {
+    const narrow = await browser.newPage({ viewport: { width: 559, height: 844 } }); await narrow.goto(origin);
+    const root = narrow.getByTestId('studio-chat'), composer = root.getByTestId('studio-chat-composer'), input = composer.getByRole('combobox');
+    await input.waitFor();
+    await narrow.evaluate(async () => {
+      const first = await window.fake.createThread(), second = await window.fake.createThread(), archived = await window.fake.createThread();
+      await window.fake.renameThread(first.id, 'Planning'); await window.fake.renameThread(second.id, 'Review draft'); await window.fake.renameThread(archived.id, 'Archived note'); await window.fake.archiveThread(archived.id, true);
+      window.managementIds = { first: first.id, second: second.id }; window.setThreadId(first.id);
+      for (const name of ['renameThread', 'archiveThread', 'deleteThread']) { const original = window.fake[name].bind(window.fake); window.fake[name] = async (...args) => { if (window.managementFailure === name) throw new Error(`Rejected ${name}`); return original(...args); }; }
+    });
+    await input.fill('Keep this unsent draft');
+    await composer.locator('input[type=file]').setInputFiles({ name: 'context.txt', mimeType: 'text/plain', buffer: Buffer.from('Retain this attachment') });
+    const trigger = root.locator('.studio-chat-header').getByRole('button', { name: 'Conversations', exact: true }), manager = root.getByTestId('studio-chat-management');
+    const openManager = async () => { await trigger.click(); await root.getByRole('menuitem', { name: 'Manage conversations', exact: true }).click(); await manager.waitFor(); };
+    const action = async (title, name) => { await manager.getByRole('button', { name: `Conversation actions: ${title}`, exact: true }).click(); await manager.getByRole('menuitem', { name, exact: true }).click(); };
+    const focusedInside = locator => locator.evaluate(node => node.contains(node.getRootNode().activeElement));
+    const assertDraft = async () => { assert.equal(await input.inputValue(), 'Keep this unsent draft'); assert.equal(await composer.getByRole('button', { name: 'Remove context.txt', exact: true }).count(), 1); };
+    await openManager();
+    const search = manager.getByRole('searchbox', { name: 'Search conversations' }); assert.equal(await search.evaluate(node => node === node.getRootNode().activeElement), true);
+    await search.fill('Planning'); await narrow.evaluate(() => window.managementFailure = 'renameThread');
+    await action('Planning', 'Rename conversation'); const rename = manager.getByRole('textbox', { name: 'Conversation title' }); await rename.fill('Production review'); await rename.press('Enter');
+    await manager.getByRole('alert').filter({ hasText: 'Rejected renameThread' }).waitFor(); assert.equal(await rename.inputValue(), 'Production review');
+    await narrow.evaluate(() => window.managementFailure = ''); await rename.press('Enter'); await rename.waitFor({ state: 'hidden' }); assert.equal(await manager.getByRole('alert').count(), 0, 'successful rename retry clears the manager error'); await search.fill('');
+    await narrow.evaluate(() => window.managementFailure = 'archiveThread'); await action('Production review', 'Archive'); await manager.getByRole('alert').filter({ hasText: 'Rejected archiveThread' }).waitFor();
+    assert.equal(await manager.getByRole('button', { name: 'Production review', exact: true }).count(), 1);
+    await narrow.evaluate(() => window.managementFailure = ''); await action('Production review', 'Archive'); await manager.getByRole('button', { name: 'Production review', exact: true }).waitFor({ state: 'hidden' }); assert.equal(await manager.getByRole('alert').count(), 0, 'successful archive retry clears the manager error'); await manager.getByRole('button', { name: 'Archived', exact: true }).click();
+    await manager.getByRole('button', { name: 'Production review', exact: true }).waitFor(); await action('Production review', 'Restore'); await manager.getByRole('button', { name: 'Archived', exact: true }).click();
+    const row = manager.getByRole('button', { name: 'Conversation actions: Production review', exact: true });
+    await action('Production review', 'Delete conversation'); const confirm = manager.getByRole('dialog', { name: 'Delete conversation?', exact: true }); await confirm.waitFor();
+    for (const key of ['Tab', 'Shift+Tab', 'Tab', 'Shift+Tab']) { await narrow.keyboard.press(key); assert.equal(await focusedInside(confirm), true, `${key} stays in the delete confirmation`); }
+    await narrow.keyboard.press('Escape'); await confirm.waitFor({ state: 'hidden' }); assert.equal(await manager.isVisible(), true); await narrow.waitForFunction(() => document.activeElement?.classList.contains('studio-chat-threads-more'));
+    await action('Production review', 'Delete conversation'); await confirm.getByRole('button', { name: 'Cancel', exact: true }).click(); await confirm.waitFor({ state: 'hidden' }); await narrow.waitForFunction(() => document.activeElement?.classList.contains('studio-chat-threads-more'));
+    assert.equal(await row.evaluate(node => node === node.getRootNode().activeElement), true, 'Cancel returns to its row action');
+    await narrow.evaluate(() => window.managementFailure = 'deleteThread'); await action('Production review', 'Delete conversation'); await confirm.getByRole('button', { name: 'Delete permanently', exact: true }).click();
+    await confirm.waitFor({ state: 'hidden' }); await manager.getByRole('alert').filter({ hasText: 'Rejected deleteThread' }).waitFor(); assert.equal(await manager.isVisible(), true);
+    await narrow.evaluate(() => window.managementFailure = ''); await action('Production review', 'Delete conversation'); await confirm.getByRole('button', { name: 'Delete permanently', exact: true }).click();
+    await narrow.waitForFunction(() => window.threadId === ''); assert.equal(await manager.isVisible(), true, 'selected deletion clears the thread without closing management'); assert.equal(await manager.getByRole('alert').count(), 0, 'successful delete retry clears the manager error');
+    await manager.getByRole('button', { name: 'Review draft', exact: true }).click(); await manager.waitFor({ state: 'hidden' }); await assertDraft();
+    await openManager(); await manager.getByRole('button', { name: 'New conversation', exact: true }).click(); await manager.waitFor({ state: 'hidden' }); await assertDraft();
+    await openManager(); await narrow.setViewportSize({ width: 560, height: 844 }); await manager.waitFor({ state: 'hidden' }); assert.equal(await root.getByTestId('studio-chat-threads').isVisible(), true); await assertDraft();
+    await narrow.setViewportSize({ width: 390, height: 844 }); await openManager(); await manager.getByRole('button', { name: 'Archived', exact: true }).click(); await manager.getByRole('button', { name: 'Archived note', exact: true }).waitFor();
+    if (screenshots) await narrow.screenshot({ path: `${screenshots}/chat-management-archived.png` });
+    await manager.getByRole('button', { name: 'Close', exact: true }).click(); await manager.waitFor({ state: 'hidden' }); await narrow.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Conversations');
+    await openManager(); await narrow.keyboard.press('Escape'); await manager.waitFor({ state: 'hidden' }); await assertDraft();
+    assert.equal(await narrow.evaluate(() => window.fake.calls.some(([name]) => name === 'send')), false, 'management never sends or restarts a run');
+    await narrow.close();
+  }
+
   // ModelPicker: 400+ options, sections, search, filters, keyboard, inherit row, disabled rows, compact mode in the composer.
   {
     const picking = await browser.newPage({ viewport: { width: 1100, height: 900 } });
@@ -368,12 +449,28 @@ try {
     assert.equal(await search.evaluate(element => element === document.activeElement), true, 'focus goes to the search field');
     assert.equal(await trigger.getAttribute('aria-expanded'), 'true');
     const options = listbox.getByRole('option');
+    const assertActiveVisible = async () => {
+      const visible = await listbox.evaluate(list => {
+        const active = list.querySelector('[aria-selected="true"]');
+        const viewport = list.getBoundingClientRect(), row = active?.getBoundingClientRect();
+        return row && row.top >= viewport.top - 1 && row.bottom <= viewport.top + list.clientHeight + 1;
+      });
+      assert.ok(visible, 'the active option stays below search and filters, inside the scrolling list');
+    };
     assert.equal(await options.first().getAttribute('aria-selected'), 'true', 'the inherit row (value null) is active');
+    await assertActiveVisible();
     assert.equal(await options.first().getAttribute('data-current'), 'true');
     assert.ok((await options.first().textContent()).includes('Gemini 2.5 Flash'), 'inherit detail');
     for (const name of ['Recent', 'Recommended', 'All models', 'OpenAI', 'Google']) assert.ok(await listbox.getByRole('group', { name, exact: true }).count() >= 1, `group ${name}`);
     const rendered = await options.count();
     assert.ok(rendered <= 1 + 2 + 2 + 200, `at most 200 options in All are rendered (${rendered})`);
+    // Placement updates must not keep pulling the active row back into view during manual scrolling.
+    await listbox.hover({ position: { x: 10, y: 10 } });
+    const scrollBefore = await listbox.evaluate(list => list.scrollTop);
+    await picking.mouse.wheel(0, 300);
+    await picking.waitForFunction(before => document.querySelector('#model-picker-demo .studio-model-list').scrollTop >= before + 250, scrollBefore);
+    const scrollAfter = await listbox.evaluate(list => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(list.scrollTop)))));
+    assert.ok(scrollAfter >= scrollBefore + 250, 'wheel scrolling is preserved instead of snapping to the active option');
     const more = demo.getByRole('button', { name: 'Show 200 more' });
     await more.click();
     assert.ok(await options.count() > rendered, 'Show more renders the next page');
@@ -395,7 +492,11 @@ try {
     assert.equal(await search.getAttribute('aria-activedescendant'), await options.nth(1).getAttribute('id'));
     await picking.keyboard.press('ArrowUp'); await picking.keyboard.press('ArrowUp');
     assert.equal(await options.last().getAttribute('aria-selected'), 'true', 'ArrowUp wraps to the last option');
-    await picking.keyboard.press('ArrowDown'); await picking.keyboard.press('ArrowDown');
+    await assertActiveVisible();
+    await picking.keyboard.press('ArrowDown');
+    assert.equal(await options.first().getAttribute('aria-selected'), 'true', 'ArrowDown wraps back to the first option');
+    await assertActiveVisible();
+    await picking.keyboard.press('ArrowDown');
     const picked = (await options.nth(1).locator('.studio-model-option-id').textContent()).trim();
     await picking.keyboard.press('Enter');
     await listbox.waitFor({ state: 'detached' });
@@ -669,8 +770,19 @@ try {
     await clarify.close();
   }
 
+  // setup replaces the composer (it is not mounted); the feed and the thread list stay.
+  {
+    const setup = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+    await setup.goto(`${origin}/?setup=1`);
+    const root = setup.getByTestId('studio-chat');
+    await root.getByRole('region', { name: 'Connect OpenRouter' }).waitFor();
+    assert.equal(await root.getByTestId('studio-chat-composer').count(), 0, 'no composer next to the setup card');
+    assert.ok(await root.getByTestId('studio-chat-feed').isVisible() && await root.getByTestId('studio-chat-threads').isVisible());
+    await setup.close();
+  }
+
   // Touch screens (pointer: coarse): every button of the chat — header, thread list, composer (attach, mention, send,
-  // scope chips, chips), run actions and cards — is at least 44 × 44 px.
+  // the scope trigger, its menu and cross, chips), run actions and cards — is at least 44 × 44 px.
   {
     const context = await browser.newContext({ viewport: { width: 1100, height: 900 }, hasTouch: true, isMobile: true });
     const touch = await context.newPage();
@@ -694,7 +806,9 @@ try {
     };
     await touch.evaluate(() => window.launch({ id: crypto.randomUUID(), text: 'Touch request', mentions: [{ kind: 'scene', id: 'scene:s1', label: 'Scene 1' }], attachments: [new File(['x'], 'note.txt', { type: 'text/plain' })] }));
     await box.getByText('note.txt').waitFor();
-    await box.getByRole('group', { name: 'Assistant task' }).getByRole('button', { name: 'Scene', exact: true }).click();
+    await box.getByRole('group', { name: 'Assistant task' }).getByRole('button', { name: 'Project', exact: true }).click();
+    await assertTouchTargets('scope menu');
+    await box.getByRole('menuitemradio', { name: 'Scene', exact: true }).click();
     for (const name of ['Attach files', 'Mention', 'Send message', 'Remove Scene']) assert.ok(await box.getByRole('button', { name, exact: true }).isVisible(), name);
     await assertTouchTargets('composer');
     await box.getByRole('combobox').click(); await touch.keyboard.press('Enter');
@@ -713,13 +827,14 @@ try {
     }, IMAGE);
     await touch.getByTestId('studio-chat-apply').waitFor();
     await assertTouchTargets('ready with cards');
-    // A scope chip with a short label ("File") is still 44 px wide.
+    // A scope item with a short label ("File") is still 44 px wide.
     await touch.goto(`${origin}/?scopes=project,file`);
-    const fileChip = touch.getByTestId('studio-chat').getByRole('group', { name: 'Assistant task' }).getByRole('button', { name: 'File', exact: true });
+    await touch.getByTestId('studio-chat').getByRole('group', { name: 'Assistant task' }).getByRole('button', { name: 'Project', exact: true }).click();
+    const fileChip = touch.getByTestId('studio-chat').getByRole('menuitemradio', { name: 'File', exact: true });
     await fileChip.waitFor();
     const chipBox = await fileChip.boundingBox();
-    assert.ok(chipBox.width >= 44 && chipBox.height >= 44, `short scope chip ${Math.round(chipBox.width)}×${Math.round(chipBox.height)} ≥ 44 px`);
-    await assertTouchTargets('short scope chips');
+    assert.ok(chipBox.width >= 44 && chipBox.height >= 44, `short scope item ${Math.round(chipBox.width)}×${Math.round(chipBox.height)} ≥ 44 px`);
+    await assertTouchTargets('short scope items');
     await context.close();
   }
   console.log('chat-browser: OK');

@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
-import { studioChat } from './support/studio-chat.js';
+import { studioChat, moreMenuItem } from './support/studio-chat.js';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -32,8 +32,19 @@ try {
   });
   const url = `http://127.0.0.1:${server.address().port}/`;
   await page.goto(url);
+  // A fresh installed app exposes Conversations before any key has been saved.
+  await page.getByRole('button', { name: 'Use A fresh beginning', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Create landing', exact: true }).click();
+  await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
+  const chat = studioChat(page), keyNotice = chat.root.getByRole('status').filter({ hasText: 'Set up OpenRouter' });
+  await keyNotice.waitFor(); assert.equal(await chat.composer.count(), 0, 'the connection card replaces the composer');
+  await keyNotice.getByRole('button', { name: 'Connect OpenRouter', exact: true }).click();
+  const inlineSettings = page.locator('.author-panel .ai-settings');
+  await inlineSettings.getByRole('heading', { name: 'AI connection settings', exact: true }).waitFor();
+  await inlineSettings.getByRole('button', { name: 'Back to assistant', exact: true }).click();
+  await keyNotice.waitFor();
   const open = async () => {
-    await page.getByRole('button', { name: 'OpenRouter', exact: true }).last().click();
+    await (await moreMenuItem(page, 'OpenRouter')).click();
     const dialog = page.getByRole('dialog', { name: 'OpenRouter settings' });
     await dialog.getByLabel('API key', { exact: false }).waitFor();
     return dialog;
@@ -76,11 +87,8 @@ try {
   assert.equal(await dialog.getByRole('button', { name: 'Remove key', exact: true }).isDisabled(), true);
   await page.screenshot({ path: '/tmp/openrouter-settings.png', animations: 'disabled' });
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-  await page.getByRole('button', { name: 'Use A fresh beginning', exact: true }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Create landing', exact: true }).click();
   await page.getByRole('tab', { name: 'Conversations', exact: true }).click();
-  const chat = studioChat(page), keyNotice = chat.root.getByRole('status').filter({ hasText: 'Connect your key in Settings to start.' });
-  await chat.composer.waitFor(); await keyNotice.waitFor();
+  await keyNotice.waitFor(); assert.equal(await chat.composer.count(), 0, 'the connection card replaces the composer');
   dialog = await open();
   await input().fill('sk-or-editor-test');
   await dialog.getByRole('button', { name: 'Save connection', exact: true }).click();
@@ -93,19 +101,35 @@ try {
   await dialog.getByRole('button', { name: 'Remove key', exact: true }).click();
   await dialog.getByText('API key removed from this device.', { exact: true }).waitFor();
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
-  // Without a key the chat asks to connect one and a send is refused before any provider request.
+  // Without a key the connection card replaces the composer again, so nothing can be sent to a provider.
   await keyNotice.waitFor();
-  await chat.send.click();
-  await chat.root.getByRole('alert').filter({ hasText: 'Connect your key in Settings to start.' }).waitFor();
+  assert.equal(await chat.composer.count(), 0);
   assert.equal(await chat.user.count(), 0);
-  // A refused send keeps the typed message for a retry.
-  assert.equal(await chat.prompt.inputValue(), 'Test prompt');
+  // The typed message stays in StudioChat's state while the card is shown; it is not sent anywhere.
   assert.deepEqual(keys, ['Bearer sk-or-second-test'], 'No provider request without a key');
   const tab = await browser.newPage();
   await tab.goto(url);
   assert.equal(await tab.getByRole('button', { name: 'OpenRouter', exact: true }).count(), 0);
+  await tab.getByRole('button', { name: 'Use A fresh beginning', exact: true }).click();
+  await tab.getByRole('dialog').getByRole('button', { name: 'Create landing', exact: true }).click();
+  assert.equal(await tab.getByRole('tab', { name: 'Conversations', exact: true }).count(), 0);
+  // Simulate this open window entering installed mode: preserve its project
+  // and expose connection setup immediately, without a navigation or reload.
+  await tab.evaluate(() => {
+    Object.defineProperty(navigator, 'standalone', { configurable: true, value: true });
+    window.dispatchEvent(new Event('appinstalled'));
+  });
+  await tab.getByRole('tab', { name: 'Conversations', exact: true }).click();
+  const installedChat = studioChat(tab);
+  await installedChat.root.getByRole('button', { name: 'Connect OpenRouter', exact: true }).waitFor();
+  await tab.evaluate(() => {
+    Object.defineProperty(navigator, 'standalone', { configurable: true, value: false });
+    window.dispatchEvent(new Event('appinstalled'));
+  });
+  await tab.getByRole('tab', { name: 'Conversations', exact: true }).waitFor({ state: 'detached' });
+  assert.equal(await tab.getByRole('button', { name: 'OpenRouter', exact: true }).count(), 0);
   assert.deepEqual(errors, []);
-  console.log('OpenRouter settings: save, reload, cancel replacement, replace, verify, remove, persistence, chat key gating and browser-tab gating passed.');
+  console.log('OpenRouter settings: fresh-install Conversations, inline setup, save, reload, cancel replacement, replace, verify, remove, persistence, live chat key gating and installed-mode transitions without reload passed.');
 } finally {
   await browser?.close();
   await new Promise(resolve => server.close(resolve));

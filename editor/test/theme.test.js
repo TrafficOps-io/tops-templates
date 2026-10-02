@@ -30,3 +30,12 @@ test('unknown stored values fall back to system', () => {
   assert.equal(readTheme(fakeEnvironment('trafficops')), 'system');
   assert.deepEqual(THEMES, ['system', 'light', 'dark']);
 });
+
+test('theme-color follows the chosen theme and returns to per-scheme values for system', () => {
+  const env = fakeEnvironment(), metas = [{ media: '(prefers-color-scheme: light)', content: '' }, { media: '(prefers-color-scheme: dark)', content: '' }];
+  env.document.querySelectorAll = () => metas;
+  applyTheme('dark', env);
+  assert.deepEqual(metas.map(meta => meta.content), ['#262220', '#262220']);
+  applyTheme('system', env);
+  assert.deepEqual(metas.map(meta => meta.content), ['#fffdfb', '#262220']);
+});

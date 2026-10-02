@@ -48,12 +48,12 @@ function Field({ field, value, onChange, prefix = '', projectImages, onImageUplo
   </div>;
 }
 
-export default function ParameterForm({ definition, values, onChange, projectImages = [], onImageUpload, files, aiEnabled, onSettings, errors = [], disabled = false }) {
+export default function ParameterForm({ definition, values, onChange, projectImages = [], onImageUpload, files, aiEnabled, onSettings, errors = [], disabled = false, sectionTitles = true }) {
   const t = useStudioText();
   useEffect(() => {
     if (disabled) return;
     const next = prepareRichTextValues(definition.sections.flatMap(section => section.fields), values);
     if (next !== values) onChange(next);
   }, [definition, values, disabled, onChange]);
-  return <div className="parameter-form">{definition.sections.map(section => <section className="parameter-section" key={section.id}><h3>{section.label}</h3>{section.fields.map(field => <Field key={field.name} field={field} value={values[field.name]} projectImages={projectImages} onImageUpload={onImageUpload} files={files} aiEnabled={aiEnabled} onSettings={onSettings} errors={errors} disabled={disabled} onChange={next => onChange({ ...values, [field.name]: next })} />)}</section>)}{!definition.fields?.length && !definition.sections.some(section => section.fields.length) && <p className="muted">{t("Add @param declarations to build your form.")}</p>}</div>;
+  return <div className="parameter-form">{definition.sections.map(section => <section className="parameter-section" key={section.id} aria-label={sectionTitles ? undefined : section.label}>{sectionTitles && <h3>{section.label}</h3>}{section.fields.map(field => <Field key={field.name} field={field} value={values[field.name]} projectImages={projectImages} onImageUpload={onImageUpload} files={files} aiEnabled={aiEnabled} onSettings={onSettings} errors={errors} disabled={disabled} onChange={next => onChange({ ...values, [field.name]: next })} />)}</section>)}{!definition.fields?.length && !definition.sections.some(section => section.fields.length) && <p className="muted">{t("Add @param declarations to build your form.")}</p>}</div>;
 }

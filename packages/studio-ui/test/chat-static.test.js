@@ -95,7 +95,7 @@ test('message actions: assistant-ui action bar hidden while running, edit compos
 });
 
 test('the package exposes exactly the documented data-testid hooks', () => {
-  const expected = ['studio-chat', 'studio-chat-apply', 'studio-chat-card', 'studio-chat-composer', 'studio-chat-continue', 'studio-chat-discard', 'studio-chat-feed', 'studio-chat-keep-draft', 'studio-chat-retry', 'studio-chat-threads'];
+  const expected = ['studio-chat', 'studio-chat-apply', 'studio-chat-card', 'studio-chat-composer', 'studio-chat-continue', 'studio-chat-discard', 'studio-chat-feed', 'studio-chat-keep-draft', 'studio-chat-management', 'studio-chat-retry', 'studio-chat-threads'];
   const found = new Set();
   for (const { source } of sourceFiles(new URL('../src/', import.meta.url))) {
     walk(ast(source), node => {

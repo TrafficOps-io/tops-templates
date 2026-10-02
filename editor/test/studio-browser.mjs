@@ -23,6 +23,24 @@ try {
  await page.getByRole('button', { name: 'Create landing', exact: true }).click();
  await page.locator('.browser-frame iframe.is-visible').waitFor();
  assert.equal(await page.getByRole('tab',{name:'AI assistant',exact:true}).count(),0);
+ // Help opened from a transient menu restores the stable toolbar trigger after either close path.
+ const more=page.getByRole('button',{name:'More options',exact:true});
+ for (const dismiss of ['Escape','Close']) {
+  await more.click(); await page.getByRole('menuitem',{name:'Quick start',exact:true}).click();
+  await page.getByRole('dialog',{name:'From template to finished pages',exact:true}).waitFor();
+  if(dismiss==='Escape') await page.keyboard.press('Escape');
+  else await page.getByRole('button',{name:'Close quick start',exact:true}).first().click();
+  await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-label')==='More options');
+ }
+ // App-level creation captures its trigger before the editor becomes inert.
+ const projectMenu=page.getByRole('button',{name:'Browser test',exact:true});
+ for (const dismiss of ['Cancel','Escape']) {
+  await projectMenu.click(); await page.getByRole('menuitem',{name:'New project',exact:true}).click();
+  await page.getByRole('dialog',{name:'New project',exact:true}).waitFor();
+  if(dismiss==='Escape') await page.keyboard.press('Escape');
+  else await page.getByRole('button',{name:'Cancel',exact:true}).click();
+  await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-label')==='Browser test');
+ }
  // Section tabs flag fields that need attention with a text badge, not a glyph.
  const identity=page.getByRole('tab',{name:/^Identity/});
  assert.equal((await identity.innerText()).includes('\u26a0'),false);
@@ -71,32 +89,31 @@ try {
   await harness.close();
  }
  assert.equal(await page.getByRole('button',{name:'Manage project folders',exact:true}).count(),0);
- // Browser embedding retains its viewport overlay and focus behaviour.
- await page.evaluate(()=>{document.body.style.overflow='auto';document.querySelector('.workspace').style.transform='translateX(0)';});
- await page.locator('.hosted-more > summary').click();
- const expand=page.getByRole('button',{name:'Expand editor',exact:true}); await expand.click();
- await page.locator('.editor-shell.is-expanded').waitFor();
+ // Browser tabs open a project in the same full-height workspace as the installed app: no site header or footer,
+ // no expand mode, and only the panels scroll.
+ assert.equal(await page.locator('.topbar').count(),0); assert.equal(await page.locator('.site-footer').count(),0);
+ assert.equal(await page.getByRole('button',{name:'Expand editor',exact:true}).count(),0);
  const box=await page.locator('.editor-shell').boundingBox(); assert.equal(box.x,0);assert.equal(box.y,0);assert.equal(box.width,1600);assert.equal(box.height,1100);
- assert.equal(await page.evaluate(()=>document.body.style.overflow),'hidden');
+ assert.equal(await page.evaluate(()=>document.documentElement.scrollHeight),1100,'the page itself does not scroll');
  await page.getByRole('button',{name:'Create file or folder',exact:true}).click();
- await page.keyboard.press('Escape');assert.equal(await page.locator('.editor-shell.is-expanded').count(),1);assert.equal(await page.getByRole('menu',{name:'Create file or folder'}).count(),0);
- await page.getByRole('button',{name:'Rename',exact:true}).click();await page.getByRole('dialog',{name:'Rename file',exact:true}).waitFor();
- // The nested dialog takes modality: the expanded shell keeps aria-modal, the panes and separators behind it are inert.
- assert.equal(await page.locator('.editor-shell').getAttribute('aria-modal'),'true');assert.equal(await page.locator('.file-sidebar').getAttribute('inert'),'');assert.equal(await page.locator('.panel-resizer.resizer-1').getAttribute('inert'),'');
+ await page.keyboard.press('Escape');assert.equal(await page.getByRole('menu',{name:'Create file or folder'}).count(),0);
+ // Rename and Delete live on the open file's row.
+ await page.getByRole('button',{name:'File actions',exact:true}).click();await page.getByRole('menuitem',{name:'Rename',exact:true}).click();await page.getByRole('dialog',{name:'Rename file',exact:true}).waitFor();
+ // The nested dialog takes modality: the panes and separators behind it are inert.
+ assert.equal(await page.locator('.file-sidebar').getAttribute('inert'),'');assert.equal(await page.locator('.panel-resizer.resizer-1').getAttribute('inert'),'');
  for(let step=0;step<3;step++){await page.keyboard.press('Tab');assert.equal(await page.evaluate(()=>Boolean(document.activeElement?.closest('.studio-dialog'))),true);}
- await page.keyboard.press('Escape'); assert.equal(await page.locator('.editor-shell.is-expanded').count(),1);
- assert.equal(await page.locator('.file-sidebar').getAttribute('inert'),null);assert.equal(await page.locator('.panel-resizer.resizer-1').getAttribute('inert'),null);assert.equal(await page.evaluate(()=>document.activeElement?.textContent.trim()),'Rename');
+ await page.keyboard.press('Escape');
+ assert.equal(await page.locator('.file-sidebar').getAttribute('inert'),null);assert.equal(await page.locator('.panel-resizer.resizer-1').getAttribute('inert'),null);
+ await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-label')==='File actions');
  await page.getByRole('button',{name:'Mobile preview',exact:true}).click();assert.ok(Math.abs((await page.locator('.browser-frame').boundingBox()).width-375)<1);
- await page.locator('.editor-shell').screenshot({path:'/tmp/studio-shell-expanded.png'});
- await page.keyboard.press('Escape'); assert.equal(await page.locator('.editor-shell.is-expanded').count(),0);assert.equal(await page.evaluate(()=>document.body.style.overflow),'auto');
- await page.waitForFunction(()=>document.activeElement?.getAttribute('aria-label')==='More actions');
+ await page.locator('.editor-shell').screenshot({path:'/tmp/studio-shell-browser.png'});
  // The installed app is a permanent workspace, including while settings open.
  await page.addInitScript(() => Object.defineProperty(navigator, 'standalone', { configurable: true, value: true }));
  await page.reload(); await page.locator('.editor-shell.is-app').waitFor();
  assert.equal(await page.getByRole('button',{name:'Collapse editor',exact:true}).count(),0);
  await page.keyboard.press('Escape'); assert.equal(await page.locator('.editor-shell.is-app').count(),1);
  await page.getByRole('tab',{name:'Conversations',exact:true}).click();
- await page.getByRole('button',{name:'AI settings',exact:true}).click();
+ await page.getByRole('button',{name:'Connect OpenRouter',exact:true}).click();
  await page.locator('.ai-settings input[type=password]').waitFor();
  assert.equal(await page.getByRole('tab',{name:'Conversations',exact:true}).getAttribute('aria-selected'),'true');
  await page.getByRole('button',{name:'Back to assistant',exact:true}).click();
@@ -116,7 +133,7 @@ try {
  await page.getByText('This project has no editable fields.',{exact:true}).waitFor();
  assert.equal(await page.getByRole('button',{name:'Reset defaults',exact:true}).count(),0);
  await page.getByRole('button',{name:'Open files',exact:true}).click();
- assert.equal(await page.getByRole('tab',{name:'Files',exact:true}).getAttribute('aria-selected'),'true');
+ assert.equal(await page.getByRole('tab',{name:'Code',exact:true}).getAttribute('aria-selected'),'true');
  await page.getByRole('tab',{name:'Content',exact:true}).click();
  await page.getByRole('button',{name:'Open AI assistant',exact:true}).click();
  assert.equal(await page.getByRole('tab',{name:'Conversations',exact:true}).getAttribute('aria-selected'),'true');
@@ -136,17 +153,22 @@ try {
   const touch=await browser.newContext({viewport:{width:900,height:1000},hasTouch:true,isMobile:true}), tp=await touch.newPage();
   assert.equal(await tp.evaluate(()=>matchMedia('(pointer: coarse)').matches),true);
   await tp.goto(`http://127.0.0.1:${server.address().port}`);
+  await tp.getByRole('button',{name:'Theme',exact:true}).click();
+  const theme=await tp.getByRole('menuitemradio',{name:'Light theme',exact:true}).boundingBox();
+  assert.ok(theme.width>=44&&theme.height>=44,`theme target is ${theme.width}x${theme.height}`);
+  await tp.getByRole('menuitemradio',{name:'Light theme',exact:true}).click();
   await tp.getByRole('button',{name:'New project',exact:true}).click();
   await tp.getByRole('textbox',{name:'Project name',exact:true}).fill('Touch test');
   await tp.getByRole('button',{name:'Create landing',exact:true}).click();
   await tp.locator('.editor-shell').waitFor();
   await tp.getByRole('button',{name:'Projects',exact:true}).first().click();
-  const duplicate=tp.getByRole('button',{name:'Duplicate Touch test',exact:true}); await duplicate.waitFor();
+  await tp.getByRole('button',{name:'Project actions: Touch test',exact:true}).click();
+  const duplicate=tp.getByRole('menuitem',{name:'Duplicate Touch test',exact:true}); await duplicate.waitFor();
   const small=await duplicate.boundingBox(); assert.ok(small.width>=44&&small.height>=44,`icon button is ${small.width}x${small.height}`);
   const labelled=await tp.locator('.library .btn-sm:not(.btn-square)').first().boundingBox(); assert.ok(labelled.height>=44,`text button is ${labelled.height}px tall`);
   await touch.close();
  }
  assert.equal(blockedProviderCalls,0,'opening the AI assistant never starts a paid request');
  assert.deepEqual(errors,[]);
- console.log('PASS: browser overlay/focus, permanent PWA workspace and settings, mobile preview, static HTML import→Files/conversations without paid calls, editable backup and hosting ZIP assets.');
+ console.log('PASS: browser full-height workspace/focus, permanent PWA workspace and settings, mobile preview, static HTML import→Files/conversations without paid calls, editable backup and hosting ZIP assets.');
 } catch(error) { const failed=browser?.contexts()[0]?.pages()[0]; await failed?.screenshot({path:'/tmp/studio-import-export-ui-error.png'}).catch(()=>{}); if(failed)console.error((await failed.locator('body').innerText()).slice(-3500));throw error; } finally {await browser?.close();server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}

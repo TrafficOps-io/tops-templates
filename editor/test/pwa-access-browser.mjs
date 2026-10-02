@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { starterProject } from '../src/starter.js';
+import { newProjectControl } from './support/studio-chat.js';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -88,13 +89,13 @@ async function openPage(installed = false, displayMode = null) {
     };
   }, { installed, displayMode });
   await result.goto(url);
-  await result.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
+  await result.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
   return result;
 }
 
 async function assertNoPrivilegedControls(page, expectedAccess = { directoryStoreReads: 0, handleCalls: 0, pickerCalls: 0 }) {
   for (const name of ['AI assistant', 'Conversations']) assert.equal(await page.getByRole('tab', { name, exact: true }).count(), 0);
-  for (const name of ['With AI', 'AI connection settings', 'AI settings', 'Save to folder', 'Open existing folder', 'Generate image with AI', 'Open folder', 'Folders', 'Manage project folders', 'Add project folder', 'Reconnect folder']) {
+  for (const name of ['With AI', 'AI connection settings', 'AI settings', 'Connect OpenRouter', 'Save to folder', 'Open existing folder', 'Generate image with AI', 'Open folder', 'Folders', 'Manage project folders', 'Add project folder', 'Reconnect folder']) {
     assert.equal(await page.getByRole('button', { name, exact: true }).count(), 0, `${name} is PWA-only`);
   }
   assert.equal(await page.getByRole('button', { name: /^Create with AI/ }).count(), 0);
@@ -105,7 +106,7 @@ async function assertNoPrivilegedControls(page, expectedAccess = { directoryStor
 }
 
 async function createStarter(page, name) {
-  await page.getByRole('button', { name: 'New project', exact: true }).click();
+  await (await newProjectControl(page)).click();
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
   await dialog.getByRole('button', { name: 'From template', exact: true }).click();
   await dialog.getByRole('textbox', { name: 'Project name', exact: true }).fill(name);
@@ -158,7 +159,7 @@ try {
   browser = await chromium.launch({ headless: true, ...(executablePath ? { executablePath } : {}) });
   const tab = await openPage();
   await assertNoPrivilegedControls(tab);
-  await tab.getByRole('button', { name: 'New project', exact: true }).click();
+  await (await newProjectControl(tab)).click();
   await assertNoPrivilegedControls(tab);
   await tab.getByRole('button', { name: 'Close new project', exact: true }).click();
   await createStarter(tab, 'Browser editor');
@@ -175,14 +176,14 @@ try {
   assert.deepEqual(await readRecord(tab, 'trafficops-landing-workspace', 'workspace', 'last'), expectedWorkspace);
 
   await tab.getByRole('button', { name: /^(?:Library|Projects)$/ }).first().click();
-  await tab.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
+  await tab.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
   assert.deepEqual(await readRecord(tab, 'trafficops-landing-workspace', 'workspace', 'last'), expectedWorkspace);
   await createStarter(tab, 'Another browser draft');
   assert.deepEqual(await readRecord(tab, 'trafficops-landing-workspace', 'workspace', 'last'), expectedWorkspace);
   await tab.getByRole('button', { name: /^(?:Library|Projects)$/ }).first().click();
-  await tab.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
+  await tab.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
   await tab.reload();
-  await tab.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
+  await tab.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
   await assertNoPrivilegedControls(tab);
   assert.deepEqual(await readRecord(tab, 'trafficops-landing-workspace', 'workspace', 'last'), expectedWorkspace);
 
@@ -208,10 +209,10 @@ try {
   console.log('PASS: ordinary tab and ?studio=1 omit AI/image/settings/folder controls; persisted key and brief cannot start AI; folder handles and recovery stay untouched; fullscreen and appinstalled do not unlock access.');
 
   const pwa = await openPage(true);
-  await pwa.locator('.home-project-chat').waitFor();
+  await pwa.locator('.library-project-first').waitFor();
   await pwa.getByRole('button', { name: 'Open folder', exact: true }).click();
   assert.equal(await pwa.evaluate(() => window.pwaAccessTest.pickerCalls), 1);
-  await pwa.getByRole('button', { name: 'New project', exact: true }).click();
+  await (await newProjectControl(pwa)).click();
   await pwa.getByRole('button', { name: 'With AI', exact: true }).waitFor();
   await pwa.getByRole('button', { name: 'Close new project', exact: true }).click();
   await createStarter(pwa, 'Installed PWA editor');
@@ -237,7 +238,7 @@ try {
   await pwa.getByRole('button', { name: 'Generate image with AI', exact: true }).waitFor();
   await pwa.getByRole('button', { name: 'Save to folder', exact: true }).waitFor();
   await pwa.getByRole('tab', { name: /^(?:AI assistant|Conversations)$/ }).click();
-  await pwa.getByRole('button', { name: /^(?:AI connection settings|AI settings)$/ }).click();
+  await pwa.getByRole('button', { name: /^(?:AI connection settings|AI settings|Connect OpenRouter)$/ }).click();
   await pwa.locator('.ai-settings input[type=password]').waitFor();
   assert.deepEqual(errors, []);
   assert.equal(providerCalls.length, 0);
@@ -247,10 +248,10 @@ try {
   // A confirmed standalone window retains access in fullscreen, then loses it
   // permanently on returning to browser mode until a new installed mode appears.
   const transitions = await openPage(false, 'standalone');
-  await transitions.locator('.home-project-chat').waitFor();
+  await transitions.locator('.library-project-first').waitFor();
   await createStarter(transitions, 'Display mode transitions');
   await transitions.getByRole('tab', { name: /^(?:AI assistant|Conversations)$/ }).click();
-  await transitions.getByRole('button', { name: /^(?:AI connection settings|AI settings)$/ }).click();
+  await transitions.getByRole('button', { name: /^(?:AI connection settings|AI settings|Connect OpenRouter)$/ }).click();
   await transitions.locator('.ai-settings input[type=password]').waitFor();
   await transitions.evaluate(() => window.setTestDisplayMode('fullscreen'));
   await transitions.getByRole('tab', { name: /^(?:AI assistant|Conversations)$/ }).waitFor();

@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { createStudioProject } from '../src/studio-library.js';
+import { saveNow } from './support/studio-chat.js';
 
 const { chromium } = createRequire(import.meta.url)(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = resolve(process.argv[2] || 'editor/dist');
@@ -36,7 +37,7 @@ try {
   page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(() => Object.defineProperty(navigator, 'standalone', { configurable: true, value: true }));
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
-  await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
   await page.evaluate(async fixture => {
     const db = await new Promise((resolve, reject) => { const request = indexedDB.open('trafficops-studio-library', 1); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
     await new Promise((resolve, reject) => { const tx = db.transaction(['projects', 'preferences'], 'readwrite'); tx.objectStore('projects').put(fixture); tx.objectStore('preferences').put(fixture.id, 'active-project'); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); }); db.close();
@@ -44,17 +45,16 @@ try {
   await page.reload();
   const frame = () => page.frameLocator('iframe.is-visible');
   await frame().getByRole('heading', { name: 'Rich text QA' }).waitFor();
-  assert.equal(await frame().locator('#article').innerText(), 'Saved plain article. No paragraph tags.');
-  assert.equal(await frame().locator('#article p').count(), 0);
-  assert.equal(await frame().locator('#markdown p').count(), 2);
-  await page.getByRole('tab', { name: 'Content', exact: true }).click();
+  assert.equal(await page.getByRole('tab', { name: 'Content', exact: true }).getAttribute('aria-selected'), 'true', 'manual projects open Content');
   const articleEditor = page.locator('#setting-article_body');
   const articleField = page.locator('.field').filter({ has: articleEditor });
   const markdownEditor = page.locator('#setting-markdown_body');
   const markdownField = page.locator('.field').filter({ has: markdownEditor });
   await articleEditor.waitFor();
   await frame().locator('#article p').first().waitFor();
-  assert.equal(await frame().locator('#article p').count(), 2, 'legacy blank lines become paragraphs on opening Content');
+  assert.equal(await frame().locator('#article p').count(), 2, 'the initial Content view converts legacy blank lines to paragraphs');
+  assert.equal(await frame().locator('#article').innerText(), 'Saved plain article.\n\nNo paragraph tags.', 'saved content still wins over the template default');
+  assert.equal(await frame().locator('#markdown p').count(), 2);
   await articleField.getByRole('button', { name: 'Use template default', exact: true }).click();
   await articleEditor.locator('figcaption').first().waitFor();
   assert.equal(await articleEditor.locator('figcaption').innerText(), 'Photo caption.');
@@ -117,7 +117,7 @@ try {
   assert.match(savedMarkdown, /!\[Article\]\(img\/article\.svg\)/);
   assert.doesNotMatch(savedMarkdown, /<p>|blob:/);
   await markdownField.getByRole('button', { name: 'Visual editor', exact: true }).click();
-  await page.getByRole('button', { name: 'Save draft', exact: true }).click();
+  await saveNow(page);
   await page.reload();
   await page.getByRole('tab', { name: 'Content', exact: true }).click();
   await articleEditor.locator('figcaption').first().waitFor();

@@ -84,7 +84,7 @@ try {
     };
   }, { png });
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
-  await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
   await page.evaluate(async fixture => {
     const database = await new Promise((resolve, reject) => { const request = indexedDB.open('trafficops-studio-library', 1); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
     await new Promise((resolve, reject) => { const transaction = database.transaction(['projects', 'preferences'], 'readwrite'); transaction.objectStore('projects').put(fixture); transaction.objectStore('preferences').put(fixture.id, 'active-project'); transaction.oncomplete = resolve; transaction.onerror = () => reject(transaction.error); }); database.close();
@@ -106,8 +106,8 @@ try {
   // The former "Fill content" mode is the "Content only" scope of the composer.
   const brief = 'Write a Polish article, 2600 characters, seven explicitly fictional sample reviews. Generate an illustration and use the attached person photo.';
   const compose = async () => {
-    await chat.scope.getByRole('button', { name: 'Content only', exact: true }).click();
-    await chat.scope.getByRole('button', { name: 'Content only', pressed: true, exact: true }).waitFor();
+    await chat.chooseScope('Content only');
+    await chat.activeScope('Content only').waitFor();
     await chat.prompt.fill(brief);
     await chat.attachmentInput.setInputFiles([{ name: 'site-reference.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') }, { name: 'person.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') }]);
     assert.equal(await chat.composer.locator('.studio-chip-attachment').count(), 2);

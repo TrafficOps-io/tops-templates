@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 
 export default function Menu({ label, trigger, children, className = '', triggerClassName = '', disabled = false }) {
   const [open, setOpen] = useState(false), root = useRef(null), button = useRef(null), popup = useRef(null), id = useId();
-  const items = () => [...(popup.current?.querySelectorAll('[role="menuitem"]:not(:disabled)') || [])];
+  const items = () => [...(popup.current?.querySelectorAll(':is([role="menuitem"], [role="menuitemradio"], [role="menuitemcheckbox"]):not(:disabled)') || [])];
   const close = (restore = true) => { setOpen(false); if (restore) button.current?.focus(); };
   useEffect(() => {
     if (!open) return;

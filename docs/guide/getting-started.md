@@ -9,7 +9,7 @@ TrafficOps Templates is a language and toolkit for static page templates. Author
 | `template-dsl/` | Authoritative PHP parser, value validation, and renderer. |
 | `runtime/` | Portable language subset for browsers and Node.js. |
 | `tops-cli/` | Interactive and non-interactive page generation. |
-| `editor/` | The Template Studio browser editor. |
+| `editor/` | The Landing Studio browser editor. |
 | `vscode-extension/` | Syntax highlighting, diagnostics, completion, and formatting. |
 | `skills/` | Installable agent instructions for authoring templates and integrating the PHP package. |
 | `docs/` | This site and the detailed language reference. |
@@ -40,7 +40,7 @@ The default profile never executes arbitrary template code. Expressions are boun
 
 ### Without a server integration
 
-Use [Template Studio](https://studio.trafficops.io) for visual authoring or the CLI for local and CI builds. Both use the JavaScript runtime and support the portable `safe-html-v1` profile.
+Use [Landing Studio](https://studio.trafficops.io) for visual authoring or the CLI for local and CI builds. Both use the JavaScript runtime and support the portable `safe-html-v1` profile.
 
 ### Inside a PHP application
 

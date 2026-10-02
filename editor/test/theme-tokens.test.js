@@ -33,3 +33,30 @@ test('editor styles carry no literal colours outside the allow-list', () => {
   }
   assert.deepEqual(offenders, []);
 });
+
+// Type follows the --ui-text-* scale. Exceptions: display headings (clamp or 1.5rem and larger), 0 for visually hidden
+// labels, 16px where iOS would otherwise zoom into a field, and inherit.
+const FONT_SIZE = /^(?:var\(--ui-text-(?:xs|sm|md|lg|xl)\)|clamp\(.+\)|0|16px|inherit|(?:[2-9]|1\.[5-9])\d*(?:\.\d+)?rem)$/;
+test('editor styles size text with the token scale', () => {
+  const offenders = [];
+  for (const { name, css } of files) {
+    for (const [, selector, body] of css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(RULE)) {
+      for (const [, property, value] of body.matchAll(DECLARATION)) if (property === 'font-size' && !FONT_SIZE.test(value.trim())) offenders.push(`${name} | ${selector.trim().slice(0, 60)} | ${value.trim()}`);
+    }
+  }
+  assert.deepEqual(offenders, []);
+});
+
+// Buttons share one height scale (shell.css: 36px, .btn-sm 32px, 44px on touch). Local overrides recreate the
+// mismatched toolbars the scale replaced; a smaller control uses .btn-sm instead.
+test('only the shared button scale sets .btn heights', () => {
+  const scale = new Set(['.studio-root .btn', '.studio-root .btn-sm', '.studio-root .btn-sm.btn-square']);
+  const offenders = [];
+  for (const { name, css } of files) {
+    for (const [, selector, body] of css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(RULE)) {
+      const list = selector.split(',').map(item => item.replace(/^[\s\S]*\{/, '').trim()).filter(item => /\.btn\b/.test(item) && !scale.has(item));
+      if (list.length && [...body.matchAll(DECLARATION)].some(([, property]) => /^(?:min-)?height$/.test(property))) offenders.push(`${name} | ${list.join(', ').slice(0, 80)}`);
+    }
+  }
+  assert.deepEqual(offenders, []);
+});

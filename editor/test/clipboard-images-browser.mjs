@@ -5,7 +5,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createStudioProject } from '../src/studio-library.js';
-import { studioChat } from './support/studio-chat.js';
+import { studioChat, newProjectControl } from './support/studio-chat.js';
 
 // Uses an existing production build, DOM clipboard events and image decoding.
 // All provider responses are synthetic; external network requests are blocked.
@@ -115,7 +115,7 @@ try {
       });
     };
   });
-  await page.goto(origin); await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
+  await page.goto(origin); await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
   await page.evaluate(async fixture => {
     const open = (name, initialize) => new Promise((resolve, reject) => {
       const request = indexedDB.open(name, 1); request.onupgradeneeded = () => initialize?.(request.result);
@@ -179,10 +179,10 @@ try {
   await checkProviderAndRunningPaste(chat);
   report.states.push('assistant: text/image paste, files-only clipboard, remove, type/size/count validation, provider payload, paste while running');
 
-  await page.getByRole('tab', { name: 'Files', exact: true }).click();
+  await page.getByRole('tab', { name: 'Code', exact: true }).click();
   await page.locator('.file-sidebar').getByTitle('styles.css', { exact: true }).click();
   await page.getByRole('button', { name: 'Edit file with AI', exact: true }).click();
-  await chat.scope.getByRole('button', { name: 'File', pressed: true, exact: true }).waitFor();
+  await chat.activeScope('File').waitFor();
   await chat.composer.locator('.studio-chip-mention').filter({ hasText: '@styles.css' }).waitFor();
   await prompt.fill('Use this screenshot to update only the selected stylesheet.');
   await checkTextPaste(assistant, prompt, await prompt.inputValue());
@@ -191,7 +191,7 @@ try {
   await checkProviderAndRunningPaste(chat);
   report.states.push('selected-file scope: text/image paste, provider payload, paste while running');
 
-  await page.getByRole('button', { name: 'New project', exact: true }).first().click();
+  await (await newProjectControl(page)).click();
   const create = page.getByRole('dialog', { name: 'New project', exact: true });
   await create.getByRole('button', { name: 'With AI', exact: true }).click();
   const createPrompt = create.locator('[data-testid="studio-chat-composer"] textarea');

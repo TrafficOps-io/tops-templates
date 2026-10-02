@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { unzipSync, strFromU8 } from 'fflate';
+import { newProjectControl, moreMenuItem } from './support/studio-chat.js';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -51,16 +52,14 @@ async function waitForSaved(name, { headline, cssIncludes } = {}) {
 function card(name) { return page.locator('.library-card').filter({ has: page.getByRole('heading', { name, exact: true }) }); }
 
 async function library() {
-  const toolbar = page.locator('.studio-toolbar');
-  const navigation = await toolbar.isVisible() ? toolbar : page.locator('.studio-project-bar');
-  await navigation.getByRole('button', { name: 'Projects', exact: true }).click();
-  await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
+  await page.locator('.studio-toolbar').getByRole('button', { name: 'Projects', exact: true }).click();
+  await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
 }
 
 async function create(name, { template = false } = {}) {
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
   await dialog.getByLabel('Project name', { exact: true }).fill(name);
-  if (template) await dialog.getByRole('button', { name: /Reusable template/ }).click();
+  if (template) { await dialog.getByText('Project options', { exact: true }).click(); await dialog.getByRole('button', { name: /Reusable template/ }).click(); }
   await dialog.getByRole('button', { name: template ? 'Create template' : 'Create landing', exact: true }).click();
   await dialog.waitFor({ state: 'hidden' });
   await page.locator('.browser-frame iframe.is-visible').waitFor();
@@ -68,16 +67,10 @@ async function create(name, { template = false } = {}) {
 }
 
 async function sourceExport() {
-  const installed = await page.locator('.editor-shell.is-app').count();
-  if (installed) {
-    await page.getByRole('button', { name: 'Export', exact: true }).click();
-    await page.getByRole('menuitem', { name: /Editable project/ }).click();
-  } else {
-    await page.locator('.hosted-more > summary').click();
-    await page.getByRole('button', { name: 'Download project', exact: true }).click();
-  }
+  // Browser tabs and the installed app share one workspace: export starts from the toolbar's Export menu.
+  await page.getByRole('button', { name: 'Export', exact: true }).click();
+  await page.getByRole('menuitem', { name: /Editable project/ }).click();
   const dialog = page.getByRole('dialog', { name: 'Export', exact: true });
-  await dialog.getByRole('combobox', { name: 'Export destination', exact: true }).selectOption('source');
   const pending = page.waitForEvent('download');
   await dialog.getByRole('button', { name: 'Download', exact: true }).click();
   const download = await pending;
@@ -96,7 +89,7 @@ async function captureLibrary(path) {
   const viewport = page.viewportSize();
   const height = await page.evaluate(() => document.documentElement.scrollHeight);
   await page.setViewportSize({ width: viewport.width, height });
-  for (const thumbnail of await page.locator('.library-thumbnail').all()) {
+  for (const thumbnail of await page.locator('.library-thumbnail:visible').all()) {
     await thumbnail.scrollIntoViewIfNeeded();
     await thumbnail.frameLocator('iframe').getByRole('heading', { level: 1 }).waitFor();
   }
@@ -113,45 +106,54 @@ try {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://127.0.0.1:${server.address().port}`);
-  await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
+  await page.getByRole('tab', { name: 'Templates', exact: true }).click();
   assert.equal(await page.locator('.starter-grid .library-card').count(), 3);
-
-  await page.getByRole('button', { name: /Start from scratch/ }).click();
+  await page.getByRole('tab', { name: 'Projects', exact: true }).click();
+  await page.getByRole('button', { name: 'New project', exact: true }).click();
+  await page.getByRole('button', { name: 'From scratch', exact: true }).click();
   const blank = await create('Blank draft');
   assert.equal(blank.kind, 'landing');
   assert.ok(Object.hasOwn(blank.files, 'index.tpl'));
   await page.reload();
-  await page.locator('.hosted-title').getByRole('heading', { name: 'Blank draft', exact: true }).waitFor();
+  await page.locator('.studio-toolbar').getByRole('heading', { name: 'Blank draft', exact: true }).waitFor();
   await library();
   console.log('PASS: blank creation and active-project restore.');
 
+  await page.getByRole('tab', { name: 'Templates', exact: true }).click();
   await page.getByRole('button', { name: 'Use Product spotlight', exact: true }).click();
   await create('Browser template', { template: true });
   await page.getByLabel('Headline', { exact: false }).fill('Template baseline');
   const template = await waitForSaved('Browser template', { headline: 'Template baseline' });
   assert.equal(template.kind, 'template');
   await library();
-  await card('Browser template').getByRole('button', { name: 'Use template', exact: true }).click();
+  await card('Browser template').getByRole('button', { name: 'Project actions: Browser template', exact: true }).click();
+  await card('Browser template').getByRole('menuitem', { name: 'Use template', exact: true }).click();
+  const direct = page.getByRole('dialog', { name: 'New project', exact: true });
+  assert.equal(await direct.getByRole('radio').count(), 0, 'the selected reusable template does not repeat the picker');
+  await direct.getByRole('button', { name: 'Cancel', exact: true }).click();
+  const templateActions = card('Browser template').getByRole('button', { name: 'Project actions: Browser template', exact: true });
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Project actions: Browser template');
+  assert.equal(await templateActions.evaluate(node => document.activeElement === node), true, 'cancel returns focus to the stable project action trigger');
+  await templateActions.click();
+  await card('Browser template').getByRole('menuitem', { name: 'Use template', exact: true }).click();
   const landing = await create('Independent landing');
   assert.equal(landing.sourceTemplateId, template.id);
   assert.notEqual(landing.id, template.id);
   assert.equal(await page.getByLabel('Headline', { exact: false }).inputValue(), 'Template baseline');
   await page.getByLabel('Headline', { exact: false }).fill('Landing-only headline');
-  // Between the edit and the durable write the badge reads Saving… (the single live region outside the expanded editor).
-  await page.locator('.hosted-status[role="status"]').filter({ hasText: 'Saving…' }).waitFor();
+  // Between the edit and the durable write the toolbar badge reads Saving… (the workspace's single live save region).
+  await page.locator('.studio-toolbar [role="status"]').filter({ hasText: 'Saving…' }).waitFor();
   await waitForSaved('Independent landing', { headline: 'Landing-only headline' });
   // Save state is text: a badge with the save time, shown once per mode; the sidebar footer keeps the storage label only.
   assert.equal(await page.locator('.sidebar-footer [role="status"]').count(), 0);
-  await page.locator('.hosted-status[role="status"]').filter({ hasText: /^Saved \d{1,2}:\d{2}/ }).waitFor();
-  assert.equal(await page.locator('.sidebar-footer').filter({ hasText: /Saved \d{1,2}:\d{2}/ }).count(), 0, 'the sidebar does not repeat the save status');
-  await page.locator('.hosted-more > summary').click(); await page.getByRole('button', { name: 'Expand editor', exact: true }).click();
   await page.locator('.studio-toolbar [role="status"]').filter({ hasText: /^Saved \d{1,2}:\d{2}/ }).waitFor();
-  assert.equal(await page.locator('[role="status"]:visible').filter({ hasText: /^Saved \d{1,2}:\d{2}/ }).count(), 1, 'one live save region while expanded');
-  assert.equal(await page.locator('.editor-shell.is-expanded').getByText(/^Saved \d{1,2}:\d{2}/).count(), 1, 'the expanded editor shows the save status once');
-  await page.keyboard.press('Escape'); await page.locator('.editor-shell.is-expanded').waitFor({ state: 'detached' });
+  assert.equal(await page.locator('.studio-statusbar-save:visible').filter({ hasText: /Saved \d{1,2}:\d{2}/ }).count(), 0, 'the status bar does not repeat the save status');
+  assert.equal(await page.locator('[role="status"]:visible').filter({ hasText: /^Saved \d{1,2}:\d{2}/ }).count(), 1, 'one live save region');
+  assert.equal(await page.locator('.editor-shell.is-app').getByText(/^Saved \d{1,2}:\d{2}/).evaluateAll(nodes => nodes.filter(node => node.getClientRects().length > 0).length), 1, 'the workspace shows the save status once');
   assert.equal((await readRecords()).find(item => item.id === template.id).settings.headline, 'Template baseline');
 
-  await page.getByRole('button', { name: 'Save as template', exact: true }).click();
+  await (await moreMenuItem(page, 'Save as template')).click();
   const saveTemplate = page.getByRole('dialog', { name: 'Save as template', exact: true });
   await saveTemplate.getByLabel('Template name', { exact: true }).fill('Saved landing template');
   await saveTemplate.getByRole('button', { name: 'Save as template', exact: true }).click();
@@ -170,28 +172,38 @@ try {
   await library();
   console.log('PASS: built-in template, independent landing, autosave, save as template, persisted fields and source ZIP.');
 
-  await card('Independent landing').getByRole('button', { name: 'Duplicate Independent landing', exact: true }).click();
+  await card('Independent landing').getByRole('button', { name: 'Project actions: Independent landing', exact: true }).click();
+  await card('Independent landing').getByRole('menuitem', { name: 'Duplicate Independent landing', exact: true }).click();
   await card('Independent landing (copy)').waitFor();
   const duplicate = await waitForSaved('Independent landing (copy)', { headline: 'Landing-only headline' });
   assert.notEqual(duplicate.id, landing.id);
   page.once('dialog', dialog => dialog.accept());
-  await card('Independent landing (copy)').getByRole('button', { name: 'Delete Independent landing (copy)', exact: true }).click();
+  await card('Independent landing (copy)').getByRole('button', { name: 'Project actions: Independent landing (copy)', exact: true }).click();
+  await card('Independent landing (copy)').getByRole('menuitem', { name: 'Delete Independent landing (copy)', exact: true }).click();
   await card('Independent landing (copy)').waitFor({ state: 'hidden' });
   assert.equal((await readRecords()).some(item => item.id === duplicate.id), false);
   await page.getByLabel('Search projects', { exact: true }).fill('Independent landing');
-  assert.equal(await page.locator('.library-grid:not(.starter-grid) .library-card').count(), 1);
+  assert.equal(await page.locator('.library-project-list .library-card').count(), 1);
   await page.getByLabel('Search projects', { exact: true }).fill('');
-  await page.getByRole('group', { name: 'Project filter', exact: true }).getByRole('button', { name: /^Templates/ }).click();
-  assert.equal(await page.locator('.library-grid:not(.starter-grid) .library-card').count(), 2);
-  await page.getByRole('group', { name: 'Project filter', exact: true }).getByRole('button', { name: /^All projects/ }).click();
+  await page.getByRole('combobox', { name: 'Project filter', exact: true }).selectOption('template');
+  assert.equal(await page.locator('.library-project-list .library-card').count(), 2);
+  await page.getByRole('combobox', { name: 'Project filter', exact: true }).selectOption('all');
   await captureLibrary('/tmp/studio-library-desktop.png');
   await assertNoOverflow('desktop library');
 
   await page.setViewportSize({ width: 390, height: 844 });
   await captureLibrary('/tmp/studio-library-mobile.png');
   await assertNoOverflow('mobile library');
-  await page.getByRole('button', { name: 'New project', exact: true }).click();
-  await page.getByRole('dialog', { name: 'New project', exact: true }).waitFor();
+  await (await newProjectControl(page)).click();
+  const creation = page.getByRole('dialog', { name: 'New project', exact: true }), projectName = creation.getByLabel('Project name', { exact: true });
+  await creation.waitFor();
+  // The name follows the chosen starter until the user types one of their own.
+  assert.equal(await projectName.inputValue(), 'A fresh beginning');
+  await creation.getByRole('group', { name: 'Starting template', exact: true }).getByRole('radio', { name: /^Product spotlight/ }).check();
+  assert.equal(await projectName.inputValue(), 'Product spotlight');
+  await projectName.fill('Kept name');
+  await creation.getByRole('radio', { name: /^Independent studio/ }).check();
+  assert.equal(await projectName.inputValue(), 'Kept name');
   await assertNoOverflow('mobile creation dialog');
   await page.getByRole('button', { name: 'Close new project', exact: true }).click();
   console.log('PASS: duplicate/delete, search, project filters and mobile library/creation layout.');
@@ -212,7 +224,8 @@ try {
   assert.equal(await page.getByRole('button', { name: 'Collapse editor', exact: true }).count(), 0);
   await page.locator('.file-sidebar button[title="styles.css"]').click();
   const code = page.getByRole('textbox', { name: 'Source code for styles.css', exact: true });
-  await code.waitFor();
+  // Without word wrap Monaco's hidden input has zero width, so wait for it to attach rather than to be visible.
+  await code.waitFor({ state: 'attached' });
   await code.focus();
   await page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+End');
   await page.keyboard.insertText('\n/* edited while offline */\n');

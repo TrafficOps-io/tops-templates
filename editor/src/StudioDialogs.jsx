@@ -1,12 +1,24 @@
-import { useEffect, useRef } from 'react';
-import { FolderOpen, FolderPlus, LoaderCircle, RefreshCw, ShieldCheck, Trash2, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { StudioUiProvider } from '@trafficops/studio-ui/i18n';
+import { ArrowRight, FileCode2, FolderOpen, FolderPlus, Images, LoaderCircle, PackageCheck, RefreshCw, Trash2, X } from 'lucide-react';
 import AiSettings from '@trafficops/template-editor-shell/AiSettings';
 import { StudioHostContext } from '@trafficops/template-editor-shell/host-context';
 import { projectLocation } from './ProjectSwitcher.jsx';
-export function TourDialog({ onClose, installedMode = false }) {
+const tourSteps = installedMode => [
+  { icon: FolderPlus, title: 'Create or import a project', text: installedMode ? 'Choose a template, start from scratch or send an AI brief. You can also import an editable ZIP or open a project folder.' : 'Choose a template, start from scratch or import an editable project ZIP.' },
+  { icon: FileCode2, title: 'Edit your page', text: 'Use Content for text and settings, or Code for source files. Check the result in Preview.' },
+  { icon: Images, title: 'Add your images', text: 'Choose project assets or upload images from your computer. Crop and resize them before adding.' },
+  { icon: PackageCheck, title: 'Export when ready', text: 'Your project saves on this device. Export a landing for hosting or an editable ZIP to back up and continue your work.' },
+];
+
+export function TourDialog({ onClose, installedMode = false, returnFocus }) {
   const nativeDialog = useRef(null);
-  useEffect(() => { nativeDialog.current.showModal(); }, []);
-  return <dialog ref={nativeDialog} className="modal" aria-labelledby="tour-title" onCancel={onClose}><div className="modal-box tour-modal"><div className="dialog-heading"><div><span className="section-kicker">QUICK START</span><h2 id="tour-title">From template to finished pages</h2></div><button type="button" className="btn btn-ghost btn-sm btn-square" aria-label="Close quick start" onClick={onClose}><X size={18} /></button></div><ol className="tour-steps"><li><span>1</span><div><strong>Add your project</strong><p>{installedMode ? 'Create a landing or reusable template from a starter, from scratch, or with AI. You can also import a ZIP or connect a folder.' : 'Create a landing or reusable template from a starter or a blank page, or import a source ZIP. Install Studio for AI and project folders.'}</p></div></li><li><span>2</span><div><strong>Build the template</strong><p>Edit TPL, CSS, and other source files. Changes in Content update the preview live.</p></div></li><li><span>3</span><div><strong>Choose images</strong><p>Image parameters can use existing project assets or files dropped from your computer.</p></div></li><li><span>4</span><div><strong>Take it with you</strong><p>Projects autosave on this device. Download generated pages and export source ZIPs for portable backups.</p></div></li></ol><div className="tour-note"><ShieldCheck size={16} /><span>The core editor is local. AI and project folder access are available only in the installed Studio app.</span></div><div className="modal-action"><a className="btn btn-ghost" href="https://trafficops-io.github.io/tops-templates/" target="_blank" rel="noreferrer">Read full docs ↗</a><button type="button" className="btn btn-primary" onClick={onClose}>Start creating</button></div></div><button type="button" className="modal-backdrop" aria-label="Close quick start" onClick={onClose} /></dialog>;
+  useEffect(() => { const previous = returnFocus?.isConnected ? returnFocus : document.activeElement, element = nativeDialog.current; element.showModal(); return () => { element.close(); requestAnimationFrame(() => { if (previous?.isConnected) previous.focus(); }); }; }, []);
+  return <dialog ref={nativeDialog} className="modal" aria-labelledby="tour-title" onCancel={onClose}><div className="modal-box tour-modal">
+    <header className="tour-hero"><button type="button" className="btn btn-ghost btn-sm btn-square tour-close" aria-label="Close quick start" onClick={onClose}><X size={18} /></button><h2 id="tour-title">From template to finished pages</h2><p>A quick guide to your workspace.</p></header>
+    <ol className="tour-steps">{tourSteps(installedMode).map(({ icon: Icon, title, text }) => <li key={title}><span className="tour-step-node" aria-hidden="true"><Icon size={18} /></span><div><strong>{title}</strong><p>{text}</p></div></li>)}</ol>
+    <footer className="tour-footer"><p className="tour-note">AI and connected folders are available in the installed Studio app.</p><div className="tour-actions"><a className="btn btn-ghost" href="https://trafficops-io.github.io/tops-templates/" target="_blank" rel="noreferrer">Read full docs ↗</a><button type="button" className="btn btn-primary" onClick={onClose}>Start creating<ArrowRight size={16} /></button></div></footer>
+  </div><button type="button" className="modal-backdrop" aria-label="Close quick start" onClick={onClose} /></dialog>;
 }
 
 export function ProjectsDialog({ projects, currentId, supported, busy, onAdd, onOpen, onForget, onReload, onLocation, onClose }) {
@@ -22,8 +34,9 @@ export function ProjectsDialog({ projects, currentId, supported, busy, onAdd, on
 
 export function AiSettingsDialog({ ai, onClose }) {
   const nativeDialog = useRef(null);
-  useEffect(() => { nativeDialog.current.showModal(); }, []);
+  const [portalContainer, setPortalContainer] = useState(null);
+  useEffect(() => { nativeDialog.current.showModal(); setPortalContainer(nativeDialog.current); }, []);
   return <dialog ref={nativeDialog} className="modal" aria-label="OpenRouter settings" onCancel={onClose}>
-    <div className="modal-box"><StudioHostContext.Provider value={{ ai }}><AiSettings onBack={onClose} backLabel="Close" /></StudioHostContext.Provider></div>
+    <div className="modal-box"><StudioUiProvider portalContainer={portalContainer}><StudioHostContext.Provider value={{ ai }}><AiSettings onBack={onClose} backLabel="Close" /></StudioHostContext.Provider></StudioUiProvider></div>
   </dialog>;
 }

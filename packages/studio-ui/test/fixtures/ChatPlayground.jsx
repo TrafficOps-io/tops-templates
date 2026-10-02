@@ -8,7 +8,8 @@ import { createFakeChatPort } from './FakeChatPort.js';
 // Test handles: window.fake (the port), window.threadId / window.setThreadId, window.setTheme(name), window.launch(launch),
 // window.actionCalls — texts passed to the header action, window.pickerChanges — values passed to onChange of the ModelPicker demo, window.scopes — scopes reported by onScopeChange, window.standaloneSubmit — onSubmit of the standalone composer.
 // ?clarify=1 turns on capabilities.clarifyWhileRunning, ?discardStopped=1 — capabilities.discardStopped; ?scopes=project,file overrides capabilities.scopes;
-// ?noBranching=1 removes regenerate, editMessage and switchBranch from the port; ?portal=1 renders the ModelPicker demo popover into #picker-layer.
+// ?noBranching=1 removes regenerate, editMessage and switchBranch from the port; ?portal=1 renders the ModelPicker demo popover into #picker-layer;
+// ?setup=1 passes a setup card that replaces the composer.
 const port = createFakeChatPort();
 const query = new URLSearchParams(location.search);
 if (query.has('clarify')) port.capabilities = { ...port.capabilities, clarifyWhileRunning: true };
@@ -55,7 +56,7 @@ export default function ChatPlayground() {
   useEffect(() => { window.setThreadId = setThreadId; window.setTheme = setTheme; window.launch = setLaunch; }, []);
   return <div className="studio-root" data-theme={theme}>
     <StudioUiProvider language="en">
-      <div style={{ height: '100vh' }}><StudioChat port={port} threadId={threadId} onThreadChange={setThreadId} onScopeChange={scope => window.scopes.push(scope)} launch={launch} actions={actions} composerExtra={<ModelPicker compact label="Assistant model" value={model} onChange={setModel} options={MODELS} />} /></div>
+      <div style={{ height: '100vh' }}><StudioChat port={port} threadId={threadId} onThreadChange={setThreadId} onScopeChange={scope => window.scopes.push(scope)} launch={launch} actions={actions} setup={query.has('setup') ? <div className="playground-setup" role="region" aria-label="Connect OpenRouter">Add an OpenRouter key to start.</div> : undefined} composerExtra={<ModelPicker compact label="Assistant model" value={model} onChange={setModel} options={MODELS} />} /></div>
       <div id="standalone"><StudioComposer onSubmit={input => window.standaloneSubmit?.(input)} /></div>
       <PickerDemo />
     </StudioUiProvider>

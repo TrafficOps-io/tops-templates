@@ -6,13 +6,18 @@ import { extname, resolve } from 'node:path';
 import { httpServer } from './support/http-server.js';
 import { starterProject } from '../src/starter.js';
 import { studioChat } from './support/studio-chat.js';
+import { createZip, readZipProject } from '@trafficops/template-editor-core';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = resolve('editor/embedded/dist'), api = httpServer({ aiEnabled: true });
 api.state().files = starterProject(true);
+api.state().draftHistory = [{ revision: 1, created_at: '2026-09-18T10:00:00Z' }];
+api.state().revisions = [{ id: 'publication-previous', number: 7, createdAt: '2026-09-18T10:00:00Z', current: true, locales: ['en'] }];
 const prompt = 'Create a botanical landing page with warm green colors.';
 let claimed = false, starts = 0, failedSave = false, lastSaved;
+let failDownload = false;
+const exports = [];
 const types = { '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.woff2': 'font/woff2' };
 const server = createServer(async (request, response) => {
   try {
@@ -35,6 +40,11 @@ const server = createServer(async (request, response) => {
       } else if (url.pathname.endsWith('/save-template') && !failedSave) {
         failedSave = true;
         result = Response.json({ message: 'Review the template name' }, { status: 422 });
+      } else if (['/project/download', '/project/draft-download', '/project/history-download'].includes(url.pathname)) {
+        exports.push({ path: url.pathname, input });
+        if (failDownload) { failDownload = false; result = Response.json({ message: 'Export temporarily unavailable' }, { status: 422 }); }
+        else if (url.pathname === '/project/download') result = await api.fetchImpl('http://localhost' + url.pathname, { method: request.method, body });
+        else result = new Response(createZip({ 'historical.txt': `Saved ${input.draftRevision || input.revisionId}` }, { settings: { title: 'Historical title' } }));
       } else {
         if (url.pathname === '/ai/start') starts++;
         if (url.pathname.endsWith('/save-template')) lastSaved = input;
@@ -86,7 +96,24 @@ await chat.root.locator('.studio-chat-header').getByRole('button', { name: 'Conv
 const headerMenu = chat.root.locator('.studio-chat-header').getByRole('menu', { name: 'Conversations', exact: true });
 await headerMenu.waitFor();
 assert.equal(await inShadow(headerMenu), true, 'header menu renders inside the shadow root');
-await page.keyboard.press('Escape'); await headerMenu.waitFor({ state: 'hidden' });
+// Narrow management is another native surface inside the same shadow root. Its nested confirmation owns Tab/Escape.
+await headerMenu.getByRole('menuitem', { name: 'Manage conversations', exact: true }).click();
+const management = chat.root.getByTestId('studio-chat-management'); await management.waitFor();
+assert.equal(await inShadow(management), true); assert.equal(await lightDomPopups(), 0);
+assert.equal(await management.getByRole('searchbox', { name: 'Search conversations' }).evaluate(node => node === node.getRootNode().activeElement), true);
+const rowAction = management.locator('.studio-chat-threads-more').first();
+await rowAction.click(); await management.getByRole('menuitem', { name: 'Delete conversation', exact: true }).click();
+const managementConfirm = management.getByRole('dialog', { name: 'Delete conversation?', exact: true }); await managementConfirm.waitFor();
+assert.equal(await inShadow(managementConfirm), true);
+for (const key of ['Tab', 'Shift+Tab', 'Tab', 'Shift+Tab']) { await page.keyboard.press(key); assert.equal(await managementConfirm.evaluate(node => node.contains(node.getRootNode().activeElement)), true); }
+await page.keyboard.press('Escape'); await managementConfirm.waitFor({ state: 'hidden' });
+assert.equal(await management.isVisible(), true); await page.waitForFunction(() => document.getElementById('editor').shadowRoot.activeElement?.classList.contains('studio-chat-threads-more'));
+await rowAction.click(); await management.getByRole('menuitem', { name: 'Delete conversation', exact: true }).click();
+await managementConfirm.getByRole('button', { name: 'Cancel', exact: true }).click(); await managementConfirm.waitFor({ state: 'hidden' });
+await page.waitForFunction(() => document.getElementById('editor').shadowRoot.activeElement?.classList.contains('studio-chat-threads-more'));
+await management.getByRole('button', { name: 'Close', exact: true }).click(); await management.waitFor({ state: 'hidden' });
+await page.waitForFunction(() => document.getElementById('editor').shadowRoot.activeElement?.getAttribute('aria-label') === 'Conversations');
+assert.equal(await lightDomPopups(), 0);
 // The thread list (with its delete confirmation) is shown once the chat is at least 560 px wide.
 await page.setViewportSize({ width: 2400, height: 1100 });
 await chat.threads.waitFor();
@@ -116,8 +143,48 @@ await page.setViewportSize({ width: 1500, height: 1100 });
   assert.equal(lastSaved.templateName, 'Reusable botanical');
   assert.equal(lastSaved.translations.en.title, 'Unsaved botanical content');
   await page.getByRole('status').filter({ hasText: 'Saved to your team.' }).waitFor();
+
+  // The embedded shortcut chooses source once; review preserves current edits and never asks for the format again.
+  const collapse = page.getByRole('button', { name: 'Collapse editor', exact: true });
+  if (await collapse.isVisible()) await collapse.click();
+  await page.locator('.hosted-more > summary').click();
+  await page.getByRole('button', { name: 'Download project', exact: true }).click();
+  const review = page.getByRole('dialog', { name: 'Export', exact: true }); await review.waitFor();
+  assert.equal(await review.getByRole('heading', { name: 'Editable project', exact: true }).count(), 1);
+  assert.equal(await review.getByRole('combobox', { name: 'Export destination' }).count(), 0);
+  assert.equal(await review.getByRole('textbox', { name: /^Continue URL/ }).count(), 0);
+  assert.equal(await review.getByRole('checkbox', { name: 'Include conversation history', exact: true }).isChecked(), true);
+  await review.getByText('EN · Current edits', { exact: true }).waitFor();
+  const directDownload = page.waitForEvent('download'); await review.getByRole('button', { name: 'Download', exact: true }).click();
+  const directBytes = readZipProject(new Uint8Array(await readFile(await (await directDownload).path())));
+  assert.equal(directBytes.settings.title, 'Unsaved botanical content'); assert.equal(exports.at(-1).input.format, 'source');
+
+  // Historical row actions keep their predetermined version/format instead of falling back to current edits.
+  const history = page.getByRole('region', { name: 'Versions', exact: true });
+  await history.getByRole('button', { name: /^Drafts/ }).click();
+  await history.getByRole('button', { name: 'Download source ZIP', exact: true }).click(); await review.waitFor();
+  await review.getByText('EN · Saved version', { exact: true }).waitFor();
+  assert.equal(await review.getByRole('heading', { name: 'Editable project', exact: true }).count(), 1);
+  assert.equal(await review.getByRole('combobox', { name: 'Export destination' }).count(), 0);
+  const historicalSource = page.waitForEvent('download'); await review.getByRole('button', { name: 'Download', exact: true }).click();
+  const sourceBytes = readZipProject(new Uint8Array(await readFile(await (await historicalSource).path())));
+  assert.equal(sourceBytes.files['historical.txt'], 'Saved 1'); assert.equal(exports.at(-1).path, '/project/draft-download'); assert.equal(exports.at(-1).input.draftRevision, 1); assert.equal(exports.at(-1).input.format, 'source');
+
+  await history.getByRole('button', { name: /^Publications/ }).click();
+  await history.getByRole('button', { name: 'Download HTML ZIP', exact: true }).click(); await review.waitFor();
+  assert.equal(await review.getByRole('heading', { name: 'Landing for hosting', exact: true }).count(), 1);
+  assert.equal(await review.getByRole('combobox', { name: 'Export destination' }).count(), 0);
+  assert.equal(await review.getByRole('checkbox', { name: 'Include conversation history', exact: true }).count(), 0);
+  const continueUrl = review.getByRole('textbox', { name: /^Continue URL/ }); await continueUrl.fill('https://example.test/continue');
+  failDownload = true; await review.getByRole('button', { name: 'Download', exact: true }).click();
+  await review.getByRole('alert').filter({ hasText: 'Export temporarily unavailable' }).waitFor();
+  assert.equal(await continueUrl.inputValue(), 'https://example.test/continue');
+  const historicalHtml = page.waitForEvent('download'); await review.getByRole('button', { name: 'Download', exact: true }).click();
+  const htmlBytes = readZipProject(new Uint8Array(await readFile(await (await historicalHtml).path())));
+  assert.equal(htmlBytes.files['historical.txt'], 'Saved publication-previous'); assert.equal(exports.at(-1).path, '/project/history-download');
+  assert.equal(exports.at(-1).input.revisionId, 'publication-previous'); assert.equal(exports.at(-1).input.format, 'html'); assert.equal(exports.at(-1).input.continueUrl, 'https://example.test/continue');
   assert.deepEqual(errors, []);
-  console.log('PASS: automatic AI kickoff, chat popups inside the shadow root, no repeat on reload, retained prompt/manual retry, named team template from unsaved state, dialog error recovery.');
+  console.log('PASS: automatic AI kickoff, nested management focus in shadow root, no repeat on reload, retained prompt/manual retry, named team template, fixed direct/history export reviews, Continue URL and download error recovery.');
 } finally {
   await browser?.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
 }

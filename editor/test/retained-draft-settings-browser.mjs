@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { extname, resolve } from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
-import { studioChat } from './support/studio-chat.js';
+import { studioChat, moreMenuItem } from './support/studio-chat.js';
 
 const repository = resolve(process.argv[2] || '.'), require = createRequire(resolve(repository, 'package.json'));
 const { build } = require('esbuild');
@@ -76,7 +76,7 @@ try {
   // to the former single-draft assistant of hosts without conversations. This regression keeps the retention contract.
   await page.getByRole('tab',{ name:'Conversations',exact:true }).click();
   const chat=studioChat(page); await chat.composer.waitFor();
-  await chat.scope.getByRole('button',{ name:'Content only',exact:true }).click();
+  await chat.chooseScope('Content only');
   await chat.prompt.fill('Update the title while preserving the rest.');
   await chat.send.click();
   await page.waitForFunction(()=>typeof window.retainedDraftTest.release==='function');
@@ -102,7 +102,7 @@ try {
   await page.setViewportSize({width:1280,height:1100});
   const savedBefore=await page.evaluate(()=>window.retainedDraftTest.readSaved());
   assert.equal(savedBefore.settings.title,'Original saved title','failed draft must not be silently committed');
-  assert.equal(await page.getByRole('button',{ name:'OpenRouter',exact:true }).last().isEnabled(),true);
+  { const item=await moreMenuItem(page,'OpenRouter'); assert.equal(await item.isEnabled(),true); await page.keyboard.press('Escape'); }
   const beforeSettings=await page.evaluate(()=>window.retainedDraftTest.calls.length);
   await chat.root.locator('.studio-chat-header').getByRole('button',{ name:'More actions',exact:true }).click();
   await chat.root.getByRole('menuitem',{ name:'AI settings',exact:true }).click();
@@ -124,7 +124,7 @@ try {
   assert.ok(continuation.length>=2);
   assert.ok(continuation.every(call=>call.model==='test/replacement'),'explicit continuation uses the saved replacement model');
   assert.equal(continuation[0].hasRetainedTitle,true,'continuation starts from retained content');
-  await page.getByRole('button',{ name:'OpenRouter',exact:true }).last().click();
+  await (await moreMenuItem(page,'OpenRouter')).click();
   const dialog=page.getByRole('dialog',{ name:'OpenRouter settings',exact:true });
   await dialog.getByRole('button',{ name:'Enter model ID',exact:true }).first().click();
   await dialog.getByLabel('Text model',{ exact:true }).waitFor();

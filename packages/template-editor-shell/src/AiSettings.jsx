@@ -22,8 +22,9 @@ function ModelField({ kind, label, value, onChange, catalog, onLoadCatalog, rece
           {...(kind === 'image' ? { inherit: { label: catalogText('No image model', {}, text), detail: catalogText('Image generation is off', {}, text) } } : {})} />
       </div>}
     {failed && <small role="status">{catalogText('The OpenRouter model catalog is unavailable. Enter the model ID.', {}, text)}</small>}
-    {help}
-    {catalog.status !== 'disabled' && !failed && <button type="button" className="btn btn-link btn-xs ai-model-mode" onClick={() => setManual(current => !current)}>{catalogText(manual ? 'Choose from catalog' : 'Enter model ID', {}, text)}</button>}
+    <div className="ai-model-help">{help}
+      {catalog.status !== 'disabled' && !failed && <button type="button" className="btn btn-link btn-xs ai-model-mode" onClick={() => setManual(current => !current)}>{catalogText(manual ? 'Choose from catalog' : 'Enter model ID', {}, text)}</button>}
+    </div>
   </div>;
 }
 
@@ -62,9 +63,11 @@ export default function AiSettings({ onBack, backLabel = 'Back to assistant', mo
   return <section className="ai-settings"><button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={onBack}><ArrowLeft size={15} />{t(backLabel)}</button><h2><KeyRound size={19} />{t('AI connection settings')}</h2>
     {settings && (port.owner === 'user' ? <form onSubmit={event => { event.preventDefault(); run(async () => { const saved = await port.save(settings); setSettings(saved); setDirty(false); setRecent({ text: rememberModel('text', saved.model), image: saved.imageModel ? rememberModel('image', saved.imageModel) : recentModels('image') }); notify(); setNotice(t('Connection saved on this device.')); }); }}>
       <p className="field-help">{t('Your project folders and ZIP files never contain API keys.')}</p><fieldset disabled={busy}>
-        {settings.configured && <p role="status">{t('An OpenRouter key is saved on this device.')}</p>}
-        <label className="field"><span>{t('API key')}</span><input id={keyInputId} type="password" className="input w-full" autoComplete="new-password" value={settings.apiKey || ''} onChange={change('apiKey')} required /><small>{t('Saved in this browser’s IndexedDB. Requests go directly to OpenRouter and are billed to your account.')}</small></label>
-        {settings.configured && <button type="button" className="btn btn-outline btn-sm" onClick={() => { setSettings(value => ({ ...value, apiKey: '' })); setDirty(true); setNotice(''); setError(''); document.getElementById(keyInputId)?.focus(); }}>{t('Replace key')}</button>}
+        <div className="ai-key-field">
+          {settings.configured && <p role="status">{t('An OpenRouter key is saved on this device.')}</p>}
+          <label className="field"><span>{t('API key')}</span><input id={keyInputId} type="password" className="input w-full" autoComplete="new-password" value={settings.apiKey || ''} onChange={change('apiKey')} required /><small>{t('Saved in this browser’s IndexedDB. Requests go directly to OpenRouter and are billed to your account.')}</small></label>
+          {settings.configured && <button type="button" className="btn btn-outline btn-sm" onClick={() => { setSettings(value => ({ ...value, apiKey: '' })); setDirty(true); setNotice(''); setError(''); document.getElementById(keyInputId)?.focus(); }}>{t('Replace key')}</button>}
+        </div>
         <ModelField kind="text" label={t('Text model')} value={settings.model} onChange={value => setValue('model', value)} catalog={catalog} onLoadCatalog={loadCatalog} recent={recent.text} text={text} required />
         <ModelField kind="image" label={t('Image model')} value={settings.imageModel} onChange={value => setValue('imageModel', value)} catalog={catalog} onLoadCatalog={loadCatalog} recent={recent.image} text={text}
           help={<small><a href="https://openrouter.ai/models?output_modalities=image" target="_blank" rel="noreferrer">{t('OpenRouter model catalog')} ↗</a></small>} />

@@ -48,12 +48,14 @@ export default function ModelPicker({ value = null, options = NONE, onChange, re
   useLayoutEffect(() => {
     if (!open || !trigger.current) return undefined;
     const win = trigger.current.ownerDocument.defaultView;
-    const measure = () => {
+    const measure = event => {
+      // Scrolling the options does not move the trigger or change the popover's placement.
+      if (event?.type === 'scroll' && popup.current?.contains(event.target)) return;
       if (!trigger.current) return;
       const rect = trigger.current.getBoundingClientRect();
       const below = win.innerHeight - rect.bottom, above = rect.top;
       const up = below < POPOVER_HEIGHT && above > below;
-      const width = Math.min(26 * 16, win.innerWidth - 16);
+      const width = Math.min(compact ? 26 * 16 : Math.max(26 * 16, rect.width), win.innerWidth - 16);
       const end = rect.left + width > win.innerWidth - 8;
       setPosition({ up, end, maxHeight: Math.max(160, Math.min(POPOVER_HEIGHT, (up ? above : below) - 16)), rect, width, viewportWidth: win.innerWidth, viewportHeight: win.innerHeight });
     };
@@ -61,7 +63,7 @@ export default function ModelPicker({ value = null, options = NONE, onChange, re
     win.addEventListener('resize', measure);
     win.addEventListener('scroll', measure, true);
     return () => { win.removeEventListener('resize', measure); win.removeEventListener('scroll', measure, true); };
-  }, [open]);
+  }, [open, compact]);
 
   // Focus the search only once the popover is placed, and without scrolling: autoFocus on mount scrolled the
   // chat column towards a popover that had not been positioned yet.
@@ -71,9 +73,10 @@ export default function ModelPicker({ value = null, options = NONE, onChange, re
   useLayoutEffect(() => {
     const element = list.current, option = element?.querySelector('[aria-selected="true"]');
     if (!option) return;
-    if (option.offsetTop < element.scrollTop) element.scrollTop = option.offsetTop;
-    else if (option.offsetTop + option.offsetHeight > element.scrollTop + element.clientHeight) element.scrollTop = option.offsetTop + option.offsetHeight - element.clientHeight;
-  });
+    const viewport = element.getBoundingClientRect(), rect = option.getBoundingClientRect();
+    if (rect.top < viewport.top) element.scrollTop += rect.top - viewport.top;
+    else if (rect.bottom > viewport.top + element.clientHeight) element.scrollTop += rect.bottom - viewport.top - element.clientHeight;
+  }, [open, active, rows, position?.maxHeight, position?.width]);
 
   useEffect(() => {
     if (!open) return undefined;

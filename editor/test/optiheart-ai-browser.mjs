@@ -70,7 +70,7 @@ try {
     };
   });
   const origin = `http://127.0.0.1:${server.address().port}`;
-  await page.goto(origin); await page.getByRole('heading', { name: 'Ideas become pages.', exact: true }).waitFor();
+  await page.goto(origin); await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
   await page.evaluate(async ({ fixture, key }) => {
     async function open(name, initialize) {
       return new Promise((resolve, reject) => { const request = indexedDB.open(name, 1); request.onupgradeneeded = () => initialize?.(request.result); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
@@ -84,7 +84,7 @@ try {
   const collapse = page.getByRole('button', { name: 'Collapse editor', exact: true }); if (await collapse.count()) await collapse.click();
   // The former "Edit project" mode is the default "Project" scope of the composer.
   const chat = studioChat(page); await chat.root.waitFor();
-  await chat.scope.getByRole('button', { name: 'Project', pressed: true, exact: true }).waitFor();
+  await chat.activeScope('Project').waitFor();
   await chat.prompt.fill(OPTIHEART_BRIEF);
   await chat.send.click();
   await chat.status('ready').waitFor({ timeout: 60000 }).catch(async error => { console.log('REQ', JSON.stringify(requests)); throw error; });

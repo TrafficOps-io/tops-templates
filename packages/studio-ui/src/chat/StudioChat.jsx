@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowDown, Sparkles } from 'lucide-react';
 import { AssistantRuntimeProvider, AuiIf, ThreadPrimitive, useAuiState } from '@assistant-ui/react';
 import { useStudioText } from '../i18n/StudioUiProvider.jsx';
@@ -14,6 +14,7 @@ import Composer from './Composer.jsx';
 import { AssistantMessage, UserMessage } from './Messages.jsx';
 import ThreadList from './ThreadList.jsx';
 import ChatHeader from './ChatHeader.jsx';
+import ConversationManager from './ConversationManager.jsx';
 
 const defaultScope = port => ({ kind: port.capabilities?.scopes?.includes('project') || !port.capabilities?.scopes?.length ? 'project' : port.capabilities.scopes[0] });
 
@@ -24,15 +25,22 @@ const defaultScope = port => ({ kind: port.capabilities?.scopes?.includes('proje
 // actions?: { id, label, danger?, onSelect({ text }) }[] — menu items in the thread header (product actions, e.g. "Create the project anew");
 // onScopeChange?(scope) — called on a scope chip change (including its removal) and on every launch, including a launch present
 // at mount and a launch that resets the scope to the default; without a launch it is not called on mount;
-// disabled?: boolean; footer?: ReactNode; emptyState?: ReactNode; className?: string;
+// disabled?: boolean; footer?: ReactNode | ({ attachments }) => ReactNode — a function receives the composer's files, e.g. to offer
+//   a control only while images are attached; emptyState?: ReactNode; className?: string;
 // composerExtra?: ReactNode — product controls in the composer toolbar (Composer extra), e.g. a compact ModelPicker
+// setup?: ReactNode — rendered in place of the composer (the composer is not mounted), e.g. a "Connect OpenRouter" card while
+//   the product cannot send yet; threads, the feed and footer stay; without it (or with a falsy value) the composer is shown
 // Errors (send, thread and card actions) are inline notices; no ToastProvider is needed.
-export default function StudioChat({ port, threadId = '', onThreadChange, onScopeChange, launch, actions = [], disabled = false, footer, emptyState, composerExtra, className = '' }) {
+export default function StudioChat({ port, threadId = '', onThreadChange, onScopeChange, launch, actions = [], disabled = false, footer, emptyState, composerExtra, setup, className = '' }) {
   const t = useStudioText();
   const [text, setText] = useState(''), [scope, setScope] = useState(() => defaultScope(port)), [mentions, setMentions] = useState([]), [attachments, setAttachments] = useState([]), [generateImages, setGenerateImages] = useState(false);
   const [notice, setNotice] = useState(null); // { title, message }
+  const root = useRef(null), [managing, setManaging] = useState(false), [managementError, setManagementError] = useState('');
+  const closeManagement = useCallback(() => setManaging(false), []);
   const report = title => cause => setNotice({ title, message: cause?.message || t('Something went wrong.') });
   const sendFailed = report(t('The message was not sent')), actionFailed = report(t('The action failed'));
+  const managementFailed = cause => setManagementError(cause?.message || t('Something went wrong.'));
+  const managementSucceeded = () => setManagementError('');
   const changeScope = next => { setScope(next); onScopeChange?.(next); };
 
   // External launch: each new launch.id resets the composer and fills text, scope, mention targets and files
@@ -61,18 +69,18 @@ export default function StudioChat({ port, threadId = '', onThreadChange, onScop
     return sendToPort(port, threadId, input, { onThreadCreated: onThreadChange, onRestore: restore, onError: sendFailed });
   }
   const draft = { text, clear: () => setText('') };
-  async function createThread() {
-    try { const thread = await port.createThread(); onThreadChange?.(thread.id); } catch (cause) { actionFailed(cause); }
+  async function createThread(onError = actionFailed) {
+    try { const thread = await port.createThread(); onThreadChange?.(thread.id); return thread; } catch (cause) { onError(cause); return null; }
   }
 
-  return <div className={`studio-chat ${className}`.trim()} data-testid="studio-chat">
+  return <div ref={root} className={`studio-chat ${className}`.trim()} data-testid="studio-chat">
     <AssistantRuntimeProvider runtime={runtime}>
       <div className="studio-chat-layout">
         <aside className="studio-chat-threads" data-testid="studio-chat-threads">
-          <RunningThreadList port={port} threadId={threadId} onThreadChange={onThreadChange} onCreate={createThread} onError={actionFailed} />
+          <RunningThreadList port={port} threadId={threadId} onThreadChange={onThreadChange} onCreate={() => createThread()} onError={actionFailed} />
         </aside>
         <section className="studio-chat-main" aria-label={t('Project assistant')}>
-          <ChatHeader port={port} threadId={threadId} onThreadChange={onThreadChange} onCreate={createThread} actions={actions} composerText={text} onError={actionFailed} />
+          <ChatHeader port={port} threadId={threadId} onThreadChange={onThreadChange} onCreate={() => createThread()} onManage={() => { setManagementError(''); setManaging(true); }} actions={actions} composerText={text} onError={actionFailed} />
           <ThreadPrimitive.Root className="studio-chat-thread">
             <ChatDraftContext.Provider value={draft}><ChatThreadContext.Provider value={thread}>
             <ThreadPrimitive.Viewport className="studio-chat-feed" data-testid="studio-chat-feed">
@@ -83,15 +91,19 @@ export default function StudioChat({ port, threadId = '', onThreadChange, onScop
             <div className="studio-chat-bottom">
               <ThreadPrimitive.ScrollToBottom className="studio-chat-scroll-bottom" aria-label={t('Scroll to the latest message')} title={t('Scroll to the latest message')}><ArrowDown size={16} aria-hidden="true" /></ThreadPrimitive.ScrollToBottom>
               {notice && <InlineNotice tone="danger" title={notice.title} actions={<Button variant="ghost" size="sm" onClick={() => setNotice(null)}>{t('Dismiss')}</Button>}>{notice.message}</InlineNotice>}
-              <ChatComposerContext.Provider value={{ onSubmit: submitMessage, clarifyWhileRunning: Boolean(port.capabilities?.clarifyWhileRunning) }}>
+              {setup || <ChatComposerContext.Provider value={{ onSubmit: submitMessage, clarifyWhileRunning: Boolean(port.capabilities?.clarifyWhileRunning) }}>
                 <Composer port={port} value={text} onChange={setText} disabled={disabled} scope={scope} onScopeChange={changeScope} mentions={mentions} onMentionsChange={setMentions}
                   attachments={attachments} onAttachmentsChange={setAttachments} generateImages={generateImages} onGenerateImagesChange={setGenerateImages} extra={composerExtra} />
-              </ChatComposerContext.Provider>
-              {footer}
+              </ChatComposerContext.Provider>}
+              {typeof footer === 'function' ? footer({ attachments }) : footer}
             </div>
           </ThreadPrimitive.Root>
         </section>
       </div>
+      {managing && <ConversationManager chatRoot={root.current} error={managementError} onClose={closeManagement}>
+        <RunningThreadList port={port} threadId={threadId} onThreadChange={onThreadChange} onSelect={id => { onThreadChange?.(id); closeManagement(); }}
+          onCreate={async () => { if (await createThread(managementFailed)) { managementSucceeded(); closeManagement(); } }} onError={managementFailed} onSuccess={managementSucceeded} />
+      </ConversationManager>}
     </AssistantRuntimeProvider>
   </div>;
 }

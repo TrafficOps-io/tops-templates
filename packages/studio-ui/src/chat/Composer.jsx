@@ -187,7 +187,6 @@ function ComposerBody({ parts, text, setText, onInputText, submit, runtime, busy
     onDragOver={event => { if (parts.attachEnabled && Array.from(event.dataTransfer?.types ?? []).includes('Files')) event.preventDefault(); }}
     onDrop={event => { const dropped = filesFromDrop(event); if (dropped.length && parts.attachEnabled) { event.preventDefault(); addFiles(dropped); } }}
     onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setQuery(null); }}>
-    <ScopeChips scopes={parts.scopeKinds} scope={parts.scope} onScopeChange={parts.setScope} disabled={disabled} />
     <RejectedAttachments rejected={rejected} limits={limits} onDismiss={() => setRejected([])} />
     {error && <InlineNotice tone="danger" title={t('The message was not sent')} actions={<Button variant="ghost" size="sm" onClick={onDismissError}>{t('Dismiss')}</Button>}>{error.message || t('Something went wrong.')}</InlineNotice>}
     {mentions.length > 0 && <div className="studio-chat-composer-mentions" aria-label={t('Referenced files and sections')}>
@@ -207,13 +206,15 @@ function ComposerBody({ parts, text, setText, onInputText, submit, runtime, busy
         onClick={event => trackQuery(event.target.value, event.target.selectionStart)} />
     </div>
     <div className="studio-chat-composer-toolbar">
+      <ScopeChips scopes={parts.scopeKinds} scope={parts.scope} onScopeChange={parts.setScope} disabled={disabled} />
       {parts.attachEnabled && <>
         <Button variant="ghost" size="sm" icon={Paperclip} disabled={disabled} aria-label={t('Attach files')} title={t('Attach files')} onClick={() => fileInput.current?.click()} />
         <input ref={fileInput} type="file" multiple hidden accept={limits?.accept} tabIndex={-1} aria-hidden="true"
           onChange={event => { addFiles(Array.from(event.target.files ?? [])); event.target.value = ''; }} />
       </>}
       {mentionsEnabled && <Button variant="ghost" size="sm" icon={AtSign} aria-label={t('Mention')} title={t('Mention')} onClick={openMenu} />}
-      <AttachmentCounter files={files} limits={limits} />
+      {/* the budget appears once a file is attached; the attach button is always there */}
+      {files.length > 0 && <AttachmentCounter files={files} limits={limits} />}
       {parts.showImages && <Button variant="ghost" size="sm" icon={ImageIcon} disabled={disabled} aria-pressed={parts.images} className="studio-chat-composer-images" onClick={() => parts.setImages(!parts.images)}>{t('Generate images')}</Button>}
       {extra && <span className="studio-chat-composer-extra">{extra}</span>}
       <Button variant="primary" size="sm" type="submit" icon={ArrowUp} disabled={!canSubmit} aria-label={t('Send message')} title={t('Send message')} className="studio-chat-composer-send" />
