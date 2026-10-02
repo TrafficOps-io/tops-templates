@@ -89,7 +89,8 @@ try {
   // A completed legacy draft becomes a recovered conversation run; it is separate from committed values and never restarts generation.
   await openFresh('seed-ready'); await openThread(chat,'Original creation brief');
   const recovered=chat.assistant.last(); await recovered.waitFor();
-  assert.equal(await recovered.getAttribute('data-run-status'),'interrupted');
+  // A valid recovered draft is offered as ready changes (Apply, Preview, Discard), with the recovery note as its status message.
+  assert.equal(await recovered.getAttribute('data-run-status'),'ready');
   await chat.user.getByText('Complete original brief',{exact:true}).waitFor();
   await chat.cards('values').getByText('Recovered completed title',{exact:false}).waitFor();
   await chat.cards('diff').filter({hasText:'index.tpl'}).getByText('Retained complete photo',{exact:false}).first().waitFor();
@@ -101,25 +102,23 @@ try {
   await reopen(); await openThread(chat,'Original creation brief'); await chat.assistant.last().waitFor();
   assert.equal(await calls(),0,'reload must not restart generation');
   // A valid recovered draft is applicable (the former panel offered "Apply to project" for valid interrupted runs).
-  if (!process.env.T7_SKIP_INTERRUPTED_APPLY) {
-    await page.evaluate(()=>window.recoveryTest.quotaProject=true);
-    await chat.apply.click();
-    await page.getByText('Browser storage is full.',{exact:false}).first().waitFor();
-    assert.equal((await saved()).settings.title,'Original saved title','failed project write keeps the draft');
-    await page.evaluate(()=>window.recoveryTest.quotaProject=false);
-    await chat.apply.click();
-    await waitDatabase(async()=>(await window.recoveryTest.readSaved()).settings.title==='Recovered completed title');
-    await chat.status('applied').waitFor();
-    const savedFiles=(await saved()).files;
-    assert.match(savedFiles['index.tpl'],/Retained complete photo/);
-    assert.deepEqual(Object.values(savedFiles['images/photo.png']),Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aK1cAAAAASUVORK5CYII=','base64')),'binary files survive recovery');
-  } // T7_SKIP
+  await page.evaluate(()=>window.recoveryTest.quotaProject=true);
+  await chat.apply.click();
+  await page.getByText('Browser storage is full.',{exact:false}).first().waitFor();
+  assert.equal((await saved()).settings.title,'Original saved title','failed project write keeps the draft');
+  await page.evaluate(()=>window.recoveryTest.quotaProject=false);
+  await chat.apply.click();
+  await waitDatabase(async()=>(await window.recoveryTest.readSaved()).settings.title==='Recovered completed title');
+  await chat.status('applied').waitFor();
+  const savedFiles=(await saved()).files;
+  assert.match(savedFiles['index.tpl'],/Retained complete photo/);
+  assert.deepEqual(Object.values(savedFiles['images/photo.png']),Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aK1cAAAAASUVORK5CYII=','base64')),'binary files survive recovery');
 
   // A newer committed project cannot be overlaid by an older recovery snapshot.
   await openFresh('seed-stale'); await openThread(chat,'Original creation brief');
   const stale=chat.assistant.last(); await stale.waitFor();
   // The run explains why it cannot be applied (the former panel showed run.error for every state).
-  if (!process.env.T7_SKIP_RUN_ERROR) await stale.getByText('This recovered draft belongs to an older project revision.',{exact:false}).first().waitFor(); // T7_SKIP
+  await stale.getByText('This recovered draft belongs to an older project revision.',{exact:false}).first().waitFor();
   assert.equal(await stale.getAttribute('data-run-status'),'interrupted');
   assert.equal(await chat.apply.count(),0,'a stale recovered draft is not applicable');
   assert.equal((await saved()).settings.title,'Newer saved title');
@@ -134,8 +133,7 @@ try {
   await chat.continueRun.last().click();
   await page.waitForFunction(()=>window.recoveryTest.writerPaused);
   assert.equal(await page.evaluate(()=>window.recoveryTest.calls[0].hasBriefTail),true,'continuation preserves the entire 6000-character original brief');
-  // conversation-runtime.js migrateLegacy does not carry record.clarifications into the migrated run (baseline runtime).
-  if (!process.env.T7_SKIP_LEGACY_CLARIFICATIONS) assert.equal(await page.evaluate(()=>window.recoveryTest.calls.some(call=>call.hasClarification)),true,'restored user instructions reach continuation tools'); // T7_SKIP
+  assert.equal(await page.evaluate(()=>window.recoveryTest.calls.some(call=>call.hasClarification)),true,'restored user instructions reach continuation tools');
   const working=chat.status('running').last(); await working.waitFor();
   // A clarification sent while the assistant works joins the running run (the former panel accepted messages during a run).
   if (!process.env.T7_SKIP_CLARIFY) {
@@ -150,7 +148,11 @@ try {
   assert.equal((await saved()).settings.title,'Original saved title','stopping never applies');
 
   // A fresh run stopped after a completed write retains its checkpoint.
-  await openFresh(''); 
+  await openFresh('');
+  // The editor opens on the latest conversation (the migrated one); this run starts a new conversation.
+  if (await chat.threads.isVisible()) await chat.threads.getByRole('button',{name:'New conversation',exact:true}).click();
+  else { const header=chat.root.locator('.studio-chat-header'); await header.getByRole('button',{name:'Conversations',exact:true}).click(); await header.getByRole('menuitem',{name:'New conversation',exact:true}).click(); }
+  await chat.root.locator('.studio-chat-header').getByRole('heading',{name:'New conversation',exact:true}).waitFor();
   await page.evaluate(()=>{window.recoveryTest.pauseAfterWrite=true;window.recoveryTest.writer=0;});
   await chat.scope.getByRole('button',{name:'Content only',exact:true}).click();
   await chat.prompt.fill('Update the title, then allow cancellation.');

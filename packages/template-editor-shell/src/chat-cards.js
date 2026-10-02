@@ -48,13 +48,18 @@ export function applicable(run) {
   const draft = run.result || run.checkpoint;
   return ['ready', 'interrupted'].includes(run.state) && draft?.valid === true && !draft.discussion && !run.recoveredConflict;
 }
+// Применимый восстановленный interrupted-черновик — 'ready' (Apply/Preview/Discard); неприменимый ready — 'completed'.
+// Причина остановки (run.error) — сообщение статуса для failed, interrupted и cancelled, как показывала прежняя панель.
+const explained = new Set(['failed', 'interrupted', 'cancelled']);
 export function runToState(run, t) {
-  const status = run.state === 'ready' && !applicable(run) ? 'completed' : run.state;
-  const message = run.state === 'failed' && run.error ? run.error : run.phase && ['queued', 'running'].includes(run.state) ? t(phaseLabels[run.phase] || run.phase) : undefined;
+  const status = run.state === 'ready' ? (applicable(run) ? 'ready' : 'completed') : run.state === 'interrupted' && applicable(run) ? 'ready' : run.state;
+  const message = explained.has(run.state) && run.error ? run.error : run.phase && ['queued', 'running'].includes(run.state) ? t(phaseLabels[run.phase] || run.phase) : undefined;
   return { id: run.id, status, ...(message ? { message } : {}) };
 }
 export function runToParts(run, t) {
-  const draft = run.result || run.checkpoint, text = run.result?.summary || run.error || (draft ? t('Changes prepared for review.') : '');
+  // Причина остановки interrupted/cancelled уже в сообщении статуса (runToState) — текстом не дублируется.
+  const draft = run.result || run.checkpoint, error = ['interrupted', 'cancelled'].includes(run.state) ? '' : run.error;
+  const text = run.result?.summary || error || (draft ? t('Changes prepared for review.') : '');
   return [...(text ? [{ type: 'text', text }] : []), ...draftCards(run.id, run.base, draft, run.locale, t)];
 }
 export function conflictToParts(runId, conflict, state, locale, t) {

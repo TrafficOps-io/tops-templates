@@ -346,3 +346,15 @@ test('repeated section mentions carry only their own rendered values', async t =
   assert.deepEqual(references[1].values, { '/comments/1/body': 'Second' });
   assert.equal(references[0].content, references[1].content);
 });
+
+test('legacy recovery keeps the user clarifications for the continuation', async t => {
+  const local = fixture('legacy-clarifications', { schema: 1, projectId: 'legacy-clarifications', revision: 0, threads: [], runs: [] }), calls = [];
+  local.host.ai.recovery = { load: async () => ({ conflict: false, record: { token: 'legacy-token', kind: 'edit', prompt: 'Original brief', attachments: [], files: state().files, values: state().translations.en, valid: true, clarifications: ['RETAINED_CLARIFICATION keep the photo', '  '] } }), discard: async () => {} };
+  const session = createConversationSession(local.host, { locks: null, sessionId: 'owner', workflows: basicWorkflows(async options => { calls.push(options); return { files: options.files, values: options.values, valid: true }; }) });
+  t.after(() => session.dispose()); await session.ready;
+  const thread = session.getSnapshot().threads[0];
+  assert.deepEqual(thread.messages.map(message => message.prompt), ['Original brief', 'RETAINED_CLARIFICATION keep the photo']);
+  await session.continue(session.getSnapshot().runs[0].id, { snapshot: state(), locale: 'en' });
+  await until(() => calls.length === 1);
+  assert.match(calls[0].conversationContext, /RETAINED_CLARIFICATION keep the photo/);
+});

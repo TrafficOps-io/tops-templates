@@ -238,6 +238,12 @@ export function createConversationSession(initialHost, { workflows = defaultWork
       const prompt = recovered?.record?.prompt || initial?.prompt || 'Continue the recovered draft';
       const messageId = `legacy-message-${conversationContentHash(doc.projectId)}`;
       if (!thread.messages.some(message => message.id === messageId)) thread.messages.push({ id: messageId, role: 'user', prompt, parts: [{ type: 'text', text: prompt }], attachments: clone(recovered?.record?.attachments || initial?.attachments || []), mentions: [], createdAt: now(), status: 'saved' });
+      // Уточнения пользователя из записи восстановления — сообщения диалога: продолжение получает их в контексте истории.
+      const clarifications = (recovered?.record?.clarifications || []).map(item => typeof item === 'string' ? item : item?.text).filter(text => typeof text === 'string' && text.trim()).slice(0, 8);
+      clarifications.forEach((text, index) => {
+        const id = `legacy-clarification-${conversationContentHash(doc.projectId)}-${index}`;
+        if (!thread.messages.some(message => message.id === id)) thread.messages.push({ id, role: 'user', prompt: text, parts: [{ type: 'text', text }], attachments: [], mentions: [], createdAt: now(), status: 'saved' });
+      });
       if (recovered) {
         const record = recovered.record, id = `legacy-run-${conversationContentHash(record.token)}`, editScope = record.editScope && validateBlockEditScope(record.editScope);
         const recoveredLocale = editScope?.locale || locale, recoveredScope = editScope ? { kind: 'block', editScope } : { kind: 'project' };

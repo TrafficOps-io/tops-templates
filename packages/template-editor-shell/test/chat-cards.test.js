@@ -38,6 +38,16 @@ test('a failed run carries the error as text and status message, and no cards wi
   assert.equal(runToState(run, t).message, 'Provider unavailable');
 });
 
+test('a valid recovered interrupted draft is ready; stopped and stale runs explain themselves', () => {
+  const recovered = { id: 'r8', state: 'interrupted', result: draft, error: 'Recovered draft. Generation has not restarted.' };
+  assert.deepEqual(runToState(recovered, t), { id: 'r8', status: 'ready', message: 'Recovered draft. Generation has not restarted.' });
+  const stale = { id: 'r9', state: 'interrupted', result: { ...draft, valid: false }, recoveredConflict: true, error: 'This recovered draft belongs to an older project revision.' };
+  assert.deepEqual(runToState(stale, t), { id: 'r9', status: 'interrupted', message: 'This recovered draft belongs to an older project revision.' });
+  assert.equal(runToState({ id: 'r10', state: 'interrupted', checkpoint: { ...draft, valid: false } }, t).status, 'interrupted');
+  assert.equal(runToState({ id: 'r11', state: 'cancelled', error: 'Stopped by the user.' }, t).message, 'Stopped by the user.');
+  assert.deepEqual(runToParts({ id: 'r11', state: 'cancelled', error: 'Stopped by the user.' }, t), [], 'the reason is not repeated as message text');
+});
+
 test('an apply conflict with a candidate becomes a question card with review options and candidate diffs', () => {
   const conflict = { code: 'conflict', requiresContextReview: true, conflicts: [], staleReadSet: [{ kind: 'file', path: 'index.tpl' }], candidate: { files: { 'index.tpl': 'a\nB\nc\nd' }, translations: { en: { title: 'New' } } } };
   const parts = conflictToParts('r1', conflict, { files: { 'index.tpl': 'a\nb\nc\nd' }, translations: { en: { title: 'Old' } } }, 'en', t);
