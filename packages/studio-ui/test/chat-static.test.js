@@ -74,11 +74,14 @@ test('StudioChat and RunActions carry their test hooks', () => {
   const chat = read('StudioChat.jsx');
   for (const id of ['studio-chat', 'studio-chat-threads', 'studio-chat-feed']) assert.ok(chat.includes(`data-testid="${id}"`), id);
   const actions = read('RunActions.jsx');
-  for (const id of ['studio-chat-apply', 'studio-chat-keep-draft', 'studio-chat-continue']) assert.ok(actions.includes(`data-testid="${id}"`), id);
+  assert.ok(actions.includes('canDiscardRun(port, run.status, hasDrafts)'), 'Discard follows canDiscardRun');
+  assert.ok(read('Messages.jsx').includes('hasDraftCards(state.message.content)'), 'AssistantMessage passes hasDrafts');
+  assert.ok(/onScopeChange\?\.\(next\)/.test(chat) && chat.includes('onScopeChange={changeScope}') && chat.includes('changeScope(launch.scope'), 'StudioChat reports scope changes, launches included');
+  for (const id of ['studio-chat-apply', 'studio-chat-discard', 'studio-chat-keep-draft', 'studio-chat-continue']) assert.ok(actions.includes(`data-testid="${id}"`), id);
 });
 
 test('the package exposes exactly the documented data-testid hooks', () => {
-  const expected = ['studio-chat', 'studio-chat-apply', 'studio-chat-card', 'studio-chat-composer', 'studio-chat-continue', 'studio-chat-feed', 'studio-chat-keep-draft', 'studio-chat-threads'];
+  const expected = ['studio-chat', 'studio-chat-apply', 'studio-chat-card', 'studio-chat-composer', 'studio-chat-continue', 'studio-chat-discard', 'studio-chat-feed', 'studio-chat-keep-draft', 'studio-chat-threads'];
   const found = new Set();
   for (const { source } of sourceFiles(new URL('../src/', import.meta.url))) {
     walk(ast(source), node => {

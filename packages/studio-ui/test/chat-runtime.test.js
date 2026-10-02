@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RUN_STATUS, addStreamedText, applyChatEvent, canHandleCardAction, mergeStreamedText, handleCardAction, lineDiff, sendToPort, toThreadMessage } from '../src/chat/chat-model.js';
+import { RUN_STATUS, addStreamedText, canDiscardRun, hasDraftCards, applyChatEvent, canHandleCardAction, mergeStreamedText, handleCardAction, lineDiff, sendToPort, toThreadMessage } from '../src/chat/chat-model.js';
 import { createFakeChatPort } from './fixtures/FakeChatPort.js';
 
 const card = { type: 'audio', name: 'voice.mp3', status: 'generating', progress: 0.2 };
@@ -238,4 +238,19 @@ test('deltas for a message missing from the snapshot are buffered until it appea
   assert.deepEqual(Object.keys(many), ['x2', 'x3', 'x4', 'x5', 'x6', 'x7', 'x8', 'x9']);
   assert.equal(addStreamedText(many, [], { type: 'text-delta', messageId: 'x9', delta: 'b'.repeat(64 * 1024) }), many, 'oversized buffer is refused');
   assert.equal(addStreamedText(many, [], { type: 'text-delta', delta: 'a' }), many, 'no messageId');
+});
+
+test('Discard: ready always, failed/interrupted/cancelled only with draft cards, never without port.discard', () => {
+  const port = { discard: async () => {} };
+  const card = toolName => ({ type: 'tool-call', toolCallId: `r:${toolName}`, toolName, result: {} });
+  for (const type of ['diff', 'values', 'image', 'file']) assert.equal(hasDraftCards([{ type: 'text', text: 'x' }, card(type)]), true, type);
+  for (const type of ['question', 'operation', 'audio', 'video']) assert.equal(hasDraftCards([card(type)]), false, type);
+  assert.equal(hasDraftCards(undefined), false);
+  assert.equal(canDiscardRun(port, 'ready', false), true);
+  for (const status of ['failed', 'interrupted', 'cancelled']) {
+    assert.equal(canDiscardRun(port, status, true), true, `${status} with drafts`);
+    assert.equal(canDiscardRun(port, status, false), false, `${status} without drafts`);
+    assert.equal(canDiscardRun({}, status, true), false, `${status} without port.discard`);
+  }
+  for (const status of ['queued', 'running', 'completed', 'applied', 'discarded']) assert.equal(canDiscardRun(port, status, true), false, status);
 });

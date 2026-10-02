@@ -21,20 +21,23 @@ const defaultScope = port => ({ kind: port.capabilities?.scopes?.includes('proje
 // port: ChatPort; threadId?: string; onThreadChange?(id) — '' or no threadId is a new conversation, created on the first send;
 // launch?: { id, text?, scope?, mentions?, attachments?: File[] } — external launch: an effect keyed on launch.id resets the composer and fills text, scope, mention targets and files;
 // actions?: { id, label, danger?, onSelect({ text }) }[] — menu items in the thread header (product actions, e.g. "Create the project anew");
+// onScopeChange?(scope) — called whenever the composer scope changes: a scope chip, removing a chip, a launch (including a launch
+// that resets the scope to the default); not called on mount;
 // disabled?: boolean; footer?: ReactNode; emptyState?: ReactNode; className?: string
 // Errors (send, thread and card actions) are inline notices; no ToastProvider is needed.
-export default function StudioChat({ port, threadId = '', onThreadChange, launch, actions = [], disabled = false, footer, emptyState, className = '' }) {
+export default function StudioChat({ port, threadId = '', onThreadChange, onScopeChange, launch, actions = [], disabled = false, footer, emptyState, className = '' }) {
   const t = useStudioText();
   const [text, setText] = useState(''), [scope, setScope] = useState(() => defaultScope(port)), [mentions, setMentions] = useState([]), [attachments, setAttachments] = useState([]), [generateImages, setGenerateImages] = useState(false);
   const [notice, setNotice] = useState(null); // { title, message }
   const report = title => cause => setNotice({ title, message: cause?.message || t('Something went wrong.') });
   const sendFailed = report(t('The message was not sent')), actionFailed = report(t('The action failed'));
+  const changeScope = next => { setScope(next); onScopeChange?.(next); };
 
   // External launch: each new launch.id resets the composer and fills text, scope, mention targets and files
   // (Media Studio passes the home screen input here, Landing — a launch from a preview block).
   useEffect(() => {
     if (!launch) return;
-    setText(launch.text || ''); setScope(launch.scope || defaultScope(port)); setMentions(launch.mentions || []); setAttachments(launch.attachments || []); setNotice(null);
+    setText(launch.text || ''); changeScope(launch.scope || defaultScope(port)); setMentions(launch.mentions || []); setAttachments(launch.attachments || []); setNotice(null);
   }, [launch?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const clear = () => { setText(''); setMentions([]); setAttachments([]); setNotice(null); };
@@ -78,7 +81,7 @@ export default function StudioChat({ port, threadId = '', onThreadChange, launch
               <ThreadPrimitive.ScrollToBottom className="studio-chat-scroll-bottom" aria-label={t('Scroll to the latest message')} title={t('Scroll to the latest message')}><ArrowDown size={16} aria-hidden="true" /></ThreadPrimitive.ScrollToBottom>
               {notice && <InlineNotice tone="danger" title={notice.title} actions={<Button variant="ghost" size="sm" onClick={() => setNotice(null)}>{t('Dismiss')}</Button>}>{notice.message}</InlineNotice>}
               <ChatComposerContext.Provider value={{ onSubmit: submitMessage, clarifyWhileRunning: Boolean(port.capabilities?.clarifyWhileRunning) }}>
-                <Composer port={port} value={text} onChange={setText} disabled={disabled} scope={scope} onScopeChange={setScope} mentions={mentions} onMentionsChange={setMentions}
+                <Composer port={port} value={text} onChange={setText} disabled={disabled} scope={scope} onScopeChange={changeScope} mentions={mentions} onMentionsChange={setMentions}
                   attachments={attachments} onAttachmentsChange={setAttachments} generateImages={generateImages} onGenerateImagesChange={setGenerateImages} />
               </ChatComposerContext.Provider>
               {footer}

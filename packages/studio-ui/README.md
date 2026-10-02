@@ -94,11 +94,12 @@ const port = {
 Load it lazily so the chat is a separate chunk: `const StudioChat = React.lazy(() => import('@trafficops/studio-ui/chat').then(module => ({ default: module.StudioChat })))` inside `Suspense` with a `Skeleton`. It is built on `@assistant-ui/react` with its own lightweight markdown renderer (no Streamdown).
 
 ```jsx
-<StudioChat port={port} threadId={threadId} onThreadChange={setThreadId} launch={launch} actions={actions} disabled={false} footer={null} emptyState={null} className="" />
+<StudioChat port={port} threadId={threadId} onThreadChange={setThreadId} onScopeChange={setScope} launch={launch} actions={actions} disabled={false} footer={null} emptyState={null} className="" />
 ```
 
 - `port`: `ChatPort`. `threadId`, `onThreadChange(id)`: the selected thread, controlled by the product; an empty `threadId` is a new conversation.
 - `launch`: `{ id, text?, scope?, mentions?, attachments?: File[] }` — start a conversation from outside (see below).
+- `onScopeChange(scope)` (optional): called with the new `Scope` whenever the composer scope changes — a scope chip, the chip's remove cross (back to the default scope) and every `launch` (its `scope`, or the default scope when the launch has none). Not called on mount. The scope stays owned by `StudioChat`; products use this to keep scope-dependent UI (Landing: the "Selected blocks" panel) in step with the composer before the first send.
 - `actions`: `{ id, label, danger?, onSelect({ text }) }[]` — product actions in the thread header menu; `onSelect` receives the current composer text.
 - `disabled` (composer read-only), `footer` (rendered under the composer), `emptyState` (replaces the built-in empty thread state; shown through `AuiIf condition={state => state.thread.isEmpty}`), `className`.
 
@@ -124,7 +125,7 @@ setLaunch({ id: crypto.randomUUID(), text, mentions, attachments: files });
 
 ### Test hooks
 
-`data-testid` values (exactly this list): `studio-chat` (root), `studio-chat-threads` (the conversation list column; hidden below 560 px), `studio-chat-composer`, `studio-chat-feed` (the scrolling feed), `studio-chat-card` (with `data-card` set to the card type), `studio-chat-apply`, `studio-chat-keep-draft`, `studio-chat-continue`. Messages carry `data-role` (`user` / `assistant`), and assistant messages `data-run-id` and `data-run-status`. In a narrow chat the conversation list is the header button named "Conversations". The composer send button is named "Send message"; it is disabled during a run unless `capabilities.clarifyWhileRunning`. `studio-chat-continue` sends the composer text as the `continueRun` prompt. On touch screens (`pointer: coarse`) every chat button — header, conversation list, composer (attach, mention, send, scope chips, chips), run actions and card actions — is at least 44 × 44 px; `test/chat-browser.mjs` checks this with Playwright `hasTouch`/`isMobile`.
+`data-testid` values (exactly this list): `studio-chat` (root), `studio-chat-threads` (the conversation list column; hidden below 560 px), `studio-chat-composer`, `studio-chat-feed` (the scrolling feed), `studio-chat-card` (with `data-card` set to the card type), `studio-chat-apply`, `studio-chat-discard`, `studio-chat-keep-draft`, `studio-chat-continue`. Messages carry `data-role` (`user` / `assistant`), and assistant messages `data-run-id` and `data-run-status`. In a narrow chat the conversation list is the header button named "Conversations". The composer send button is named "Send message"; it is disabled during a run unless `capabilities.clarifyWhileRunning`. `studio-chat-continue` sends the composer text as the `continueRun` prompt. `studio-chat-discard` ("Discard") appears for a `ready` run and for a `failed`, `interrupted` or `cancelled` run whose message has draft cards (`diff`, `values`, `image`, `file`), so a broken draft can be dropped before the next send. On touch screens (`pointer: coarse`) every chat button — header, conversation list, composer (attach, mention, send, scope chips, chips), run actions and card actions — is at least 44 × 44 px; `test/chat-browser.mjs` checks this with Playwright `hasTouch`/`isMobile`.
 
 ## Tests
 

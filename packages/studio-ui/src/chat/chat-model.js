@@ -15,6 +15,15 @@ export const RUN_STATUS = {
   interrupted: { type: 'incomplete', reason: 'other' },
 };
 
+// Result cards that carry an unapplied draft (changed files, values, generated media).
+export const DRAFT_CARD_TYPES = new Set(['diff', 'values', 'image', 'file']);
+export const hasDraftCards = parts => (parts ?? []).some(part => part?.type === 'tool-call' && DRAFT_CARD_TYPES.has(part.toolName));
+const DISCARD_STOPPED = new Set(['failed', 'interrupted', 'cancelled']);
+/** Discard is offered for a ready run, and for a failed/interrupted/cancelled run that left draft cards (otherwise the
+ *  runtime may carry the broken draft into the next send). Both require port.discard. */
+export const canDiscardRun = (port, status, hasDrafts) => typeof port?.discard === 'function'
+  && (status === 'ready' || (DISCARD_STOPPED.has(status) && Boolean(hasDrafts)));
+
 export const isActiveRun = message => ['queued', 'running'].includes(message?.status?.status);
 
 // ChatPort message → ThreadMessageLike. Result cards become tool-call parts, toolName = card type;

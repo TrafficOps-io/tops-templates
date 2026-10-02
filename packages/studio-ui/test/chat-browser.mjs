@@ -73,6 +73,7 @@ try {
   await assertTarget(scope.getByRole('button', { name: 'Remove Scene' }), 'scope remove');
   await scope.getByRole('button', { name: 'Remove Scene' }).click();
   assert.equal(await scope.getByRole('button', { name: 'Project', exact: true }).getAttribute('aria-pressed'), 'true');
+  assert.deepEqual(await page.evaluate(() => window.scopes), [{ kind: 'scene' }, { kind: 'project' }], 'onScopeChange reports the chip and its removal, not the mount');
   await assertTarget(page.getByTestId('studio-chat-threads').getByRole('button', { name: 'Archived' }), 'archive toggle');
   // A rejected attachment shows a notice whose Dismiss button is a full hit target.
   await composer.locator('input[type="file"]').setInputFiles({ name: 'tool.exe', mimeType: 'application/x-msdownload', buffer: Buffer.from('x') });
@@ -193,10 +194,19 @@ try {
   await feed.locator('[data-role="assistant"][data-run-status="discarded"]').waitFor();
   assert.ok(await lastCall('discard'));
 
+  // A failed run that left draft cards offers Discard (the broken draft must not travel into the next send).
+  await send('Broken idea');
+  await page.evaluate(() => { window.fake.emitCard({ type: 'diff', path: 'index.tpl', added: 1, removed: 0, before: '', after: '<p>Half</p>' }); window.fake.finish('failed', { message: 'Model timed out' }); });
+  await feed.locator('[data-role="assistant"][data-run-status="failed"]').waitFor();
+  await assistant().getByTestId('studio-chat-discard').click();
+  await feed.locator('[data-role="assistant"][data-run-status="discarded"]').nth(1).waitFor();
+  assert.equal((await lastCall('discard'))[1], await assistant().getAttribute('data-run-id'), 'discard gets the failed run');
+
   // Failed → Keep draft and Continue generation.
   await send('Third idea');
   await page.evaluate(() => window.fake.finish('failed', { message: 'Render failed' }));
   await feed.locator('[data-role="assistant"][data-run-status="failed"]').waitFor();
+  assert.equal(await assistant().getByTestId('studio-chat-discard').count(), 0, 'no Discard for a failed run without draft cards');
   await page.getByTestId('studio-chat-keep-draft').click();
   await page.waitForFunction(() => window.fake.calls.some(([name]) => name === 'keepDraft'));
   // Continue generation sends the composer text as the prompt and clears the composer.
@@ -229,8 +239,10 @@ try {
   // text, mentions and files return to the composer.
   await page.evaluate(() => window.setThreadId(''));
   await page.waitForFunction(() => window.threadId === '');
+  const scopesBeforeLaunch = await page.evaluate(() => window.scopes.length);
   await page.evaluate(() => window.launch({ id: crypto.randomUUID(), text: 'Rejected first message', mentions: [{ kind: 'scene', id: 'scene:s1', label: 'Scene 1' }], attachments: [new File(['x'], 'note.txt', { type: 'text/plain' })] }));
   await page.waitForFunction(() => document.querySelector('[data-testid="studio-chat-composer"] textarea[role="combobox"]').value === 'Rejected first message');
+  assert.deepEqual(await page.evaluate(n => window.scopes.slice(n), scopesBeforeLaunch), [{ kind: 'project' }], 'a launch without scope reports the default scope');
   const threadsBefore = await page.evaluate(() => window.fake.threads.get().length);
   await input.click(); await page.keyboard.press('Enter');
   await page.waitForFunction(() => window.fake.calls.at(-1)?.[0] === 'deleteThread');

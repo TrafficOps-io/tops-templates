@@ -8,7 +8,7 @@ import Markdown from './Markdown.jsx';
 import RunStatus from './RunStatus.jsx';
 import RunActions from './RunActions.jsx';
 import { renderCard } from './cards/index.js';
-import { canHandleCardAction, handleCardAction } from './chat-model.js';
+import { canHandleCardAction, handleCardAction, hasDraftCards } from './chat-model.js';
 
 export { handleCardAction };
 
@@ -32,6 +32,7 @@ export function UserMessage({ port }) {
 
 export function AssistantMessage({ port }) {
   const t = useStudioText(), { run } = useCustom(), [error, setError] = useState(null);
+  const hasDrafts = useAuiState(state => hasDraftCards(state.message.content));
   const can = action => canHandleCardAction(port, action);
   // A rejected card action becomes an inline notice under the message (never a toast, never an unhandled rejection).
   const onAction = (action, card, value) => {
@@ -49,7 +50,7 @@ export function AssistantMessage({ port }) {
       return <></>;
     }}</MessagePrimitive.Parts>
     {error && <InlineNotice tone="danger" title={t('The action failed')} actions={<Button variant="ghost" size="sm" onClick={() => setError(null)}>{t('Dismiss')}</Button>}>{error.message || t('Something went wrong.')}</InlineNotice>}
-    {run && <RunActions port={port} run={run} />}
+    {run && <RunActions port={port} run={run} hasDrafts={hasDrafts} />}
   </MessagePrimitive.Root>;
 }
 
