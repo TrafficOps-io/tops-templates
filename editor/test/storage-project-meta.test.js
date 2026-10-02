@@ -5,6 +5,7 @@ import { claimPendingAi, createProjectMeta, encodePendingAi, preparePendingAi, r
 import { createDirectoryConversationStore } from '../src/storage/directory-conversation-store.js';
 import { readFile, readJson, writeFile } from '../src/storage/write.js';
 import { MemoryDirectoryHandle } from './support/fs-access.js';
+import { validateFileAiAttachments } from '@trafficops/template-editor-shell/file-ai-attachments';
 
 const META = '.trafficops/project.json', BLOBS = '.trafficops/conversations/blobs';
 const conflict = error => error?.code === 'conflict';
@@ -55,6 +56,23 @@ test('pendingAi keeps text attachments and drops useOnPage for non-images', asyn
   assert.equal(meta.pendingAi.attachments[0].blob.encoding, 'utf8');
   assert.equal(meta.pendingAi.attachments[0].useOnPage, false);
   assert.deepEqual(await resolvePendingAi(root, meta), brief('b', { generateImages: false, attachments: [{ ...notes, useOnPage: false }] }));
+});
+
+test('a brief with a PDF and a text document round-trips and the runtime validator accepts the result', async () => {
+  const { root, projectId } = await project();
+  const pdf = new TextEncoder().encode('%PDF-1.4\n1 0 obj << >> endobj\n%%EOF\n');
+  const attachments = [
+    { id: 'att-pdf', name: 'menu.pdf', mime: 'application/pdf', dataUrl: `data:application/pdf;base64,${toBase64(pdf)}`, useOnPage: true },
+    { id: 'att-csv', name: 'prices.csv', mime: 'text/csv', text: 'item,price\nBread,3\nCake,12\n' },
+  ];
+  await storePendingAi(root, projectId, brief('docs', { generateImages: false, attachments }));
+  const meta = await readProjectMeta(root);
+  assert.deepEqual(meta.pendingAi.attachments.map(item => [item.mime, item.blob.encoding, item.useOnPage]), [['application/pdf', 'bytes', false], ['text/csv', 'utf8', false]]);
+  assert.deepEqual(await readFile(root, `${BLOBS}/${await sha256Hex(pdf)}`), pdf);
+  const resolved = await resolvePendingAi(root, meta);
+  const expected = [{ ...attachments[0], useOnPage: false }, { ...attachments[1], useOnPage: false }];
+  assert.deepEqual(resolved, brief('docs', { generateImages: false, attachments: expected }));
+  assert.deepEqual(validateFileAiAttachments(resolved.attachments), attachments.map(({ useOnPage: _drop, ...item }) => item));
 });
 
 test('storePendingAi rejects malformed briefs and a foreign project', async () => {

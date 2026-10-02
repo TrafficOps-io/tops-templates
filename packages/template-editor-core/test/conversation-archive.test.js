@@ -134,6 +134,18 @@ test('new history is validated: dialogue files, referenced blobs, identity and b
   assert.throws(() => readZipProject(raw(oversized), { history: true }), /too large/);
 });
 
+test('only values.json and project.json are accepted under .trafficops/, and project.json must be valid metadata', () => {
+  for (const options of [undefined, { history: true }]) {
+    assert.throws(() => readZipProject(raw({ '.trafficops/key.json': json({ apiKey: 'secret' }) }), options), /Unsafe file path/);
+    assert.throws(() => readZipProject(raw({ '.trafficops/project.json/': new Uint8Array() }, { 'index.tpl': strToU8('x') }), options), /Unsafe file path/, 'a folder named like a sidecar');
+  }
+  for (const bad of [{ ...metadata, schema: 2 }, { ...metadata, kind: 'site' }, { ...metadata, name: '' }, { ...metadata, projectId: '' }, []]) {
+    assert.throws(() => readZipProject(raw({}, { 'index.tpl': strToU8('x'), '.trafficops/project.json': json(bad) })), /Unsupported Studio project metadata|Invalid portable/, JSON.stringify(bad));
+  }
+  assert.throws(() => readZipProject(raw({}, { 'index.tpl': strToU8('x'), '.trafficops/project.json': strToU8('{nope') })));
+  assert.deepEqual(readZipProject(raw({})).metadata, metadata);
+});
+
 test('generated (hosting) ZIPs never contain history', async () => {
   const zip = unzipSync(createZip({ 'index.html': '<p>x</p>' }, { generated: true, metadata, conversationFiles: await conversationFilesFromDocument(document()) }));
   assert.deepEqual(Object.keys(zip), ['index.html']);

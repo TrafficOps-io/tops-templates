@@ -58,6 +58,18 @@ test('createProjectInRoot without values, history or brief writes only files and
   assert.deepEqual(snapshot.conversations.threads, []);
 });
 
+test('a project created from a user template records sourceTemplateId in project.json; one without it records none', async () => {
+  const root = new MemoryDirectoryHandle('from-template'), plain = new MemoryDirectoryHandle('plain');
+  const meta = await createProjectInRoot(root, { projectId: 'landing-1', kind: 'landing', name: 'From template', files: { 'index.tpl': 'x' }, sourceTemplateId: 'template-7' });
+  assert.equal(meta.sourceTemplateId, 'template-7');
+  assert.equal(JSON.parse(await readText(root, META)).sourceTemplateId, 'template-7');
+  assert.equal((await readProjectMeta(root)).sourceTemplateId, 'template-7');
+  assert.equal((await readProjectSnapshot(root)).meta.sourceTemplateId, 'template-7');
+  await createProjectInRoot(plain, { projectId: 'landing-2', kind: 'landing', name: 'Plain', files: { 'index.tpl': 'x' } });
+  assert.equal(Object.hasOwn(JSON.parse(await readText(plain, META)), 'sourceTemplateId'), false);
+  await assert.rejects(createProjectInRoot(new MemoryDirectoryHandle('bad'), { kind: 'landing', name: 'Bad', files: { 'index.tpl': 'x' }, sourceTemplateId: '' }), /source template ID/);
+});
+
 test('createProjectInRoot rejects history of another project before writing anything', async () => {
   const root = new MemoryDirectoryHandle('x');
   await assert.rejects(create(root, { conversations: conversation('someone-else') }), /different project/);
