@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import { studioChat } from './support/studio-chat.js';
+import { installFolderPicker, usePicker } from './support/studio-folders.js';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(process.env.PLAYWRIGHT_MODULE || 'playwright');
@@ -24,6 +25,7 @@ try {
   browser = await chromium.launch({ headless: true, ...(process.platform === 'darwin' ? { executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' } : {}) });
   const context = await browser.newContext();
   await context.addInitScript(() => Object.defineProperty(navigator, 'standalone', { configurable: true, value: true }));
+  await installFolderPicker(context);
   const page = await context.newPage(), errors = [], keys = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.route('https://openrouter.ai/api/v1/**', route => {
@@ -32,6 +34,7 @@ try {
   });
   const url = `http://127.0.0.1:${server.address().port}/`;
   await page.goto(url);
+  await usePicker(page, 'openrouter-settings');
   const open = async () => {
     await page.getByRole('button', { name: 'OpenRouter', exact: true }).last().click();
     const dialog = page.getByRole('dialog', { name: 'OpenRouter settings' });
@@ -103,7 +106,8 @@ try {
   assert.deepEqual(keys, ['Bearer sk-or-second-test'], 'No provider request without a key');
   const tab = await browser.newPage();
   await tab.goto(url);
-  assert.equal(await tab.getByRole('button', { name: 'OpenRouter', exact: true }).count(), 0);
+  // AI is available in ordinary tabs too (no installed-app gating).
+  await tab.getByRole('button', { name: 'OpenRouter', exact: true }).first().waitFor();
   assert.deepEqual(errors, []);
   console.log('OpenRouter settings: save, reload, cancel replacement, replace, verify, remove, persistence, chat key gating and browser-tab gating passed.');
 } finally {
