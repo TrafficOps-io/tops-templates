@@ -38,7 +38,7 @@ function callTimeout(options) {
 }
 
 async function runCall(agent, options, messages) {
-  let toolStarted = false;
+  let toolStarted = false, sawOutput = false;
   return runWithAiProviderRecovery(async () => {
     const timeout = callTimeout(options), step = ++options.calls.count, started = Date.now();
     options.notify({ type: 'step', step });
@@ -54,7 +54,7 @@ async function runCall(agent, options, messages) {
         if (['tool-input-start', 'tool-call', 'tool-result'].includes(event.type)) toolStarted = true;
         if (event.type === 'tool-input-start') options.notify({ type: 'tool-start', tool: event.toolName });
         if (['text-delta', 'tool-input-delta', 'reasoning-delta'].includes(event.type)) {
-          received += (event.text || event.delta || '').length;
+          received += (event.text || event.delta || '').length; sawOutput ||= received > 0;
           if (Date.now() - lastUpdate >= 250) { lastUpdate = Date.now(); options.notify({ type: 'receiving', received }); }
         }
       }
@@ -65,7 +65,7 @@ async function runCall(agent, options, messages) {
     options.signal?.throwIfAborted();
     options.notify({ type: 'step-finished', step, seconds: Math.max(0, (Date.now() - started) / 1000) });
     return result;
-  }, { ...options, onProgress: options.notify, canRetry: () => !toolStarted });
+  }, { ...options, onProgress: options.notify, canRetry: () => !toolStarted && !sawOutput });
 }
 
 async function structuredStage(options, { name, schema, instructions, prompt }) {

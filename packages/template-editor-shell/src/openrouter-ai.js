@@ -134,7 +134,7 @@ export async function requestOpenRouter({ apiKey, model = DEFAULT_OPENROUTER_MOD
         max_tokens: maxTokens,
         temperature: 0.35,
         stream: false,
-        provider: strictSchema ? { require_parameters: true, data_collection: 'deny' } : { data_collection: 'deny' },
+        provider: strictSchema ? { require_parameters: true, allow_fallbacks: true, data_collection: 'deny' } : { allow_fallbacks: true, data_collection: 'deny' },
       };
       if (strictSchema) body.response_format = {
         type: 'json_schema',

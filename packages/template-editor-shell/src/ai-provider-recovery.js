@@ -1,12 +1,5 @@
 import { normalizeAiProviderError } from './ai-provider-errors.js';
-
-function retryDelay(error, fallback) {
-  const headers = error?.responseHeaders;
-  const hint = headers?.get?.('retry-after') ?? headers?.['retry-after'];
-  const seconds = Number(hint);
-  const milliseconds = hint && !Number.isFinite(seconds) ? Date.parse(hint) - Date.now() : seconds * 1000;
-  return Math.max(fallback, Number.isFinite(milliseconds) ? milliseconds : fallback);
-}
+import { MAX_PROVIDER_RETRIES, RETRY_AFTER_CAP_MS, retryAfterMs, retryDecision } from './ai-retry-policy.js';
 
 function pause(milliseconds, signal) {
   signal?.throwIfAborted();
@@ -18,24 +11,32 @@ function pause(milliseconds, signal) {
   });
 }
 
-// One shared allowance covers the entire planner/writer/reviewer run. Retrying
-// after tool input starts is unsafe: files or paid images may already exist.
-export async function runWithAiProviderRecovery(callback, { signal, deadline = Infinity, retryState = { attempted: false }, onProgress, canRetry = () => true, apiKey, delayMs = 2000 } = {}) {
-  for (;;) {
+let sleepOverride = null;
+/** Tests replace the wait (not the decision): workflows deep inside a run keep their real retry policy. */
+export function setAiRetrySleepForTesting(sleep) { sleepOverride = typeof sleep === 'function' ? sleep : null; }
+
+// Each provider request gets up to three retries, but only while nothing was
+// received (canRetry() is false once text, reasoning or tool input arrived, or
+// a tool already changed the draft). retryState is accepted for compatibility;
+// the policy is per request, not per run.
+export async function runWithAiProviderRecovery(callback, { signal, deadline = Infinity, onProgress, canRetry = () => true, apiKey, sleep, random } = {}) {
+  for (let attempt = 0; ; attempt++) {
     signal?.throwIfAborted();
     try { return await callback(); }
     catch (error) {
       const safe = normalizeAiProviderError(error, { apiKey });
-      const delay = retryDelay(error, delayMs);
+      const hint = retryAfterMs(error?.responseHeaders);
       const details = { statusCode: safe.statusCode, code: safe.code, provider: safe.provider, generationId: safe.generationId };
-      if (signal?.aborted || !safe.retryable || retryState.attempted || !canRetry(safe) || delay > 30000 || Date.now() + delay + 1000 >= deadline) {
-        if (delay > 30000 && safe.retryable) safe.message += ` Retry after ${Math.ceil(delay / 1000)} seconds.`;
-        onProgress?.({ type: 'provider-error', ...details, error: safe.message, retryable: safe.retryable, retryAfterMs: delay });
+      const decision = signal?.aborted || safe.cancelled ? { retry: false, delayMs: 0 }
+        : retryDecision({ status: safe.statusCode, sawOutput: !canRetry(safe), attempt, retryAfterMs: hint, random });
+      if (!decision.retry || Date.now() + decision.delayMs + 1000 >= deadline) {
+        if (hint > RETRY_AFTER_CAP_MS && safe.retryable) safe.message += ` Retry after ${Math.ceil(hint / 1000)} seconds.`;
+        onProgress?.({ type: 'provider-error', ...details, error: safe.message, retryable: safe.retryable, ...(hint !== undefined ? { retryAfterMs: hint } : {}) });
         throw safe;
       }
-      retryState.attempted = true;
-      onProgress?.({ type: 'provider-recovery', ...details, delayMs: delay });
-      await pause(delay, signal);
+      onProgress?.({ type: 'provider-recovery', ...details, attempt: attempt + 1, maxAttempts: MAX_PROVIDER_RETRIES, delayMs: decision.delayMs });
+      await (sleep || sleepOverride || pause)(decision.delayMs, signal);
+      signal?.throwIfAborted();
     }
   }
 }
