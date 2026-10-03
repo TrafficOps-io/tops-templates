@@ -103,8 +103,9 @@ try {
  await page.getByRole('tab',{name:'Conversations',exact:true}).click();
  await page.getByRole('button',{name:'Set up AI in Settings',exact:true}).click();
  await page.locator('.ai-settings input[type=password]').waitFor();
- assert.equal(await page.getByRole('tab',{name:'Conversations',exact:true}).getAttribute('aria-selected'),'true');
+ assert.equal(await page.getByRole('tab',{name:'Conversations',exact:true}).count(),0,'Settings hides the workspace from the accessibility tree');
  await page.getByRole('button',{name:'Back to project',exact:true}).click();
+ assert.equal(await page.getByRole('tab',{name:'Conversations',exact:true}).getAttribute('aria-selected'),'true','returning from Settings preserves the selected tab');
  async function exportProject(format='source') { await page.getByRole('button',{name:'Export',exact:true}).click(); await page.getByRole('menuitem',{name:format==='source'?/Editable project/:/Landing for hosting/}).click(); await page.getByRole('dialog',{name:'Export',exact:true}).waitFor(); }
  await exportProject();
  await page.getByText('Backup or reopen this editable project in Studio.',{exact:true}).waitFor();
