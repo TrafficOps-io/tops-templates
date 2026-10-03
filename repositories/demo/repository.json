@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "repository": {
+    "name": "TrafficOps Demo",
+    "description": "Five editable landing pages for a product, a course, an event, a cafe and a creative portfolio. All assets are included.",
+    "author": "TrafficOps",
+    "homepage": "https://github.com/trafficops-io/tops-templates"
+  },
+  "templates": [
+    {
+      "id": "demo-saas",
+      "name": "Tandem SaaS",
+      "description": "A product launch with a project-board preview, features and pricing.",
+      "version": "1.0.0",
+      "thumbnail": "demo-saas.png"
+    },
+    {
+      "id": "demo-course",
+      "name": "Clay School",
+      "description": "A pottery course with a curriculum, instructor introduction and enrollment details.",
+      "version": "1.0.0",
+      "thumbnail": "demo-course.png"
+    },
+    {
+      "id": "demo-event",
+      "name": "Common Ground",
+      "description": "An event poster with a schedule, speakers, venue information and tickets.",
+      "version": "1.0.0",
+      "thumbnail": "demo-event.png"
+    },
+    {
+      "id": "demo-cafe",
+      "name": "Juniper Cafe",
+      "description": "A neighborhood cafe with a seasonal menu, opening hours and a visit section.",
+      "version": "1.0.0",
+      "thumbnail": "demo-cafe.png"
+    },
+    {
+      "id": "demo-portfolio",
+      "name": "Still Portfolio",
+      "description": "An editorial photography portfolio with selected projects, a biography and contact details.",
+      "version": "1.0.0",
+      "thumbnail": "demo-portfolio.png"
+    }
+  ]
+}

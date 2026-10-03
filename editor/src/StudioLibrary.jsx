@@ -3,7 +3,8 @@ import { ArrowUpRight, Check, ChevronRight, Copy, FileCode2, FolderOpen, LayoutT
 import { generateProject } from '@trafficops/template-runtime';
 import { buildPreview } from '@trafficops/template-editor-shell/preview';
 import { Menu, Skeleton, Tabs, tabPanelProps } from '@trafficops/studio-ui/primitives';
-import { studioStarters } from './studio-catalog.js';
+import { repositoryTemplates } from './template-repositories.js';
+import './template-repositories.css';
 import { BRIEF_REQUIRED, BriefComposer, briefAttachments, briefIdeas } from './HomeProjectChat.jsx';
 import './create-project.css';
 import { readProjectTree } from './storage/files.js';
@@ -38,7 +39,7 @@ function Thumbnail({ project, compact = false }) {
   }, [visible, content]);
   useEffect(() => () => preview?.dispose(), [preview]);
   const base = compact ? 'template-choice-thumbnail' : 'library-thumbnail';
-  return <div ref={root} className={base} aria-hidden="true">{preview ? <iframe title={`${project.name} thumbnail`} srcDoc={preview.html} sandbox="" tabIndex={-1} /> : <div className={`${base}-skeleton`}><Skeleton shape="card" height="100%" /></div>}{!compact && <span>{project.builtin ? 'STARTER' : project.kind === 'template' ? 'TEMPLATE' : 'LANDING'}</span>}</div>;
+  return <div ref={root} className={base} aria-hidden="true">{project.thumbnail ? <img src={project.thumbnail} alt="" loading="lazy" referrerPolicy="no-referrer" /> : project.repositoryId ? (visible && project.preview ? <iframe title={`${project.name} thumbnail`} src={project.preview} sandbox="" referrerPolicy="no-referrer" loading="lazy" tabIndex={-1} /> : <div className="repository-thumbnail-placeholder"><LayoutTemplate size={28} /></div>) : preview ? <iframe title={`${project.name} thumbnail`} srcDoc={preview.html} sandbox="" tabIndex={-1} /> : <div className={`${base}-skeleton`}><Skeleton shape="card" height="100%" /></div>}{!compact && <span>{project.repositoryId ? 'TEMPLATE' : project.kind === 'template' ? 'TEMPLATE' : 'LANDING'}</span>}</div>;
 }
 
 function ProjectActions({ project, busy, onCreate, onUseTemplate, onDuplicate, onDelete }) {
@@ -51,18 +52,19 @@ function ProjectActions({ project, busy, onCreate, onUseTemplate, onDuplicate, o
   </Menu>;
 }
 
-export default function StudioLibrary({ projects, busy, aiEnabled = false, activity = [], onCreate, onOpen, onDuplicate, onDelete, onImport, onFolder, storageMode = 'folder', onUseTemplate, onReconnect, onRemove }) {
+export default function StudioLibrary({ projects, busy, aiEnabled = false, activity = [], onCreate, onOpen, onDuplicate, onDelete, onImport, onFolder, storageMode = 'folder', onUseTemplate, onReconnect, onRemove, repositories = [], repositoryError, onSettings }) {
   const id = useId(), [view, setView] = useState('projects'), [filter, setFilter] = useState('all');
   const [search, setSearch] = useState(''), [templateSearch, setTemplateSearch] = useState('');
   const shown = projects.filter(item => (filter === 'all' || item.kind === filter) && item.name.toLowerCase().includes(search.trim().toLowerCase()));
-  const matches = item => item.name.toLowerCase().includes(templateSearch.trim().toLowerCase());
-  const starters = studioStarters.filter(matches), templates = projects.filter(item => item.kind === 'template').filter(matches);
+  const matches = item => `${item.name} ${item.description || ''}`.toLowerCase().includes(templateSearch.trim().toLowerCase());
+  const templates = projects.filter(item => item.kind === 'template').filter(matches);
+  const groups = repositories.filter(record => record.enabled).map(record => ({ ...record, templates: repositoryTemplates(record).filter(matches) }));
   const working = projects.filter(project => activity.some(run => run.projectId === project.id));
   const catalogue = (items, builtin = false) => <div className={`library-grid ${builtin ? 'starter-grid' : 'saved-template-grid'}`}>{items.map(project => <article className="library-card" key={project.id}>
-    <button className="library-preview-button" aria-label={`Use ${project.name}`} disabled={busy} onClick={() => onUseTemplate && !project.builtin ? onUseTemplate(project) : onCreate({ mode: 'template', source: project })}><Thumbnail project={project} /></button>
+    <button className="library-preview-button" aria-label={`Use ${project.name}`} disabled={busy} onClick={() => onUseTemplate ? onUseTemplate(project) : onCreate({ mode: 'template', source: project })}><Thumbnail project={project} /></button>
     <div className="library-card-body"><h3>{project.name}</h3><p>{project.description || 'Your reusable template'}</p>
-      <div className="library-card-actions"><button className="btn btn-outline btn-sm" disabled={busy} onClick={() => onUseTemplate && !project.builtin ? onUseTemplate(project) : onCreate({ mode: 'template', source: project })}>Use template <ArrowUpRight size={14} /></button>
-        {!builtin && <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => onOpen(project)}>Edit template</button>}</div>
+      <div className="library-card-actions"><button className="btn btn-outline btn-sm" disabled={busy} onClick={() => onUseTemplate ? onUseTemplate(project) : onCreate({ mode: 'template', source: project })}>Use template <ArrowUpRight size={14} /></button>
+        {project.preview && <a className="btn btn-ghost btn-sm repository-preview-link" href={project.preview} target="_blank" rel="noreferrer">Preview <ArrowUpRight size={14} /></a>}{!project.repositoryId && !builtin && <button className="btn btn-ghost btn-sm" disabled={busy} onClick={() => onOpen(project)}>Edit template</button>}</div>
     </div>
   </article>)}</div>;
   return <section className="library library-project-first" aria-labelledby="library-title" data-testid="studio-library">
@@ -88,58 +90,73 @@ export default function StudioLibrary({ projects, busy, aiEnabled = false, activ
       </article>)}</div> : <div className="library-empty"><FileCode2 size={26} aria-hidden="true" /><h2>{search.trim() || filter !== 'all' ? 'No matching projects' : 'Start your first project'}</h2><p>{search.trim() || filter !== 'all' ? 'Try another name or project type.' : 'Use a template or start from scratch. Your work saves on this device.'}</p><button className="btn btn-outline btn-sm" onClick={() => { setView('templates'); requestAnimationFrame(() => document.getElementById(`${id}-templates`)?.focus()); }}>Browse templates</button></div>}
     </div>
     <div {...tabPanelProps(id, 'templates')} hidden={view !== 'templates'} className="library-view">
-      <div className="library-tools"><label className="library-search"><Search size={16} aria-hidden="true" /><input type="search" aria-label="Search templates" value={templateSearch} onChange={event => setTemplateSearch(event.target.value)} placeholder="Search templates" /></label></div>
+      <div className="library-tools"><label className="library-search"><Search size={16} aria-hidden="true" /><input type="search" aria-label="Search templates" value={templateSearch} onChange={event => setTemplateSearch(event.target.value)} placeholder="Search templates" /></label>{onSettings && <button type="button" className="btn btn-ghost btn-sm" onClick={onSettings}>Manage repositories</button>}</div>
       {templates.length > 0 && <section className="library-catalogue-section" aria-labelledby={`${id}-saved-title`}><h2 id={`${id}-saved-title`}>Your reusable templates</h2>{catalogue(templates)}</section>}
-      {starters.length > 0 && <section className="library-catalogue-section" aria-labelledby={`${id}-starters-title`}><div className="library-catalogue-heading"><h2 id={`${id}-starters-title`}>Included starters</h2><span>Available offline</span></div>{catalogue(starters, true)}</section>}
-      {!templates.length && !starters.length && <div className="library-empty"><Search size={24} aria-hidden="true" /><h2>No matching templates</h2><p>Try another name.</p></div>}
+      {repositoryError && <p className="inline-error" role="alert">{repositoryError}</p>}
+      {groups.map(record => <section key={record.id} className="library-catalogue-section" aria-label={record.catalog?.repository.name || record.url}><div className="library-catalogue-heading repository-catalogue-heading"><h2>{record.catalog?.repository.name || 'Template repository'}</h2>{record.builtin && <span>Included · Available offline</span>}</div>{record.catalog?.repository.description && <p className="repository-catalogue-copy">{record.catalog.repository.description}</p>}{record.loading && <p role="status" className="field-help">Refreshing templates…</p>}{record.error && <p role="status" className="inline-error">{record.error}{record.catalog && ' Showing the last saved catalog.'}</p>}{record.templates.length > 0 ? catalogue(record.templates, true) : !record.loading && <p className="field-help">{templateSearch ? 'No matching templates in this repository.' : 'No templates available.'}</p>}</section>)}
+      {!templates.length && !groups.some(record => record.templates.length || record.loading) && <div className="library-empty"><Search size={24} aria-hidden="true" /><h2>No matching templates</h2><p>Try another name.</p></div>}
     </div>
     <div className="library-notes"><p>{storageMode === 'opfs' ? 'Stored in this browser — export a backup ZIP regularly. Clearing site data removes these projects.' : 'Each project is a folder on your computer. Studio remembers the folders you open here.'}</p></div>
   </section>;
 }
 
-export function CreateProjectDialog({ initial = {}, templates, busy, aiEnabled = false, aiSettings, returnFocus, onCreate, onLoadTemplate, onClose }) {
+export function CreateProjectDialog({ initial = {}, templates, repositories = [], busy, aiEnabled = false, aiSettings, returnFocus, onCreate, onLoadTemplate, onClose, active = true, onSettings, onManageRepositories }) {
   const [kind, setKind] = useState(initial.kind || 'landing'), [mode, setMode] = useState(initial.mode === 'ai' && !aiEnabled ? 'template' : initial.mode || 'template');
   const [attachments, setAttachments] = useState([]), [useOnPage, setUseOnPage] = useState(false), [imageChoice, setImageChoice] = useState(initial.generateImages), [settings, setSettings] = useState(null);
   // name stays null until the user types, so the field follows the chosen template's default.
   const [name, setName] = useState(null), [prompt, setPrompt] = useState('');
-  const [sourceId, setSourceId] = useState(initial.source?.id || studioStarters[0].id), [error, setError] = useState('');
-  const [loaded, setLoaded] = useState(() => initial.source && !initial.source.builtin && initial.source.files ? { [initial.source.id]: initial.source } : {}), [loading, setLoading] = useState(null);
+  const [sourceId, setSourceId] = useState(initial.source?.id || ''), [error, setError] = useState('');
+  const [loaded, setLoaded] = useState(() => initial.source?.files ? { [initial.source.id]: initial.source } : {}), [loading, setLoading] = useState(null);
   const [pickerOpen, setPickerOpen] = useState(!initial.source), [creating, setCreating] = useState(false);
   const locked = busy || creating;
-  const submitting = useRef(false), dialog = useRef(null), formId = useId(), choices = [...templates, ...studioStarters], source = choices.find(item => item.id === sourceId);
+  const submitting = useRef(false), selection = useRef(0), dialog = useRef(null), formId = useId();
+  const [search, setSearch] = useState('');
+  const groups = [...(templates.length ? [{ id: 'local', name: 'Your reusable templates', items: templates }] : []), ...repositories.filter(record => record.enabled).map(record => ({ id: record.id, name: record.catalog?.repository.name || record.url, items: repositoryTemplates(record), loading: record.loading, error: record.error }))];
+  const choices = groups.flatMap(group => group.items), source = choices.find(item => item.id === sourceId);
+  const currentLoaded = source && loaded[sourceId] && ['archive', 'version', 'sha256'].every(key => loaded[sourceId][key] === source[key]) ? loaded[sourceId] : null;
+  useEffect(() => {
+    if (sourceId || mode !== 'template') return;
+    const first = choices.find(item => item.repositoryId);
+    if (first) selectSource(first.id);
+  }, [sourceId, mode, repositories]);
   const defaultName = mode === 'template' && source ? source.name : kind === 'template' ? 'Untitled template' : 'Untitled landing';
   function chooseIdea(value) {
     setPrompt(kind === 'template' ? `${value} Make it a reusable template with editable content and images.` : value);
     requestAnimationFrame(() => dialog.current?.querySelector('textarea')?.focus());
   }
   function choose(id) { selectSource(id); setName(value => value?.trim() ? value : null); }
-  useEffect(() => { const previous = returnFocus?.isConnected ? returnFocus : document.activeElement, element = dialog.current; element.showModal(); element.querySelector('input[maxlength]')?.focus(); return () => { element.close(); requestAnimationFrame(() => { if (previous?.isConnected) previous.focus(); }); }; }, []);
+  useEffect(() => {
+    if (!active) return;
+    const previous = returnFocus?.isConnected ? returnFocus : document.activeElement, element = dialog.current;
+    element.showModal(); element.querySelector('input[maxlength]')?.focus();
+    return () => { element.close(); requestAnimationFrame(() => { if (previous?.isConnected && !previous.closest('[hidden]')) previous.focus(); }); };
+  }, [active]);
   useEffect(() => { if (!aiEnabled) setMode(value => value === 'ai' ? 'template' : value); }, [aiEnabled]);
   useEffect(() => {
     let alive = true;
     const load = () => {
       if (!aiEnabled || !aiSettings) { setSettings({}); return; }
-      aiSettings.load().then(value => { if (alive) setSettings({ imageModel: value.imageModel }); }).catch(cause => { if (alive) { setSettings({}); setError(cause.message); } });
+      aiSettings.load().then(value => { if (alive) setSettings({ imageModel: value.imageModel, configured: value.configured }); }).catch(cause => { if (alive) { setSettings({}); setError(cause.message); } });
     };
     load(); window.addEventListener('trafficops-ai-settings', load);
     return () => { alive = false; window.removeEventListener('trafficops-ai-settings', load); };
   }, [aiEnabled, aiSettings]);
   function selectSource(id) {
     setSourceId(id); setError('');
-    const entry = templates.find(item => item.id === id);
-    if (!entry || loaded[id] || !onLoadTemplate) return;
-    const reading = onLoadTemplate(entry);
+    const generation = ++selection.current;
+    const entry = choices.find(item => item.id === id);
+    if (!entry || !onLoadTemplate) return;
+    if (loaded[id] && ['archive', 'version', 'sha256'].every(key => loaded[id][key] === entry[key])) { setLoading(null); return; }
     setLoading(id);
-    Promise.resolve(reading).then(source => { if (source) setLoaded(items => ({ ...items, [id]: source })); }).catch(cause => setError(cause.message)).finally(() => setLoading(value => value === id ? null : value));
+    Promise.resolve(onLoadTemplate(entry)).then(source => { if (source) setLoaded(items => ({ ...items, [id]: source })); }).catch(cause => { if (selection.current === generation) setError(cause.message); }).finally(() => { if (selection.current === generation) setLoading(null); });
   }
   // Template/blank submit through the hidden form (the composer is a form of its own, forms cannot nest);
   // the AI brief submits through BriefComposer with its File[] attachments.
   async function create(brief) {
     if (locked || submitting.current || (mode === 'ai' && settings === null)) return false; setError('');
     if (brief && !brief.text.trim()) { setError(BRIEF_REQUIRED); return false; }
-    const userTemplate = mode === 'template' && templates.some(item => item.id === sourceId);
-    if (userTemplate && !loaded[sourceId]) { setError(loading === sourceId ? 'Studio is still reading this template.' : 'Studio needs access to this template: choose it again in the list.'); return false; }
-    const source = mode === 'template' ? loaded[sourceId] || studioStarters.find(item => item.id === sourceId) : undefined;
+    if (mode === 'template' && !currentLoaded) { setError(loading === sourceId ? 'Studio is still reading this template.' : 'Choose a template to load it, then create your project.'); return false; }
+    const source = mode === 'template' ? currentLoaded : undefined;
     // Resolve the default at generation time: the user may connect an image
     // model in the editor after creating this project's initial brief.
     submitting.current = true; setCreating(true);
@@ -151,10 +168,10 @@ export function CreateProjectDialog({ initial = {}, templates, busy, aiEnabled =
     <div className={`creation-mode ${aiEnabled ? '' : 'manual-only'}`} role="group" aria-label="Creation method">{[['template', 'From template', LayoutTemplate], ['blank', 'From scratch', FileCode2], ...(aiEnabled ? [['ai', 'With AI', Sparkles]] : [])].map(([value, label, Icon]) => <button type="button" key={value} aria-pressed={mode === value} onClick={() => { setMode(value); setError(''); }}><Icon size={16} />{label}</button>)}</div>
     {mode !== 'ai' && <label className="field"><span>Project name</span><input form={formId} className="input w-full" autoFocus maxLength={120} value={name ?? defaultName} placeholder="My next idea" onChange={event => setName(event.target.value)} onFocus={event => { if (name === null) event.target.select(); }} /></label>}
     {mode === 'template' && <div className="starting-template">
-      {source && (initial.source || !pickerOpen) && <div className="selected-template-summary"><Thumbnail project={source} compact /><div><span>Starting template</span><strong>{source.name}</strong><small>{source.builtin ? 'Included starter' : 'Your reusable template'}</small></div><button type="button" className="btn btn-ghost btn-sm" aria-expanded={pickerOpen} aria-controls={`${formId}-templates`} onClick={() => setPickerOpen(value => !value)}>{pickerOpen ? 'Hide templates' : 'Change template'}</button></div>}
-      <fieldset id={`${formId}-templates`} hidden={!pickerOpen} className="field template-picker"><legend>Starting template</legend><div className="template-choices">{choices.map(item => <button type="button" key={item.id} className="template-choice" aria-pressed={item.id === sourceId} onClick={() => choose(item.id)}><Thumbnail project={item} compact /><span className="template-choice-name">{item.name}</span><span className="template-choice-tag">{item.builtin ? 'Starter' : 'Your template'}</span><span className="template-choice-check" aria-hidden="true"><Check size={12} strokeWidth={3} /></span></button>)}</div><small>Creates an independent copy, including content and assets.</small></fieldset></div>}
+      {source && (initial.source || !pickerOpen) && <div className="selected-template-summary"><Thumbnail project={source} compact /><div><span>Starting template</span><strong>{source.name}</strong><small>{source.repositoryName || 'Your reusable template'}</small></div><button type="button" className="btn btn-ghost btn-sm" aria-expanded={pickerOpen} aria-controls={`${formId}-templates`} onClick={() => setPickerOpen(value => !value)}>{pickerOpen ? 'Hide templates' : 'Change template'}</button></div>}
+      <fieldset id={`${formId}-templates`} hidden={!pickerOpen} className="field template-picker"><legend>Starting template</legend><input type="search" className="input w-full" aria-label="Search starting templates" placeholder="Search templates" value={search} onChange={event => setSearch(event.target.value)} />{groups.map(group => <section className="template-picker-group" key={group.id} aria-label={group.name}><h3>{group.name}</h3>{group.loading && <p role="status">Refreshing templates…</p>}{group.error && <p role="status">{group.error}</p>}<div className="template-choices">{group.items.filter(item => `${item.name} ${item.description}`.toLowerCase().includes(search.toLowerCase().trim())).map(item => <button type="button" key={item.id} className="template-choice" aria-pressed={item.id === sourceId} onClick={() => choose(item.id)}><Thumbnail project={item} compact /><span className="template-choice-name">{item.name}</span><span className="template-choice-tag">{item.description || (item.repositoryId ? 'Repository template' : 'Your template')}</span><span className="template-choice-check" aria-hidden="true"><Check size={12} strokeWidth={3} /></span></button>)}</div></section>)}<small>Creates an independent copy, including content and assets.</small>{onManageRepositories && <button type="button" className="text-link" onClick={onManageRepositories}>Manage repositories</button>}</fieldset>{loading === sourceId && <p role="status" className="field-help">Loading template…</p>}{source && loading !== sourceId && !currentLoaded && <button type="button" className="btn btn-outline btn-sm" onClick={() => selectSource(sourceId)}>Load selected template</button>}</div>}
     {mode === 'blank' && <p className="create-explanation">Start with a minimal editable page. Add files and make it yours.</p>}
-    {mode === 'ai' && <><BriefComposer value={prompt} onChange={setPrompt} attachments={attachments} onAttachmentsChange={setAttachments} settings={settings} imageChoice={imageChoice} onImageChoiceChange={setImageChoice} useOnPage={useOnPage} onUseOnPageChange={setUseOnPage} disabled={locked || settings === null} onSubmit={create} placeholder="Describe your landing page" autoFocus />{locked && <p role="status" className="home-chat-status">Creating project…</p>}<p className="field-help">A new project and its first conversation open after you send the brief. You can connect your AI key in the editor.</p><details className="brief-ideas"><summary>Example briefs</summary><div>{briefIdeas.map(([label, value]) => <button type="button" className="btn btn-ghost btn-sm" key={label} disabled={locked || Boolean(prompt.trim())} onClick={() => chooseIdea(value)}>{label}</button>)}</div></details></>}
+    {mode === 'ai' && <><BriefComposer value={prompt} onChange={setPrompt} attachments={attachments} onAttachmentsChange={setAttachments} settings={settings} imageChoice={imageChoice} onImageChoiceChange={setImageChoice} useOnPage={useOnPage} onUseOnPageChange={setUseOnPage} disabled={locked || settings === null} onSubmit={create} placeholder="Describe your landing page" autoFocus />{locked && <p role="status" className="home-chat-status">Creating project…</p>}<p className="field-help">{settings?.configured ? 'Your brief opens a new project and starts its first AI conversation. Usage is billed to your OpenRouter account.' : <>AI needs your own OpenRouter API key (BYOK). You can save a brief now, then connect and choose Continue in Conversations to start generation. {onSettings && <button type="button" className="text-link" onClick={onSettings}>Set up AI in Settings</button>}</>}</p><details className="brief-ideas"><summary>Example briefs</summary><div>{briefIdeas.map(([label, value]) => <button type="button" className="btn btn-ghost btn-sm" key={label} disabled={locked || Boolean(prompt.trim())} onClick={() => chooseIdea(value)}>{label}</button>)}</div></details></>}
     <details className="create-project-options"><summary><ChevronRight size={14} aria-hidden="true" /><span>Project options</span><span className="create-options-kind">{kind === 'template' ? 'Reusable template' : 'Landing page'}</span></summary>{mode === 'ai' && <label className="field"><span>Project name (optional)</span><input className="input w-full" maxLength={120} value={name ?? ''} placeholder="Named from your brief" onChange={event => setName(event.target.value)} /></label>}<div className="create-kind" role="group" aria-label="Project type">{[['landing', 'Landing page', 'A page ready to customize and export.'], ['template', 'Reusable template', 'A starting point for future landing pages.']].map(([value, title, text]) => <button type="button" key={value} aria-pressed={kind === value} onClick={() => setKind(value)}><strong>{title}</strong><span>{text}</span></button>)}</div></details>
-    </fieldset>{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-action"><button type="button" className="btn btn-ghost" disabled={locked} onClick={onClose}>Cancel</button>{mode !== 'ai' && <button form={formId} className="btn btn-primary" disabled={locked}>{locked ? 'Creating…' : `Create ${kind === 'template' ? 'template' : 'landing'}`}</button>}</div></div></dialog>;
+    </fieldset>{error && <p className="inline-error" role="alert">{error}</p>}<div className="modal-action"><button type="button" className="btn btn-ghost" disabled={locked} onClick={onClose}>Cancel</button>{mode !== 'ai' && <button form={formId} className="btn btn-primary" disabled={locked || (mode === 'template' && (!currentLoaded || loading === sourceId))}>{locked ? 'Creating…' : `Create ${kind === 'template' ? 'template' : 'landing'}`}</button>}</div></div></dialog>;
 }

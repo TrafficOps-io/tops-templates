@@ -1,3 +1,4 @@
+import { workspaceUrl, reloadProject } from './support/workspace-url.js';
 import { revealConversationTab } from './support/studio-chat.js';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -58,7 +59,7 @@ try {
       } }), { headers: { 'Content-Type': 'text/event-stream' } });
     };
   });
-  await page.goto(`http://127.0.0.1:${server.address().port}`);
+  await page.goto(workspaceUrl(`http://127.0.0.1:${server.address().port}`));
   await page.locator('.library').waitFor();
   await configureAi(page, { apiKey: 'mock-key-never-sent', model: 'test/model' });
   // Each blank project is created in picker/<folder>.
@@ -152,7 +153,7 @@ try {
   await newConversation(); await chat.root.getByRole('heading', { name: 'New conversation', exact: true }).waitFor();
   await chat.prompt.fill('TASK_RELOAD Add a stylesheet and wait.');
   await chat.send.click(); await page.waitForFunction(() => Boolean(window.mockAi.release.TASK_RELOAD));
-  await page.reload();
+  await reloadProject(page);
   await revealConversationTab(page.locator('[data-testid=\"studio-chat\"]'));
   await waitDoc('imported', doc => doc.runs.find(run => run.originalRequest.includes('TASK_RELOAD'))?.state === 'interrupted', 'reload interruption');
   assert.equal(await page.evaluate(() => window.mockAi.calls.length), 0, 'reload must not replay paid provider calls');

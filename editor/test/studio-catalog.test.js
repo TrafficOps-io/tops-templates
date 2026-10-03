@@ -4,7 +4,7 @@ import { generateProject, getDefaults, parseProject } from '@trafficops/template
 import { createZip, readZipProject } from '../src/project.js';
 import { createProjectInRoot, readProjectSnapshot } from '../src/storage/project-root.js';
 import { MemoryDirectoryHandle } from './support/fs-access.js';
-import { studioStarters } from '../src/studio-catalog.js';
+import { studioStarters } from './support/starter.js';
 import { analyzeStudioProject } from '../src/hosts/studio-analyzer.js';
 
 function state(project, settings = project.settings) {

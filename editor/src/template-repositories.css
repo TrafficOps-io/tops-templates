@@ -1,0 +1,26 @@
+.repository-settings form { display: grid; gap: .75rem; }
+.repository-settings form > button { justify-self: start; }
+.repository-settings .field-help { margin: 0; line-height: 1.6; }
+.repository-list { margin: 1.5rem 0; }
+.repository-row { padding: 1.25rem 0; border-top: 1px solid var(--ui-border); min-width: 0; }
+.repository-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }
+.repository-heading h3 { font-size: var(--ui-text-lg); margin: 0; overflow-wrap: anywhere; }
+.repository-toggle { display: flex; align-items: center; gap: .5rem; font-size: var(--ui-text-xs); white-space: nowrap; }
+.repository-row p { margin: .6rem 0; font-size: var(--ui-text-sm); color: var(--ui-muted); overflow-wrap: anywhere; }
+.repository-url { display: block; font-size: var(--ui-text-xs); overflow-wrap: anywhere; margin: .75rem 0; }
+.repository-url svg, .repository-meta svg { display: inline; margin-left: .25rem; }
+.repository-meta, .repository-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.repository-meta, .repository-row .repository-status { font-size: var(--ui-text-xs); color: var(--ui-muted); }
+.repository-row .inline-error { color: var(--color-error); }
+.repository-actions { margin-top: .75rem; }
+.repository-catalogue-copy { color: var(--ui-muted); font-size: var(--ui-text-sm); line-height: 1.6; margin: -.5rem 0 1rem; overflow-wrap: anywhere; }
+.repository-catalogue-heading { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: .5rem; }
+.repository-catalogue-heading h2 { overflow-wrap: anywhere; }
+.repository-preview-link { display: inline-flex; align-items: center; gap: .25rem; }
+.template-picker-group { margin-block: .75rem 1.25rem; }
+.template-picker-group h3 { margin: 0 0 .6rem; font-size: var(--ui-text-sm); font-weight: 600; overflow-wrap: anywhere; }
+.template-picker-group > p { font-size: var(--ui-text-xs); color: var(--ui-muted); }
+.template-picker-group .template-choice-tag { border: 0; background: none; padding: 0; margin: 0 .25rem; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.library-thumbnail > img, .template-choice-thumbnail > img { width: 100%; height: 100%; object-fit: cover; }
+.repository-thumbnail-placeholder { position: absolute; inset: 0; display: grid; place-items: center; color: var(--ui-muted); background: var(--ui-surface); }
+#repositories-title { scroll-margin-top: 6rem; }

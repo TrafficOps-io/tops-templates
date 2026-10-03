@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { MockLanguageModelV4 } from 'ai/test';
 import { createOpenRouterTemplateModel, generateTemplateWithOpenRouterAgent } from '@trafficops/template-editor-shell/openrouter-template-agent';
-import { starterProject } from '../src/starter.js';
+import { starterProject } from './support/starter.js';
 import { generateProject } from '@trafficops/template-runtime';
 import { setAiRetrySleepForTesting } from '../../packages/template-editor-shell/src/ai-provider-recovery.js';
 

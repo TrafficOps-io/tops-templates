@@ -1,3 +1,4 @@
+import { workspaceUrl } from './support/workspace-url.js';
 // Task-level regressions for the Projects/Templates redesign. No provider calls.
 // Run from repo root after build; PLAYWRIGHT_MODULE may point to a bundled runtime.
 import assert from 'node:assert/strict';
@@ -35,7 +36,7 @@ try {
       return route.abort();
     });
     const page = await context.newPage(); page.on('pageerror', e => errors.push(e.message));
-    await page.goto(origin);
+    await page.goto(workspaceUrl(origin));
     const library = page.locator('.library');
     const projects = library.getByRole('tab', {name:'Projects', exact:true});
     await projects.waitFor(); assert.equal(await projects.getAttribute('aria-selected'), 'true');

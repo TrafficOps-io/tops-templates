@@ -4,7 +4,7 @@ import { MockLanguageModelV4 } from 'ai/test';
 import { parseProject, getDefaults } from '@trafficops/template-runtime';
 import { runStudioAiWorkflow } from '@trafficops/template-editor-shell/studio-ai-workflow';
 import { TEMPLATE_SYSTEM_PROMPT } from '@trafficops/template-editor-shell/openrouter-ai';
-import { starterProject } from '../src/starter.js';
+import { starterProject } from './support/starter.js';
 import { validateDraft } from './support/ai-validator.js';
 
 const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4n+DwHwAGoAKfr+/eKAAAAABJRU5ErkJggg==';

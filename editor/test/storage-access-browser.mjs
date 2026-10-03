@@ -1,3 +1,4 @@
+import { workspaceUrl } from './support/workspace-url.js';
 import { revealConversationTab } from './support/studio-chat.js';
 // Storage and AI access by browser capability (folder-first): a plain tab offers AI and project folders (D7); a browser
 // without the folder picker stores projects in OPFS (D9); one without OPFS either gets the unsupported screen. The
@@ -39,7 +40,7 @@ async function openPage({ storage = 'folder', installed = false } = {}) {
   await context.route('https://openrouter.ai/**', route => { providerCalls.push(route.request().url()); return route.fulfill({ status: 503, json: { error: { message: 'Provider calls are forbidden in this access regression.' } } }); });
   const result = page = await context.newPage();
   result.on('pageerror', error => errors.push(error.message));
-  await result.goto(url);
+  await result.goto(workspaceUrl(url));
   return result;
 }
 // A stored key and model: their presence alone must never reach the provider.
@@ -95,7 +96,7 @@ try {
   await assertAiAndFolders(tab);
   await revealConversationTab(tab.locator('[data-testid=\"studio-chat\"]'));
   await openAiSettings(tab);
-  await tab.getByRole('button', { name: 'Back to assistant', exact: true }).click();
+  await tab.getByRole('button', { name: 'Back to project', exact: true }).click();
   // Neither appinstalled (while still in a tab) nor browser fullscreen changes the tab's presentation or access.
   await tab.evaluate(() => window.dispatchEvent(new Event('appinstalled')));
   await tab.evaluate(() => {

@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "repository": {
+    "name": "TrafficOps Demo",
+    "description": "Five editable landing pages for a product, a course, an event, a cafe and a creative portfolio. All assets are included.",
+    "author": "TrafficOps",
+    "homepage": "https://github.com/trafficops-io/tops-templates"
+  },
+  "templates": [
+    {
+      "id": "demo-saas",
+      "name": "Tandem SaaS",
+      "description": "A product launch with a project-board preview, features and pricing.",
+      "version": "1.0.0",
+      "thumbnail": "demo-saas.png",
+      "archive": "demo-saas.zip",
+      "preview": "previews/demo-saas/index.html",
+      "sha256": "b580524dced88bd9d12a525d6167025f2bd48e154aeea8c3665b6624cdf57a92"
+    },
+    {
+      "id": "demo-course",
+      "name": "Clay School",
+      "description": "A pottery course with a curriculum, instructor introduction and enrollment details.",
+      "version": "1.0.0",
+      "thumbnail": "demo-course.png",
+      "archive": "demo-course.zip",
+      "preview": "previews/demo-course/index.html",
+      "sha256": "bb6cc5b12d61192254cefa0075c0005a72ed8e31efb8bd6de40282e12a4062d4"
+    },
+    {
+      "id": "demo-event",
+      "name": "Common Ground",
+      "description": "An event poster with a schedule, speakers, venue information and tickets.",
+      "version": "1.0.0",
+      "thumbnail": "demo-event.png",
+      "archive": "demo-event.zip",
+      "preview": "previews/demo-event/index.html",
+      "sha256": "bbd412935c4c082d3ac8972ccbf78fd4fdfbd3b1e5cc99c49657181b787338aa"
+    },
+    {
+      "id": "demo-cafe",
+      "name": "Juniper Cafe",
+      "description": "A neighborhood cafe with a seasonal menu, opening hours and a visit section.",
+      "version": "1.0.0",
+      "thumbnail": "demo-cafe.png",
+      "archive": "demo-cafe.zip",
+      "preview": "previews/demo-cafe/index.html",
+      "sha256": "3519bdc7256b7da84442b25fbafe3260a98992060835548df98b6948078eb316"
+    },
+    {
+      "id": "demo-portfolio",
+      "name": "Still Portfolio",
+      "description": "An editorial photography portfolio with selected projects, a biography and contact details.",
+      "version": "1.0.0",
+      "thumbnail": "demo-portfolio.png",
+      "archive": "demo-portfolio.zip",
+      "preview": "previews/demo-portfolio/index.html",
+      "sha256": "d9fb40afae5edbdd7886d89fe00d97959a6575b7e2d9713234ac58bd0f7a463f"
+    }
+  ]
+}

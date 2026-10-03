@@ -1,3 +1,4 @@
+import { workspaceUrl } from './support/workspace-url.js';
 import { revealConversationTab } from './support/studio-chat.js';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -69,7 +70,7 @@ async function openTestPage() {
       } }), { headers: { 'Content-Type': 'text/event-stream' } });
     };
   });
-  await page.goto(`http://127.0.0.1:${server.address().port}`);
+  await page.goto(workspaceUrl(`http://127.0.0.1:${server.address().port}`));
   await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
   return page;
 }
@@ -133,9 +134,9 @@ try {
   assert.equal(missing.document.threads[0].messages[0].prompt, pendingPrompt); assert.equal(missing.project.meta.pendingAi, undefined); assert.equal(missing.project.meta.kind, 'landing');
   assert.equal(missing.project.meta.name, 'Pending ceramics');
   assert.match(missing.run.error, /connection|key/i);
-  await unconfiguredChat.root.getByRole('button', { name: 'Connect OpenRouter', exact: true }).click();
+  await unconfiguredChat.root.getByRole('button', { name: 'Set up AI in Settings', exact: true }).click();
   await unconfigured.locator('.ai-settings input[type=password]').waitFor();
-  await unconfigured.getByRole('button', { name: 'Back to assistant', exact: true }).click();
+  await unconfigured.getByRole('button', { name: 'Back to project', exact: true }).click();
   await unconfigured.reload(); await showLatestThread(unconfigured);
   await unconfiguredChat.user.getByText(pendingPrompt, { exact: true }).waitFor();
   assert.equal(providerCalls.length, 0, 'a missing-key request does not restart after reload');

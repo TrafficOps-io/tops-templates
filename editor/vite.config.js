@@ -27,12 +27,14 @@ export default defineConfig({
       ],
     },
     workbox: {
-      globPatterns: ['**/*.{html,js,css,svg,png,webmanifest,woff,woff2,ttf}'],
+      globPatterns: ['**/*.{html,js,css,svg,png,webp,webmanifest,woff,woff2,ttf}', 'template-repositories/**/*.{json,zip}'],
       navigateFallback: '/index.html',
       cleanupOutdatedCaches: true,
       maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
     },
-    devOptions: { enabled: true, type: 'module' },
+    // A cached dev index references Vite-only modules and breaks when the same
+    // origin later serves a production preview. Test offline/PWA via `preview`.
+    devOptions: { enabled: false },
   })],
   worker: { format: 'es' },
   // Bundle the published CommonJS language package in the browser.

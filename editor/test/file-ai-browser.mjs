@@ -1,3 +1,4 @@
+import { workspaceUrl } from './support/workspace-url.js';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
@@ -89,7 +90,7 @@ async function openAssistant(page,path) {
   await page.getByRole('button', {name:'Edit file with AI',exact:true}).click();
   const chat = studioChat(page), panel = chat.root;
   await chat.activeScope('File').waitFor();
-  await chat.composer.locator('.studio-chip-mention').getByText('@'+path,{exact:true}).waitFor();
+  await chat.composer.locator('.studio-chat-composer-highlights mark').getByText('@'+path,{exact:true}).waitFor();
   assert.equal(await page.getByRole('dialog',{name:'Edit file with AI',exact:true}).count(),0,'Selected-file action opens a scoped conversation');
   assert.equal(await panel.getByLabel('Use on page',{exact:true}).count(),0,'Single-file attachments have no page-placement control');
   return panel;
@@ -191,7 +192,7 @@ try {
         return state.holdText ? held(options,value) : value;
       };
     },{editedBase64:editedPng.toString('base64'),changedCss,stylesheet});
-    await page.goto(origin);
+    await page.goto(workspaceUrl(origin));
     await page.getByRole('heading',{name:'Projects',exact:true}).waitFor();
     // JPEG and WebP copies of the PNG, encoded by the browser.
     const encoded = await page.evaluate(async png => {

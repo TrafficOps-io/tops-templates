@@ -93,7 +93,8 @@ async function captureLibrary(path) {
   await page.setViewportSize({ width: viewport.width, height });
   for (const thumbnail of await page.locator('.library-thumbnail:visible').all()) {
     await thumbnail.scrollIntoViewIfNeeded();
-    await thumbnail.frameLocator('iframe').getByRole('heading', { level: 1 }).waitFor();
+    if (await thumbnail.locator('iframe').count()) await thumbnail.frameLocator('iframe').getByRole('heading', { level: 1 }).waitFor();
+    else await until(() => thumbnail.locator('img').evaluate(image => image.complete && image.naturalWidth > 0), 'repository thumbnail');
   }
   await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path });
@@ -109,9 +110,9 @@ try {
   const errors = [], confirms = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('dialog', dialog => { confirms.push(dialog.message()); dialog.accept(); });
-  await page.goto(`http://127.0.0.1:${server.address().port}`);
+  await page.goto(`http://127.0.0.1:${server.address().port}/?studio=1`);
   await page.locator('.library').getByRole('heading', { name: 'Projects', exact: true }).waitFor();
-  assert.equal(await page.locator('.starter-grid .library-card').count(), 3);
+  await until(async () => await page.locator('.library-catalogue-section[aria-label="TrafficOps starters"] .library-card').count() === 3, 'included starter repository catalog');
 
   await page.locator('.library-heading').getByRole('button', { name: 'New project', exact: true }).click();
   const blank = await create('Blank draft', 'blank-draft', { mode: 'From scratch' });
@@ -234,6 +235,8 @@ try {
   assert.match(strFromU8(offlineArchive['styles.css']), /edited while offline/);
   assert.equal(JSON.parse(strFromU8(offlineArchive['.trafficops/values.json'])).headline, 'Landing-only headline');
   await page.reload();
+  await page.locator('.library').waitFor();
+  await page.getByRole('button', { name: 'Open Independent landing', exact: true }).click();
   await page.locator('.editor-shell.is-app').waitFor();
   assert.match((await waitForSaved('independent-landing')).files['styles.css'], /edited while offline/);
   assert.deepEqual(errors, []);

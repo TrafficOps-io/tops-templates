@@ -31,6 +31,11 @@ export default function ScopeChips({ scopes = [], scope, onScopeChange, disabled
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
   if (hidden) return null;
   const label = kind => (kind === active && scope?.label ? scope.label : t(SCOPE_LABELS[kind] ?? kind));
+  // Unified assistants have no mode picker. An explicit editor selection is removable context only.
+  if (scopes.length <= 1) return <div className="studio-chat-scope" role="group" aria-label={t('Assistant task')}>
+    <span className="studio-chat-scope-label">{scope?.label || scope?.targetId && active === 'file' && scope.targetId || t(active === 'block' ? 'Selected blocks' : SCOPE_LABELS[active] ?? active)}</span>
+    <Button variant="ghost" size="sm" icon={X} disabled={disabled} aria-label={t('Remove {name}', { name: label(active) })} onClick={() => onScopeChange?.({ kind: fallback })} />
+  </div>;
   function choose(kind) { close(); if (kind !== active) onScopeChange?.({ kind }); }
   function keyDown(event) {
     if (!open) {

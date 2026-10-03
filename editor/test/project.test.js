@@ -3,7 +3,7 @@ import test from 'node:test';
 import { zipSync, strToU8, unzipSync } from 'fflate';
 import { createZip, inspectZip, LIMITS, projectFolders, readZip, readZipProject, renameFile, safePath, validateFolders, validateProject } from '../src/project.js';
 import { resolveAsset } from '@trafficops/template-editor-shell/preview';
-import { starterProject } from '../src/starter.js';
+import { starterProject } from './support/starter.js';
 import { generateProject, getDefaults, parseProject } from '@trafficops/template-runtime';
 
 test('ZIP round trip preserves UTF-8 source, relative asset paths and binary bytes', () => {

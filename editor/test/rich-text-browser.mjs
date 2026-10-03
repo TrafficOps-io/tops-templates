@@ -1,3 +1,4 @@
+import { workspaceUrl } from './support/workspace-url.js';
 import { saveNow } from './support/studio-chat.js';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -37,7 +38,7 @@ try {
   await installFolderPicker(page);
   page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(() => Object.defineProperty(navigator, 'standalone', { configurable: true, value: true }));
-  await page.goto(`http://127.0.0.1:${server.address().port}/`);
+  await page.goto(workspaceUrl(`http://127.0.0.1:${server.address().port}/`));
   await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
   // The project lives in a folder (real OPFS through the test picker).
   const seeded = await seedProjectFolder(page, { kind: fixture.kind, name: fixture.name, files: fixture.files, values: fixture.settings });
@@ -119,6 +120,7 @@ try {
   await saveNow(page);
   await until(async () => /Inserted caption\./.test(JSON.parse(await readOpfs(page, `${seeded.folder}/.trafficops/values.json`) || '{}').article_body || ''), 'the edited article is saved to the folder');
   await page.reload();
+  await page.getByRole('button', { name: `Open ${fixture.name}`, exact: true }).click();
   await page.getByRole('tab', { name: 'Content', exact: true }).click();
   await articleEditor.locator('figcaption').first().waitFor();
   assert.equal(await articleEditor.locator('figure').count(), 2);

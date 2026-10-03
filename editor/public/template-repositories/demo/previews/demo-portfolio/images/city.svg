@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 980" width="760" height="980" role="img" aria-labelledby="title desc">
+  <title id="title">An ordinary afternoon</title><desc id="desc">An original architectural sample illustration of a pale stone archway, deep interior shadow, and diagonal afternoon light.</desc>
+  <rect width="760" height="980" fill="#d2cec3"/>
+  <path d="M0 0H760V184L0 490Z" fill="#e7e4da"/>
+  <path d="M0 780H760V980H0Z" fill="#c2bdb1"/>
+  <path d="M114 780V324A266 266 0 0 1 646 324V780Z" fill="#b5b0a3"/>
+  <path d="M161 780V326A219 219 0 0 1 599 326V780Z" fill="#e2ded2"/>
+  <path d="M217 780V338A163 163 0 0 1 543 338V780Z" fill="#484e49"/>
+  <path d="M271 780V345A137 137 0 0 1 543 345V780Z" fill="#333c37"/>
+  <path d="M448 209A163 163 0 0 1 543 338V780H487V326C487 275 473 236 448 209Z" fill="#77796e"/>
+  <path d="M0 780H217L543 980H0Z" fill="#dad5c9"/>
+  <path d="M217 780H543L760 911V980H543Z" fill="#969b8f"/>
+  <path d="M0 80H760M0 168H198M563 168H760M0 684H161M599 684H760M0 497H161M599 497H760" stroke="#b9b6aa" stroke-width="2" opacity=".6"/>
+  <path d="M79 0V80M661 80V168M59 497V684M690 497V684M70 684V780" stroke="#b9b6aa" stroke-width="2" opacity=".6"/>
+  <path d="M0 876H237M575 876H760M0 957H413" stroke="#a8a898" stroke-width="2" opacity=".5"/>
+  <rect x="622" y="519" width="38" height="55" rx="2" fill="#969b8d"/>
+  <rect x="631" y="529" width="20" height="3" fill="#cdd0c2"/>
+  <rect x="631" y="538" width="20" height="3" fill="#cdd0c2"/>
+</svg>

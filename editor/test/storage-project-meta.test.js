@@ -16,6 +16,14 @@ const pngUrl = `data:image/png;base64,${toBase64(png)}`;
 const brief = (id = 'brief-1', extra = {}) => ({ id, prompt: 'A landing page for a bakery', mode: 'build', generateImages: true, attachments: [{ id: 'att-1', name: 'logo.png', mime: 'image/png', dataUrl: pngUrl, useOnPage: true }], ...extra });
 let count = 0;
 
+test('an unspecified image choice survives a stored brief so the connected model can enable it by default', async () => {
+  for (const generateImages of [undefined, false, true]) {
+    const { root } = await projectWithBrief(brief('images', { generateImages }));
+    const meta = await readProjectMeta(root);
+    assert.equal((await resolvePendingAi(root, meta)).generateImages, generateImages);
+  }
+});
+
 async function project(meta = {}) {
   const root = new MemoryDirectoryHandle('root'), projectId = `project-${++count}`;
   await createProjectMeta(root, { schema: 1, projectId, kind: 'landing', name: 'Bakery', metadataRevision: 0, ...meta });

@@ -1,3 +1,4 @@
+import { workspaceUrl, reloadProject } from './support/workspace-url.js';
 import { revealConversationTab } from './support/studio-chat.js';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -45,7 +46,7 @@ try {
   await installFolderPicker(context);
   const page = await context.newPage(); page.on('pageerror', error => report.errors.push(error.message));
   await page.addInitScript(() => Object.defineProperty(navigator, 'standalone', { configurable: true, value: true }));
-  await page.goto(origin); await page.locator('.library').waitFor();
+  await page.goto(workspaceUrl(origin)); await page.locator('.library').waitFor();
   await page.evaluate(async () => {
     const db = await new Promise((done, reject) => { const request = indexedDB.open('trafficops-template-studio-ai', 1); request.onupgradeneeded = () => request.result.createObjectStore('settings', { keyPath: 'id' }); request.onsuccess = () => done(request.result); request.onerror = () => reject(request.error); });
     await new Promise((done, reject) => { const tx = db.transaction('settings', 'readwrite'); tx.objectStore('settings').put({ id: 'openrouter', apiKey: 'mock-no-provider-ui-test', model: 'test/text-model', imageModel: '' }); tx.oncomplete = done; tx.onerror = () => reject(tx.error); }); db.close();
@@ -98,7 +99,7 @@ try {
   await chat.thread('Collection spacing review').waitFor();
   await threadMenu('Collection spacing review', 'Restore'); await panel.getByText('No archived conversations.', { exact: true }).waitFor(); await archived.click();
   await panel.getByRole('searchbox', { name: 'Search conversations' }).fill('Collection spacing review'); assert.equal(await chat.threads.locator('.studio-chat-threads-item').count(), 1); await panel.getByRole('searchbox', { name: 'Search conversations' }).fill('');
-  await page.reload(); await wideChat(); await chat.thread('Collection spacing review').waitFor(); report.checks.push('rename/archive/restore/search persist after reload');
+  await reloadProject(page); await wideChat(); await chat.thread('Collection spacing review').waitFor(); report.checks.push('rename/archive/restore/search persist after reload');
   await chat.thread('Plan the landing').click(); await chat.user.locator('.studio-chip-mention').filter({ hasText: '@Main hero' }).getByRole('button').click();
   // A saved section reference opens its source file at the section (as the former conversation panel did).
   await page.getByRole('tab', { name: 'Code', selected: true, exact: true }).waitFor({ timeout: 5000 }); await page.locator('.source-heading').getByText('index.tpl', { exact: true }).waitFor();
@@ -106,38 +107,38 @@ try {
   await threadMenu('Plan the landing', 'Archive'); await archived.click(); await threadMenu('Plan the landing', 'Delete conversation');
   const confirmation = page.getByRole('dialog', { name: 'Delete conversation?', exact: true }); await confirmation.getByText('Messages of this conversation will be deleted. Changes already applied stay in the project.', { exact: true }).waitFor(); await confirmation.getByRole('button', { name: 'Delete permanently', exact: true }).click(); await confirmation.waitFor({ state: 'detached' });
   await panel.getByText('No archived conversations.', { exact: true }).waitFor(); await archived.click();
-  await page.reload(); await wideChat(); await chat.thread('Collection spacing review').waitFor(); assert.equal(await chat.thread('Plan the landing').count(), 0); assert.equal(await page.locator('.file-sidebar').getByTitle('removed.txt', { exact: true }).count(), 1); report.checks.push('archived conversation deletion requires confirmation and preserves project files');
+  await reloadProject(page); await wideChat(); await chat.thread('Collection spacing review').waitFor(); assert.equal(await chat.thread('Plan the landing').count(), 0); assert.equal(await page.locator('.file-sidebar').getByTitle('removed.txt', { exact: true }).count(), 1); report.checks.push('archived conversation deletion requires confirmation and preserves project files');
   await chat.threads.getByRole('button', { name: 'New conversation', exact: true }).click();
   await panel.getByRole('heading', { name: 'New conversation', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Show preview', exact: true }).click(); await chat.threads.waitFor({ state: 'hidden' });
-  const composerMentions = chat.composer.locator('.studio-chip-mention'), listbox = chat.composer.getByRole('listbox', { name: 'Mention targets' });
+  const composerMentions = chat.composer.locator('.studio-chat-composer-highlights mark'), listbox = chat.composer.getByRole('listbox', { name: 'Mention targets' });
   const mentionButton = chat.composer.getByRole('button', { name: 'Mention', exact: true });
   // The @ button inserts '@' and moves the caret on the next frame; type only after that frame.
   const openMentions = async () => { await mentionButton.click(); await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))); };
   await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'Collection', exact: true }).waitFor();
   await openMentions(); await prompt.pressSequentially('Main hero');
   await listbox.getByRole('option', { name: 'Main hero index.html', exact: true }).click();
-  assert.equal(await prompt.inputValue(), '');
+  assert.equal(await prompt.inputValue(), '@Main hero ');
   assert.equal(await composerMentions.innerText(), '@Main hero');
   await openMentions(); await prompt.pressSequentially('Main hero');
-  assert.equal(await listbox.getByRole('option', { name: 'Main hero index.html', exact: true }).count(), 0, 'a chosen reference is not offered twice');
+  assert.equal(await listbox.getByRole('option', { name: 'Main hero index.html', exact: true }).count(), 1, 'the same reference can occur twice in the text');
   await prompt.fill('');
-  assert.equal(await composerMentions.count(), 1);
+  assert.equal(await composerMentions.count(), 0);
   await prompt.fill('Compare '); await prompt.pressSequentially('@Comment');
   assert.equal(await listbox.getByRole('option', { name: /^Comment/ }).count(), 2);
   await prompt.press('ArrowDown'); await prompt.press('Enter');
   await composerMentions.filter({ hasText: '@Comment (2/2)' }).waitFor();
-  assert.equal(await prompt.inputValue(), 'Compare ');
+  assert.equal(await prompt.inputValue(), 'Compare @Comment (2/2) ');
   await prompt.fill('Use '); await prompt.pressSequentially('@hero');
   assert.equal(await listbox.getByRole('option', { name: 'images/hero.png', exact: true }).count(), 1);
   await prompt.press('Escape'); assert.equal(await listbox.count(), 0);
   await page.screenshot({ path: `${out}/section-mentions.png`, fullPage: true });
-  while (await composerMentions.count()) await composerMentions.first().locator('.studio-chip-remove').click();
+  await prompt.fill('');
   await prompt.fill('Use '); await prompt.pressSequentially('@sty'); await prompt.dispatchEvent('keydown', { key: 'Enter', code: 'Enter', isComposing: true }); assert.equal(await composerMentions.count(), 0); assert.equal(await prompt.inputValue(), 'Use @sty'); await prompt.press('Enter'); assert.equal(await composerMentions.innerText(), '@styles.css');
   await openMentions(); await prompt.press('ArrowDown'); await prompt.press('Enter'); assert.equal(await composerMentions.count(), 2);
   await openMentions(); await prompt.pressSequentially('removed'); await listbox.getByRole('option', { name: 'removed.txt', exact: true }).click(); assert.equal(await composerMentions.count(), 3);
-  await openMentions(); await prompt.pressSequentially('styles'); assert.equal(await listbox.getByRole('option', { name: 'styles.css', exact: true }).count(), 0); await prompt.press('Escape'); assert.equal(await chat.composer.getByRole('listbox').count(), 0);
-  await prompt.fill('Use '); await prompt.pressSequentially('@hero'); await listbox.getByRole('option', { name: 'images/hero.png', exact: true }).click(); await composerMentions.filter({ hasText: 'images/hero.png' }).locator('.studio-chip-remove').click();
+  await openMentions(); await prompt.pressSequentially('styles'); assert.equal(await listbox.getByRole('option', { name: 'styles.css', exact: true }).count(), 1); await prompt.press('Escape'); assert.equal(await chat.composer.getByRole('listbox').count(), 0);
+  await prompt.fill('Use '); await prompt.pressSequentially('@hero'); await listbox.getByRole('option', { name: 'images/hero.png', exact: true }).click(); await prompt.fill('Use '); assert.equal(await composerMentions.count(), 0);
   report.checks.push('mentions mouse/keyboard/dedup; composition Enter preserves prompt');
   await chat.attachmentInput.setInputFiles(['notes.txt', 'copy.txt', 'spacing.txt', 'references.txt'].map(name => ({ name, mimeType: 'text/plain', buffer: Buffer.from('Use neutral collection copy.') }))); await chat.composer.locator('.studio-chip-attachment').filter({ hasText: 'notes.txt' }).waitFor(); assert.equal(await chat.composer.locator('.studio-chip-attachment').count(), 4); report.checks.push('UTF-8 attachments');
   await page.setViewportSize({ width: 1280, height: 720 }); await page.waitForFunction(() => document.querySelector('.author-panel').getBoundingClientRect().bottom <= innerHeight + 1); // the workspace settles a frame after the resize
@@ -150,8 +151,8 @@ try {
   await page.setViewportSize({ width: 1280, height: 1000 });
   await page.getByRole('tab', { name: 'Code', exact: true }).click(); await page.locator('.file-sidebar').getByTitle('styles.css', { exact: true }).click(); await page.getByRole('button', { name: 'Edit file with AI', exact: true }).click(); await chat.activeScope('File').waitFor(); await composerMentions.filter({ hasText: '@styles.css' }).waitFor(); assert.equal(await page.locator('.file-ai-modal').count(), 0); report.checks.push('file action routes to scoped conversation');
   await openThread(chat, 'Adjust selected stylesheet'); await panel.getByRole('heading', { name: 'Adjust selected stylesheet', exact: true }).waitFor(); await chat.run('run-file').waitFor(); assert.equal(await chat.run('run-file').getAttribute('data-run-status'), 'ready');
-  await prompt.fill('Expand the layout beyond this stylesheet.'); await chat.scope.getByRole('button', { name: 'Remove File', exact: true }).click(); await chat.activeScope('Project').waitFor(); assert.equal(await prompt.inputValue(), 'Expand the layout beyond this stylesheet.'); assert.equal(await composerMentions.innerText(), '@styles.css'); report.checks.push('removing a file scope returns to the project scope and retains the prompt and its reference');
-  await openMentions(); await prompt.pressSequentially('index'); await listbox.getByRole('option', { name: 'index.tpl', exact: true }).click(); assert.equal(await prompt.inputValue(), 'Expand the layout beyond this stylesheet. '); assert.equal(await composerMentions.count(), 2); report.checks.push('mention picker after a completed sentence preserves the prompt');
+  await prompt.fill('Expand the layout beyond @styles.css.'); await chat.scope.getByRole('button', { name: 'Remove File', exact: true }).click(); await chat.activeScope('Project').waitFor(); assert.equal(await prompt.inputValue(), 'Expand the layout beyond @styles.css.'); assert.equal(await composerMentions.innerText(), '@styles.css'); report.checks.push('removing a file scope returns to the project scope and retains the prompt and its reference');
+  await openMentions(); await prompt.pressSequentially('index'); await listbox.getByRole('option', { name: 'index.tpl', exact: true }).click(); assert.equal(await prompt.inputValue(), 'Expand the layout beyond @styles.css. @index.tpl '); assert.equal(await composerMentions.count(), 2); report.checks.push('mention picker after a completed sentence preserves the prompt');
   await page.getByRole('button', { name: 'Export', exact: true }).click(); await page.getByRole('menuitem', { name: /Editable project/ }).click(); const dialog = page.getByRole('dialog', { name: 'Export', exact: true }); await dialog.waitFor(); assert.equal(await dialog.getByRole('combobox', { name: 'Export destination' }).count(), 0); assert.equal(await dialog.getByRole('heading', { name: 'Editable project', exact: true }).count(), 1); assert.equal(await dialog.getByRole('checkbox', { name: 'Include conversation history' }).isChecked(), true); await dialog.getByRole('button', { name: 'Cancel', exact: true }).click(); report.checks.push('one export menu; history default');
   await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'Collection', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Select elements', exact: true }).click();
@@ -174,7 +175,7 @@ try {
   assert.equal(await chat.run('run-broken').locator('[data-testid="studio-chat-apply"]').count(), 0, 'a failed run is never applicable');
   await chat.run('run-broken').locator('[data-testid="studio-chat-discard"]').click();
   await chat.run('run-broken').and(page.locator('[data-run-status="discarded"]')).waitFor();
-  while (await composerMentions.count()) await composerMentions.first().locator('.studio-chip-remove').click();
+  await prompt.fill('');
   await prompt.fill('Tighten the stylesheet again from the current project.'); await chat.send.click();
   // Persistence is the folder's dialogue file (.trafficops/conversations/<thread>.json, runs included).
   const readConversation = async () => {

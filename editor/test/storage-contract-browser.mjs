@@ -141,7 +141,7 @@ try {
 
   // A history over 20 MiB (three incompressible 8 MiB blobs in two dialogues) exports as an editable ZIP and imports
   // again (D1: its projectId is known, so the import is a copy with remapped history and the same blobs).
-  const app = page = await open('/');
+  const app = page = await open('/?studio=1');
   const seeded = await seedProjectFolder(app, { name: 'Large history', values: { title: 'Large history page' } });
   const blobs = await app.evaluate(async folder => {
     const storage = window.__studioStorage, MiB = 1024 * 1024;

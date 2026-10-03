@@ -15,6 +15,7 @@ import { AssistantMessage, UserMessage } from './Messages.jsx';
 import ThreadList from './ThreadList.jsx';
 import ChatHeader from './ChatHeader.jsx';
 import ConversationManager from './ConversationManager.jsx';
+import { mentionsInText, textWithMentions } from './mentions.js';
 
 const defaultScope = port => ({ kind: port.capabilities?.scopes?.includes('project') || !port.capabilities?.scopes?.length ? 'project' : port.capabilities.scopes[0] });
 
@@ -33,7 +34,7 @@ const defaultScope = port => ({ kind: port.capabilities?.scopes?.includes('proje
 // Errors (send, thread and card actions) are inline notices; no ToastProvider is needed.
 export default function StudioChat({ port, threadId = '', onThreadChange, onScopeChange, launch, actions = [], disabled = false, footer, emptyState, composerExtra, setup, className = '' }) {
   const t = useStudioText();
-  const [text, setText] = useState(''), [scope, setScope] = useState(() => defaultScope(port)), [mentions, setMentions] = useState([]), [attachments, setAttachments] = useState([]), [generateImages, setGenerateImages] = useState(false);
+  const [text, setText] = useState(''), [scope, setScope] = useState(() => defaultScope(port)), [mentions, setMentions] = useState([]), [attachments, setAttachments] = useState([]), [generateImages, setGenerateImages] = useState(true);
   const [notice, setNotice] = useState(null); // { title, message }
   const root = useRef(null), [managing, setManaging] = useState(false), [managementError, setManagementError] = useState('');
   const closeManagement = useCallback(() => setManaging(false), []);
@@ -42,12 +43,14 @@ export default function StudioChat({ port, threadId = '', onThreadChange, onScop
   const managementFailed = cause => setManagementError(cause?.message || t('Something went wrong.'));
   const managementSucceeded = () => setManagementError('');
   const changeScope = next => { setScope(next); onScopeChange?.(next); };
+  const imagesEnabled = generateImages && Boolean(port.capabilities?.generateImages);
 
   // External launch: each new launch.id resets the composer and fills text, scope, mention targets and files
   // (Media Studio passes the home screen input here, Landing — a launch from a preview block).
   useEffect(() => {
     if (!launch) return;
-    setText(launch.text || ''); changeScope(launch.scope || defaultScope(port)); setMentions(launch.mentions || []); setAttachments(launch.attachments || []); setNotice(null);
+    setText(textWithMentions(launch.text, launch.mentions)); changeScope(launch.scope || defaultScope(port)); setMentions(launch.mentions || []); setAttachments(launch.attachments || []); setNotice(null);
+    if (typeof launch.generateImages === 'boolean') setGenerateImages(launch.generateImages);
   }, [launch?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const clear = () => { setText(''); setMentions([]); setAttachments([]); setNotice(null); };
@@ -57,14 +60,14 @@ export default function StudioChat({ port, threadId = '', onThreadChange, onScop
     setMentions(current => (current.length ? current : input.mentions));
     setAttachments(current => (current.length ? current : input.attachments));
   };
-  const runtime = useChatRuntime(port, threadId, { scope, mentions, attachments, generateImages, onSent: clear, onThreadCreated: onThreadChange, onRestore: restore, onError: sendFailed, onActionError: actionFailed });
+  const runtime = useChatRuntime(port, threadId, { scope, mentions, attachments, generateImages: imagesEnabled, onSent: clear, onThreadCreated: onThreadChange, onRestore: restore, onError: sendFailed, onActionError: actionFailed });
   const thread = { port, threadId, onError: actionFailed };
 
   // The composer sends here instead of composer.send(): the input is cleared at once and restored if the port rejects it,
   // a thread created for a rejected send is removed (sendToPort), and with capabilities.clarifyWhileRunning a message
   // sent during a run goes to the same thread as a clarification. Attachments-only messages take the same path.
   function submitMessage(value) {
-    const input = { text: value.trim() ? value : '', mentions, attachments, scope, generateImages };
+    const input = { text: value.trim() ? value : '', mentions: mentionsInText(value, mentions), attachments, scope, generateImages: imagesEnabled };
     clear();
     return sendToPort(port, threadId, input, { onThreadCreated: onThreadChange, onRestore: restore, onError: sendFailed });
   }

@@ -112,9 +112,31 @@ Apply/Discard, cancellation and local draft recovery retain the same scope.
 Service identifiers are preview-only and never enter source or generated exports;
 the authored `data-block` attributes remain ordinary HTML attributes.
 
+## Template repositories
+
+Add a direct JSON index URL in **Settings → Template repositories** to use a team's
+templates from any static HTTP(S) host, including GitHub raw content. Repositories
+are grouped in the library and project picker; Settings supports refresh, disable
+and removal. The bundled TrafficOps starters and **TrafficOps Demo** use the same
+index/ZIP format. Demo contains five editable pages for a SaaS product, a course,
+an event, a cafe and a photography portfolio. It is enabled by default and can be
+disabled independently in Settings; that preference survives reloads.
+See [Template repositories](TEMPLATE-REPOSITORIES.md) for the index format, hosting,
+publishing helper, CORS requirements and offline behavior.
+
 ## Installed app
 
-The production build includes a web app manifest and an offline service worker. The installed **Landing Studio by TrafficOps** launches `/?studio=1` in standalone display mode, restoring the last project or showing the library. Projects open as a permanent workspace with project navigation, creation and export actions. The installed editor has no collapse control or Escape-to-collapse behavior. Installing changes only the install and update chrome: AI and folder access work the same in ordinary tabs. After the application has been cached, local editing, included starters and ZIP export work offline. AI requests require a network connection.
+Service workers are disabled in `npm run dev`. Test installation and offline use with a production build and `npm run preview --workspace=@trafficops/template-studio`, using a separate port from the dev server. If an older dev worker still serves Vite HTML on a preview origin (404s for `/@vite/client` or `/src/main.jsx`), unregister that origin's `dev-sw.js` in the browser's Application → Service Workers panel and reload. Do not clear site data: it contains browser-stored projects.
+
+The public `/` page introduces Studio with real screenshots, a feature tour, local-storage guidance and installation instructions. **Install Studio** is the primary action in the header, hero, installation section and closing section. It uses the native install prompt when available and otherwise opens and focuses the browser installation guide. **Use in browser** is a secondary alternative that enters `/?studio=1`; browser workspace reloads can resume the last accessible project. Legacy `/#settings` bookmarks still open settings and return to the workspace. The workspace code is loaded separately from the landing page.
+
+The production build includes a web app manifest and an offline service worker. The installed **Landing Studio by TrafficOps** launches `/?studio=1` in standalone display mode and always starts with the project/template library. Existing installs that launch `/` also bypass the landing page. Projects open as a permanent workspace with project navigation, creation and export actions. The installed editor has no collapse control or Escape-to-collapse behavior. AI and folder access work the same in ordinary tabs. After the application has been cached, local editing, included starters and ZIP export work offline. AI requests and new external repositories require a network connection.
+
+Installation uses the browser's single-use prompt when available, with manual Chrome/Edge and Safari instructions otherwise. Accepting an install prompt does not redirect the current browser tab. The public page follows the system theme and the shared manual theme setting.
+
+Marketing screenshots live in `public/marketing` as responsive WebP files. `scripts/capture-marketing.mjs` captures the real UI in an isolated profile using the included Product spotlight template with a coral accent; it never reads user projects or calls AI. Run it against `STUDIO_URL` with `PLAYWRIGHT_MODULE` and `SHARP_MODULE` pointing to installed Playwright and Sharp packages. The local-files supporting illustration was generated with the built-in ImageGen tool; its prompt is recorded in `scripts/marketing-art-prompt.txt`.
+
+`node editor/test/landing-browser.mjs editor/dist` (from the repository root) verifies browser/installed routing, remembered-project launches, real service-worker offline use, install states, keyboard interaction, responsive layouts and light/dark accessibility. Supply `PLAYWRIGHT_MODULE` if Playwright is not on the default module path. Existing workspace browser scenarios explicitly use the `studio=1` entry.
 
 Studio checks for service-worker updates when connectivity or focus returns and periodically while open. **Update Studio** saves current edits before applying an update and asks before interrupting active AI runs; an update started in another window does not automatically reload this window. Storage, registration and update failures are shown in the interface.
 

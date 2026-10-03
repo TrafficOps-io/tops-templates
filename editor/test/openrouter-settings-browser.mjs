@@ -1,3 +1,4 @@
+import { workspaceUrl } from './support/workspace-url.js';
 import { revealConversationTab } from './support/studio-chat.js';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -34,23 +35,31 @@ try {
     return route.fulfill({ json: { data: {} } });
   });
   const url = `http://127.0.0.1:${server.address().port}/`;
-  await page.goto(url);
+  await page.goto(workspaceUrl(url));
   await usePicker(page, 'openrouter-settings');
   const open = async () => {
-    await page.locator('.library, .editor-shell').first().waitFor();
-    if (await page.locator('.library').isVisible()) await page.getByRole('button', { name: 'OpenRouter', exact: true }).click();
-    else await (await moreMenuItem(page, 'OpenRouter')).click();
-    const dialog = page.getByRole('dialog', { name: 'OpenRouter settings' });
+    if (!await page.locator('.global-settings').isVisible()) await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    const dialog = page.locator('.global-settings');
     await dialog.getByLabel('API key', { exact: false }).waitFor();
     return dialog;
   };
+  await page.getByRole('button', { name: 'Open quick start guide' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Set up AI in Settings' }).click();
   let dialog = await open();
+  assert.equal(new URL(page.url()).hash, '#settings');
+  await dialog.getByRole('button', { name: /^Back to/ }).click();
+  await page.locator('.library').waitFor();
+  await page.goForward();
+  await dialog.waitFor();
+  await page.goBack();
+  await page.locator('.library').waitFor();
+  dialog = await open();
   const input = () => dialog.locator('input[type="password"]');
   assert.equal(await dialog.getByRole('button', { name: 'Remove key', exact: true }).isDisabled(), true);
   await input().fill('sk-or-first-test');
   await dialog.getByRole('button', { name: 'Save connection', exact: true }).click();
   await dialog.getByText('Connection saved on this device.', { exact: true }).waitFor();
-  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await dialog.getByRole('button', { name: /^Back to/ }).click();
   await page.reload();
   dialog = await open();
   assert.equal(await input().inputValue(), 'sk-or-first-test');
@@ -59,7 +68,7 @@ try {
   assert.equal(await input().evaluate(element => element === document.activeElement), true);
   assert.equal(await dialog.getByRole('button', { name: 'Check connection', exact: true }).isDisabled(), true);
   // Closing an unsaved replacement keeps the previously saved key.
-  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await dialog.getByRole('button', { name: /^Back to/ }).click();
   dialog = await open();
   assert.equal(await input().inputValue(), 'sk-or-first-test');
   await dialog.getByRole('button', { name: 'Replace key', exact: true }).click();
@@ -81,9 +90,15 @@ try {
   assert.equal(await input().inputValue(), '');
   assert.equal(await dialog.getByRole('button', { name: 'Remove key', exact: true }).isDisabled(), true);
   await page.screenshot({ path: '/tmp/openrouter-settings.png', animations: 'disabled' });
-  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await dialog.getByRole('button', { name: /^Back to/ }).click();
   await (await newProjectControl(page)).click();
   const create = page.getByRole('dialog', { name: 'New project', exact: true });
+  await create.getByRole('button', { name: 'With AI', exact: true }).click();
+  await create.locator('textarea').fill('Keep this brief while connecting AI');
+  await create.getByRole('button', { name: 'Set up AI in Settings' }).click();
+  dialog = await open();
+  await dialog.getByRole('button', { name: 'Back to new project' }).click();
+  assert.equal(await create.locator('textarea').inputValue(), 'Keep this brief while connecting AI');
   await create.getByRole('button', { name: 'From template', exact: true }).click();
   await create.getByLabel('Project name', { exact: true }).fill('OpenRouter settings');
   await usePicker(page, 'openrouter-settings');
@@ -92,18 +107,22 @@ try {
   const chat = studioChat(page), keyNotice = page.locator('.ai-setup-card');
   await revealConversationTab(chat.root);
   await keyNotice.waitFor(); assert.equal(await chat.composer.count(), 0, 'the connection card replaces the composer');
+  await keyNotice.getByRole('button', { name: 'Set up AI in Settings' }).click();
   dialog = await open();
   await input().fill('sk-or-editor-test');
   await dialog.getByRole('button', { name: 'Save connection', exact: true }).click();
   await dialog.getByText('Connection saved on this device.', { exact: true }).waitFor();
-  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await dialog.getByRole('button', { name: /^Back to/ }).click();
   await keyNotice.waitFor({ state: 'detached' });
   await chat.prompt.fill('Test prompt');
   assert.equal(await chat.send.isEnabled(), true);
   dialog = await open();
+  await dialog.getByRole('button', { name: /^Back to/ }).click();
+  assert.equal(await chat.prompt.inputValue(), 'Test prompt', 'settings preserve the current conversation draft');
+  dialog = await open();
   await dialog.getByRole('button', { name: 'Remove key', exact: true }).click();
   await dialog.getByText('API key removed from this device.', { exact: true }).waitFor();
-  await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await dialog.getByRole('button', { name: /^Back to/ }).click();
   // Without a key the connection card replaces the composer again, so nothing can be sent to a provider.
   await keyNotice.waitFor();
   assert.equal(await chat.composer.count(), 0);
@@ -111,9 +130,12 @@ try {
   // The typed message stays in StudioChat's state while the card is shown; it is not sent anywhere.
   assert.deepEqual(keys, ['Bearer sk-or-second-test'], 'No provider request without a key');
   const tab = await browser.newPage();
-  await tab.goto(url);
+  await tab.goto(url + '#settings');
+  await tab.locator('.global-settings').waitFor();
+  await tab.getByRole('button', { name: 'Back to projects', exact: true }).click();
+  await tab.locator('.library').waitFor();
   // AI is available in ordinary tabs too (no installed-app gating).
-  await tab.getByRole('button', { name: 'OpenRouter', exact: true }).first().waitFor();
+  await tab.getByRole('button', { name: 'Settings', exact: true }).first().waitFor();
   assert.deepEqual(errors, []);
   console.log('OpenRouter settings: fresh-install Conversations, inline setup, save, reload, cancel replacement, replace, verify, remove, persistence, live chat key gating and installed-mode transitions without reload passed.');
 } finally {

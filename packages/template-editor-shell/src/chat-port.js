@@ -40,6 +40,11 @@ export function launchBlockScope(launch, composer) {
   return scope?.kind === 'block' && scope.targetId === launch.scope.targetId ? launch.editScope : null;
 }
 const sectionId = section => `${section.page}:${section.id}`;
+// Keep labels as sent (including fields), while retaining resolved source locations for opening sections.
+function messageMentions(message) {
+  const resolved = (message.mentions || []).map(toMentionTarget);
+  return message.uiMentions?.map(target => ({ ...resolved.find(item => item.kind === target.kind && item.id === target.id), ...target })) || resolved;
+}
 
 /**
  * Черновик рана для «Keep draft in editor»: кладётся в проект без валидации. Невалидный черновик блочного рана
@@ -87,7 +92,7 @@ export function createChatPort(session, context) {
     // id сообщения ассистента равен id рана — инвариант контракта RunState.id === message.id
     return { id: run.id, role: 'assistant', createdAt: iso(run.createdAt ?? run.updatedAt), parts: [...runToParts(run, t, language), ...(conflict ? conflictToParts(run.id, conflict, state, locale, t) : [])], status: runToState(run, t, language), ...(tree ? treeFields(tree, run.id) : {}) };
   }
-  const userMessage = (message, extra) => ({ id: message.id, role: 'user', createdAt: iso(message.createdAt), parts: [{ type: 'text', text: message.prompt || message.text || '' }], mentions: (message.mentions || []).map(toMentionTarget), attachments: (message.attachments || []).map(a => ({ id: a.id, name: a.name, type: a.mime?.startsWith('image/') ? 'image' : 'document', bytes: attachmentBytes(a), ...(a.dataUrl ? { url: a.dataUrl } : {}) })), ...extra });
+  const userMessage = (message, extra) => ({ id: message.id, role: 'user', createdAt: iso(message.createdAt), parts: [{ type: 'text', text: message.prompt || message.text || '' }], mentions: messageMentions(message), attachments: (message.attachments || []).map(a => ({ id: a.id, name: a.name, type: a.mime?.startsWith('image/') ? 'image' : 'document', bytes: attachmentBytes(a), ...(a.dataUrl ? { url: a.dataUrl } : {}) })), ...extra });
   const treeOf = threadId => { const thread = document().threads.find(item => item.id === threadId); return thread ? conversationTree(thread, document().runs) : null; };
   // Видимый путь дерева диалога: пользовательские сообщения и раны (ответы); уточнения во время рана — после его ответа.
   function messagesOf(threadId) {
@@ -184,10 +189,10 @@ export function createChatPort(session, context) {
       const editScope = scope.kind === 'block' ? scope.editScope : null;
       if (editScope && ((editScope.locale && editScope.locale !== locale) || !blockScopeBaseMatches(editScope, { files: state.files, rawValues: state.translations?.[editScope.locale || locale] || {} })))
         throw new PolicyError(t('The selected preview is outdated. Refresh preview and select the blocks again.'));
-      const fieldNotes = (input.mentions || []).filter(target => target.kind === 'field').map(target => `@${target.label}`).join(' ');
+      const fieldNotes = (input.mentions || []).filter(target => target.kind === 'field' && !text.includes(`@${target.label}`)).map(target => `@${target.label}`).join(' ');
       // Рантайм требует непустой prompt; сообщение «только вложения» получает нейтральную формулировку.
       const body = text || t('Use the attached files as reference.');
-      await session.submit({ threadId, prompt: fieldNotes ? `${body}\n(${fieldNotes})` : body, attachments, mentions, scope, snapshot: state, locale, sectionFrame, generateImages: input.generateImages, ...(input.mode ? { mode: input.mode } : {}) });
+      await session.submit({ threadId, prompt: fieldNotes ? `${body}\n(${fieldNotes})` : body, attachments, mentions, uiMentions: input.mentions || [], scope, snapshot: state, locale, sectionFrame, generateImages: input.generateImages, ...(input.mode ? { mode: input.mode } : {}) });
       pendingThreads.delete(threadId); context().onSent?.(); notify();
     },
     async stop(runId) { await session.stop(runId); },
@@ -240,7 +245,7 @@ export function createChatPort(session, context) {
       if (target.kind === 'file') onOpenFile?.(target.id); else if (source) onOpenFile?.(source.path, source.selection); else onOpenSection?.(target);
     },
     attachmentLimits: { count: FILE_ATTACHMENT_LIMITS.count, bytesPerFile: FILE_ATTACHMENT_LIMITS.bytes, bytesTotal: FILE_ATTACHMENT_LIMITS.total, accept: FILE_ATTACHMENT_ACCEPT },
-    get capabilities() { const { settings, onKeepDraft } = context(); return { scopes: ['project', 'file', 'block', 'content', 'discussion'], clarifyWhileRunning: true, discardStopped: true, cost: false, previewDraft: true, generateImages: Boolean(settings?.imageModel), conflictReview: true, keepDraft: Boolean(onKeepDraft), regenerate: true, edit: true, branches: true }; },
+    get capabilities() { const { settings, onKeepDraft } = context(); return { scopes: ['project'], clarifyWhileRunning: true, discardStopped: true, cost: false, previewDraft: true, generateImages: Boolean(settings?.imageModel), conflictReview: true, keepDraft: Boolean(onKeepDraft), regenerate: true, edit: true, branches: true }; },
     dispose() { for (const close of [...streams]) close(); disposed = true; unsubscribe(); listeners.clear(); messageStores.clear(); },
   };
   return {

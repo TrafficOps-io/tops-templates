@@ -1,3 +1,4 @@
+import { workspaceUrl } from './support/workspace-url.js';
 import { revealConversationTab } from './support/studio-chat.js';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -203,7 +204,7 @@ try {
         return new Response(response.body, { status: response.status, headers: { 'Content-Type': response.contentType } });
       };
     });
-    await page.goto(origin); await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
+    await page.goto(workspaceUrl(origin)); await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
     await configureAi(page, { apiKey: 'mock-block-key-zero-paid-requests', model: 'test/block-language-model' });
     ({ folder } = await seedProjectFolder(page, { name: fixture.name, files: fixture.files, values: fixture.settings }));
     // The library lists the folder after a reload (openProject's preview wait does not fit the 390px layout).

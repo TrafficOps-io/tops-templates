@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "repository": {
+    "name": "TrafficOps starters",
+    "description": "Editable starting points included with Landing Studio.",
+    "author": "TrafficOps",
+    "homepage": "https://trafficops.io"
+  },
+  "templates": [
+    {
+      "id": "starter-launch",
+      "name": "A fresh beginning",
+      "description": "An editorial launch page with an image and a clear call to action.",
+      "version": "1.0.0",
+      "thumbnail": "starter-launch.png",
+      "archive": "starter-launch.zip",
+      "preview": "previews/starter-launch/index.html",
+      "sha256": "d108757919923a2f989d202a27999a9fc513c334a5648b092c944309fc529a19"
+    },
+    {
+      "id": "starter-product",
+      "name": "Product spotlight",
+      "description": "A bold product introduction, benefits and a conversion section.",
+      "version": "1.0.0",
+      "thumbnail": "starter-product.png",
+      "archive": "starter-product.zip",
+      "preview": "previews/starter-product/index.html",
+      "sha256": "dca44d17c05977cb039157c79d17a7965c6d79c47121c0330a1e7fe606c2f0ac"
+    },
+    {
+      "id": "starter-service",
+      "name": "Independent studio",
+      "description": "A quiet portfolio for a service, studio or independent maker.",
+      "version": "1.0.0",
+      "thumbnail": "starter-service.png",
+      "archive": "starter-service.zip",
+      "preview": "previews/starter-service/index.html",
+      "sha256": "0cf1e3203c6b25b97da6457ad2fe232c20d6574cc32babeb3aabcf5f8ad18d9a"
+    }
+  ]
+}

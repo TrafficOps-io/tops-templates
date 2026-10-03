@@ -26,8 +26,8 @@ import { rememberRecent } from './editor/src/storage/recent.js';
 import { LAST_PROJECT_KEY } from './editor/src/storage/flows.js';
 import { saveOpenRouterSettings } from './editor/src/openrouter-settings.js';
 Object.defineProperty(navigator, 'standalone', { configurable:true, value:true });
-// The project is a real folder (an OPFS directory standing in for a picked one), registered in recent and reopened on
-// boot as the last project: the folder-first App opens it without a prompt.
+// The project is a real folder (an OPFS directory standing in for a picked one), registered in recent.
+// Installed launches open the library, where the test explicitly reopens this project.
 const folder = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('picker', { create:true })).getDirectoryHandle('retained-draft', { create:true });
 const meta = await createProjectInRoot(folder, { kind:'landing', name:'Retained draft settings QA', files:starterProject(true), values:{ title:'Original saved title' } });
 await rememberRecent({ projectId:meta.projectId, name:meta.name, kind:meta.kind, handle:folder });
@@ -79,11 +79,12 @@ try {
   await context.route('**/*',route=>{ if (route.request().url().startsWith(origin+'/')) return route.continue(); blocked.push(route.request().url().split('?')[0]); return route.abort(); });
   page=await context.newPage(); page.on('pageerror',error=>errors.push(error.message));
   await page.goto(origin);
+  await page.getByRole('button',{ name:'Open Retained draft settings QA',exact:true }).click();
   // Conversation runs are durable and do not lock the App (Library, OpenRouter, Update Studio): those locks applied only
   // to the former single-draft assistant of hosts without conversations. This regression keeps the retention contract.
   await page.getByRole('tab',{ name:'Conversations',exact:true }).click();
   const chat=studioChat(page); await chat.composer.waitFor();
-  await chat.chooseScope('Content only');
+  assert.equal(await chat.scope.count(),0,'the unified assistant needs no mode selector');
   await chat.prompt.fill('Update the title while preserving the rest.');
   await chat.send.click();
   await page.waitForFunction(()=>typeof window.retainedDraftTest.release==='function');
@@ -109,7 +110,7 @@ try {
   await page.setViewportSize({width:1280,height:1100});
   const savedBefore=await page.evaluate(()=>window.retainedDraftTest.readSaved());
   assert.equal(savedBefore.settings.title,'Original saved title','failed draft must not be silently committed');
-  { const item=await moreMenuItem(page,'OpenRouter'); assert.equal(await item.isEnabled(),true); await page.keyboard.press('Escape'); }
+  { const item=await moreMenuItem(page,'Settings'); assert.equal(await item.isEnabled(),true); await page.keyboard.press('Escape'); }
   const beforeSettings=await page.evaluate(()=>window.retainedDraftTest.calls.length);
   await chat.root.locator('.studio-chat-header').getByRole('button',{ name:'More actions',exact:true }).click();
   await chat.root.getByRole('menuitem',{ name:'AI settings',exact:true }).click();
@@ -117,7 +118,7 @@ try {
   await page.getByLabel('Text model',{ exact:true }).fill('test/replacement');
   await page.getByRole('button',{ name:'Save connection',exact:true }).click();
   await page.getByText('Connection saved on this device.',{ exact:true }).waitFor();
-  await page.getByRole('button',{ name:'Back to assistant',exact:true }).click();
+  await page.getByRole('button',{ name:'Back to project',exact:true }).click();
   await failed.locator('[data-testid="studio-chat-continue"]').waitFor();
   assert.equal(await page.evaluate(()=>window.retainedDraftTest.calls.length),beforeSettings,'saving a replacement model cannot automatically restart paid generation');
   await page.getByRole('tab',{ name:'Content',exact:true }).click();
@@ -131,15 +132,15 @@ try {
   assert.ok(continuation.length>=2);
   assert.ok(continuation.every(call=>call.model==='test/replacement'),'explicit continuation uses the saved replacement model');
   assert.equal(continuation[0].hasRetainedTitle,true,'continuation starts from retained content');
-  await (await moreMenuItem(page,'OpenRouter')).click();
-  const dialog=page.getByRole('dialog',{ name:'OpenRouter settings',exact:true });
+  await (await moreMenuItem(page,'Settings')).click();
+  const dialog=page.locator('.global-settings');
   await dialog.getByRole('button',{ name:'Enter model ID',exact:true }).first().click();
   await dialog.getByLabel('Text model',{ exact:true }).waitFor();
   const beforeApprovedSettings=await page.evaluate(()=>window.retainedDraftTest.calls.length);
   await dialog.getByLabel('Text model',{ exact:true }).fill('test/approved-replacement');
   await dialog.getByRole('button',{ name:'Save connection',exact:true }).click();
   await dialog.getByText('Connection saved on this device.',{ exact:true }).waitFor();
-  await dialog.getByRole('button',{ name:'Close',exact:true }).click();
+  await dialog.getByRole('button',{ name:'Back to project',exact:true }).click();
   await chat.apply.waitFor();
   assert.equal(await page.evaluate(()=>window.retainedDraftTest.calls.length),beforeApprovedSettings,'an approved draft stays ready without another provider call after saving settings');
   const savedAfter=await page.evaluate(()=>window.retainedDraftTest.readSaved());

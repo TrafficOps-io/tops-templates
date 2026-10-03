@@ -4,7 +4,7 @@ import test from 'node:test';
 import { generateProject, getDefaults, parseProject } from '@trafficops/template-runtime';
 import { parseStructuredContent, projectFromAiResponse, requestOpenRouter, valuesFromAiResponse, valuesSchema } from '@trafficops/template-editor-shell/openrouter-ai';
 import { normalizeOpenRouterSettings } from '../src/openrouter-settings.js';
-import { starterProject } from '../src/starter.js';
+import { starterProject } from './support/starter.js';
 
 test('structured AI content accepts JSON and a defensive fenced fallback', () => {
   assert.deepEqual(parseStructuredContent('{"value":1}'), { value: 1 });

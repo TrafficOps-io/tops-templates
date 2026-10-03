@@ -1,3 +1,4 @@
+import { workspaceUrl, reloadProject } from './support/workspace-url.js';
 import { revealConversationTab } from './support/studio-chat.js';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -45,7 +46,7 @@ async function openPage(installed = true) {
   const target = await context.newPage(); page = target;
   target.on('pageerror', error => report.errors.push(error.message));
   if (installed) await target.addInitScript(() => Object.defineProperty(navigator, 'standalone', { configurable: true, value: true }));
-  await target.goto(origin); await target.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
+  await target.goto(workspaceUrl(origin)); await target.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
   return target;
 }
 // The editor opens on the latest conversation (the creation thread), as the former conversation panel did.
@@ -64,8 +65,12 @@ try {
 
   const pending = await openPage();
   await pending.getByRole('tab', { name: 'Templates', exact: true }).click();
-  await pending.locator('.starter-grid').scrollIntoViewIfNeeded();
-  for (const card of await pending.locator('.starter-grid .library-thumbnail').all()) await card.frameLocator('iframe').locator('h1').waitFor();
+  await pending.locator('.starter-grid').first().scrollIntoViewIfNeeded();
+  for (const card of await pending.locator('.starter-grid .library-thumbnail').all()) {
+    await card.scrollIntoViewIfNeeded();
+    if (await card.locator('img').count()) await card.locator('img').evaluate(image => image.decode());
+    else await card.frameLocator('iframe').locator('h1').waitFor();
+  }
   await pending.getByRole('tab', { name: 'Projects', exact: true }).click();
   await pending.getByRole('button', { name: 'New project', exact: true }).click();
   const home = pending.getByRole('dialog', { name: 'New project', exact: true });
@@ -104,7 +109,7 @@ try {
   await home.locator('form[aria-busy="true"]').waitFor();
   const chat = studioChat(pending); await showLatestThread(pending);
   await chat.user.getByText('Create a reusable ceramics template with editable content.', { exact: true }).waitFor();
-  await chat.root.getByRole('button', { name: 'Connect OpenRouter', exact: true }).waitFor();
+  await chat.root.getByRole('button', { name: 'Set up AI in Settings', exact: true }).waitFor();
   // The brief is claimed into the creation dialogue in the folder: the prompt and its attachment are kept in history.
   const stored = await readProjectFolder(pending, 'picker/ceramics'), brief = stored.conversations.threads[0].messages[0];
   assert.equal(stored.meta.kind, 'template'); assert.equal(stored.meta.pendingAi, undefined);
@@ -116,7 +121,7 @@ try {
   const tour = pending.getByRole('dialog', { name: 'From template to finished pages', exact: true });
   await tour.getByRole('link', { name: 'Read full docs ↗', exact: true }).waitFor();
   await tour.getByRole('button', { name: 'Start creating', exact: true }).click();
-  await pending.reload(); await showLatestThread(pending); await chat.user.getByText(brief.prompt, { exact: true }).waitFor();
+  await reloadProject(pending); await showLatestThread(pending); await chat.user.getByText(brief.prompt, { exact: true }).waitFor();
   assert.equal(report.providerRequests, 0); report.checks.push('creation template brief + attachment persist without credentials; one full-height PWA header; help/docs retained');
   await pending.getByRole('button', { name: 'Projects', exact: true }).click(); await pending.locator('.library-project-first').waitFor();
   assert.equal(await pending.locator('.topbar').count(), 1); report.checks.push('returning to library restores the home header');

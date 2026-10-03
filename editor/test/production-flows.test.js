@@ -6,7 +6,7 @@ import { createZip, readZipProject } from '../src/project.js';
 import { imageTarget, cropRectangle } from '@trafficops/template-editor-shell/image-editing';
 import { imageFromResponse, generateImageWithOpenRouter, OPENROUTER_IMAGE_ENDPOINT } from '@trafficops/template-editor-shell/openrouter-images';
 import { installedDisplayMode, watchDisplayMode } from '../src/app-mode.js';
-import { starterProject } from '../src/starter.js';
+import { starterProject } from './support/starter.js';
 
 test('PWA capabilities require installed display mode, never a launch query', () => {
   const browser = { location: { search: '?studio=1' }, matchMedia: () => ({ matches: false }), navigator: {} };

@@ -1,3 +1,4 @@
+import { workspaceUrl } from './support/workspace-url.js';
 import { revealConversationTab } from './support/studio-chat.js';
 // Regenerate, edit and branch switching on the actual App (spec 2.3, 2.6), over a pre-tree conversation document,
 // plus the OpenRouter ModelPicker in AI settings. The provider and the model catalog are mocked in the page; no paid
@@ -55,7 +56,7 @@ try {
       return new Response(`data: ${JSON.stringify({ id: `mock-${state.requests.length}`, model: 'test/model', choices: [{ index: 0, delta: { role: 'assistant', content: text }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
     };
   }, catalog);
-  await page.goto(origin); await page.locator('.library').waitFor();
+  await page.goto(workspaceUrl(origin)); await page.locator('.library').waitFor();
   // The project folder holds the pre-tree history (.trafficops/conversations/).
   await configureAi(page, { apiKey: 'mock-no-provider-branches', model: 'test/text-model' });
   const seeded = await seedAndOpen(page, { name: fixture.name, projectId: fixture.id, files: fixture.files, values: fixture.settings, conversations: document });

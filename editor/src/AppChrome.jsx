@@ -1,10 +1,10 @@
-import { ArrowDownToLine, ChevronDown, FolderOpen, HelpCircle, KeyRound, LayoutGrid, Plus, ShieldCheck, WifiOff } from 'lucide-react';
+import { ArrowDownToLine, ChevronDown, FolderOpen, HelpCircle, Settings, LayoutGrid, Plus, ShieldCheck, WifiOff } from 'lucide-react';
 import { Menu } from '@trafficops/studio-ui/primitives';
 import ThemeToggle from './ThemeToggle.jsx';
 import BrandMark from './BrandMark.jsx';
 
 /** The site header shown around the library and in a browser tab. */
-export function AppHeader({ installPrompt, onInstall, onHelp, themeToggle }) {
+export function AppHeader({ installPrompt, onInstall, onHelp, onSettings, settingsOpen }) {
   return <header className="topbar"><div className="topbar-inner">
     <a className="brand" href="https://trafficops.io/" target="_blank" rel="noreferrer" aria-label="TrafficOps website"><BrandMark /><span className="brand-wordmark">Traffic<span>Ops</span></span></a>
     <span className="brand-divider" /><span className="product-name">Landing Studio</span>
@@ -12,16 +12,15 @@ export function AppHeader({ installPrompt, onInstall, onHelp, themeToggle }) {
 
       {installPrompt && <button className="btn btn-ghost btn-sm" onClick={onInstall}><ArrowDownToLine size={15} />Install Studio</button>}
       <button className="btn btn-ghost btn-sm" aria-label="Open quick start guide" onClick={onHelp}><HelpCircle size={16} />Quick start</button>
-      {themeToggle && <ThemeToggle />}
+      <button type="button" className="btn btn-ghost btn-sm" aria-current={settingsOpen ? 'page' : undefined} onClick={onSettings}><Settings size={16} />Settings</button>
       <a className="docs-link" href="https://trafficops-io.github.io/tops-templates/" target="_blank" rel="noreferrer">Docs ↗</a>
     </div>
   </div></header>;
 }
 
-/** OpenRouter settings, PWA and network state, the update button and the App error. */
-export function StatusNotices({ blocked, blockedReason, pwa, online, update, error, onAiSettings, onUpdate, onDismissError }) {
+/** PWA and network state, the update button and the App error. */
+export function StatusNotices({ blocked, blockedReason, pwa, online, update, error, onUpdate, onDismissError }) {
   return <>
-    <button type="button" className="btn btn-ghost btn-sm" disabled={blocked} title={blocked ? blockedReason : 'OpenRouter'} onClick={onAiSettings}><KeyRound size={15} /><span className="studio-navigation-label">OpenRouter</span></button>
     {pwa.error && <span className="studio-app-error" role="status">{pwa.error.operation === 'register' ? 'Offline setup failed' : 'Update check failed'}: {pwa.error.message}</span>}
     {!online && <span className="studio-network" role="status"><WifiOff size={14} />Offline · local editing available</span>}
     {update && <button className="btn btn-primary btn-sm" disabled={blocked} title={blocked ? blockedReason : undefined} onClick={onUpdate}>Update Studio</button>}

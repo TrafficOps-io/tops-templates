@@ -1,3 +1,4 @@
+import { workspaceUrl } from './support/workspace-url.js';
 import { revealConversationTab } from './support/studio-chat.js';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -117,7 +118,7 @@ try {
       });
     };
   });
-  await page.goto(origin); await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
+  await page.goto(workspaceUrl(origin)); await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
   await page.evaluate(async () => {
     const connection = await new Promise((resolve, reject) => {
       const request = indexedDB.open('trafficops-template-studio-ai', 1); request.onupgradeneeded = () => request.result.createObjectStore('settings', { keyPath: 'id' });
@@ -179,7 +180,7 @@ try {
   await page.locator('.file-sidebar').getByTitle('styles.css', { exact: true }).click();
   await page.getByRole('button', { name: 'Edit file with AI', exact: true }).click();
   await chat.activeScope('File').waitFor();
-  await chat.composer.locator('.studio-chip-mention').filter({ hasText: '@styles.css' }).waitFor();
+  await chat.composer.locator('.studio-chat-composer-highlights mark').filter({ hasText: '@styles.css' }).waitFor();
   await prompt.fill('Use this screenshot to update only the selected stylesheet.');
   await checkTextPaste(assistant, prompt, await prompt.inputValue());
   assert.equal((await paste(prompt, [image('file-reference.png')])).prevented, true);

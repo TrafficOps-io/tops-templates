@@ -1,3 +1,4 @@
+import { workspaceUrl } from './support/workspace-url.js';
 // Folder access and outside changes, with production storage over real OPFS folders (support/studio-folders.js):
 // an edit made outside Studio stops saving (conflict) without overwriting the folder; Save a copy… keeps the unsaved
 // edits, binary assets and empty folders; Reload saved project discards them. Revoked access and a moved folder pause
@@ -45,7 +46,7 @@ async function newPage({ installed = false } = {}) {
   page = await context.newPage();
   page.setDefaultTimeout(20000);
   page.on('pageerror', error => errors.push(error.message));
-  await page.goto(url);
+  await page.goto(workspaceUrl(url));
   await page.locator('.library').waitFor();
   return page;
 }
@@ -114,7 +115,8 @@ try {
   {
     const first = page, second = await page.context().newPage();
     second.on('pageerror', error => errors.push(error.message));
-    await second.goto(url);
+    await second.goto(workspaceUrl(url));
+    await second.getByRole('button', { name: 'Open Conflict landing', exact: true }).click();
     await editorReady(second);
     await second.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click();
     await second.getByLabel('Page title', { exact: false }).fill('From the second tab');

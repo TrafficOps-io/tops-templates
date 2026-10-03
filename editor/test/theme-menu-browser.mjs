@@ -1,4 +1,5 @@
-// Regression for unstyled menuitemradio entries in the editor's More menu.
+import { workspaceUrl } from './support/workspace-url.js';
+// Global appearance settings: keyboard use, persistence and responsive layouts from library and editor.
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
 import {createServer} from 'node:http';
@@ -30,48 +31,45 @@ try {
     if (installed) await context.addInitScript(() => Object.defineProperty(navigator, 'standalone', {value:true, configurable:true}));
     await context.route('https://openrouter.ai/**', route => {providerCalls.push(route.request().url()); return route.abort();});
     const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
-    await page.goto(origin);
-    const inspectRows = async (menu, reference) => {
-      const options = menu.getByRole('menuitemradio'); assert.equal(await options.count(), 3);
-      const metrics = await options.evaluateAll(nodes => nodes.map(node => {
-        const box = node.getBoundingClientRect(), icon = node.querySelector('svg').getBoundingClientRect(), text = node.querySelector('span').getBoundingClientRect();
-        return {x:box.x, y:box.y, width:box.width, height:box.height, end:box.bottom, font:getComputedStyle(node).fontSize, alignment:Math.abs(icon.y + icon.height / 2 - text.y - text.height / 2)};
-      }));
-      const ref = reference ? await reference.evaluate(node => ({box:node.getBoundingClientRect().width, font:getComputedStyle(node).fontSize})) : null;
-      for (const [index, row] of metrics.entries()) {
-        assert.ok(row.height >= (width === 390 ? 44 : 32), 'menu rows retain usable hit targets');
-        assert.ok(row.alignment <= 1, 'icon and caption are aligned horizontally');
-        assert.ok(Math.abs(row.width - metrics[0].width) <= 1, 'all theme rows share a width');
-        if (index) assert.ok(row.y >= metrics[index - 1].end - 1, 'theme choices are separate non-overlapping rows');
-        if (ref) {assert.equal(row.font, ref.font, 'theme text matches regular menu text'); assert.ok(Math.abs(row.width - ref.box) <= 1, 'theme rows fill the regular menu width');}
-      }
-      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    await page.goto(workspaceUrl(origin));
+    const openSettings = async () => {
+      await page.getByRole('button', {name:'Settings', exact:true}).click();
+      await page.locator('.global-settings').waitFor();
+      await page.waitForFunction(() => document.activeElement === document.querySelector('.global-settings-heading h1'));
     };
-    await page.getByRole('button', {name:'Theme', exact:true}).click();
-    await inspectRows(page.getByRole('menu', {name:'Theme', exact:true})); await page.keyboard.press('Escape');
+    await openSettings();
+    assert.equal(await page.getByRole('radio').count(), 3);
+    assert.equal(await page.getByRole('radio', {name:/System/}).isChecked(), true);
+    await page.getByRole('radio', {name:/System/}).focus();
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'studio-light');
+    await page.locator('.settings-theme-option').filter({hasText:'Dark'}).click();
+    assert.equal(await page.locator('html').getAttribute('data-theme'), 'studio-dark');
+    await page.reload();
+    await page.locator('.global-settings').waitFor();
+    assert.equal(await page.getByRole('radio', {name:/Dark/}).isChecked(), true);
+    await page.locator('.settings-theme-option').filter({hasText:'System'}).click();
+    assert.equal(await page.locator('html').getAttribute('data-theme'), null);
+    assert.equal(await page.evaluate(() => localStorage.getItem('studio-theme')), null);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+    for (const label of await page.locator('.settings-theme-option').all()) assert.ok((await label.boundingBox()).height >= 44);
+    await page.evaluate(() => { document.activeElement?.blur(); window.scrollTo(0, 0); });
+    await page.mouse.move(0, 0);
+    await page.screenshot({animations:'disabled', path:join(output, `settings-${theme}-${width}-${installed ? 'pwa' : 'web'}.png`), fullPage:true});
+    await page.getByRole('button', {name:'Back to projects', exact:true}).click();
     // The production create flow picks a real OPFS-backed directory under user activation.
-    await usePicker(page, `theme-menu-${theme}-${width}-${installed ? 'pwa' : 'web'}`);
+    await usePicker(page, `settings-${theme}-${width}-${installed ? 'pwa' : 'web'}`);
     await page.getByRole('button', {name:'New project', exact:true}).click();
     await page.getByRole('button', {name:'Create landing', exact:true}).click();
     await page.getByRole('tablist', {name:'Authoring mode', exact:true}).getByRole('tab', {name:'Content', exact:true}).waitFor();
+    await page.getByRole('tab', {name:'Conversations', exact:true}).waitFor();
     assert.equal(await page.evaluate(() => window.__pickerCalls), 1, 'manual create uses the activated folder picker');
-    const trigger = page.getByRole('button', {name:'More options', exact:true}); await trigger.click();
-    const menu = page.getByRole('menu', {name:'More options', exact:true});
-    await inspectRows(menu, menu.getByRole('menuitem', {name:'Quick start', exact:true}));
-    await menu.screenshot({path:join(output, `theme-menu-${theme}-${width}-${installed ? 'pwa' : 'web'}.png`)});
-    await page.keyboard.press('End'); assert.equal(await menu.getByRole('menuitemradio', {name:'Dark theme', exact:true}).evaluate(node => node === document.activeElement), true);
-    await page.keyboard.press('ArrowUp'); await page.keyboard.press('Enter');
-    assert.equal(await page.locator('html').getAttribute('data-theme'), 'studio-light');
-    assert.equal(await trigger.evaluate(node => node === document.activeElement), true);
-    await trigger.click(); assert.equal(await menu.getByRole('menuitemradio', {name:'Light theme', exact:true}).getAttribute('aria-checked'), 'true');
-    await menu.getByRole('menuitemradio', {name:'Dark theme', exact:true}).click();
-    assert.equal(await page.locator('html').getAttribute('data-theme'), 'studio-dark');
-    await page.reload(); await trigger.waitFor(); assert.equal(await page.locator('html').getAttribute('data-theme'), 'studio-dark');
-    await trigger.click(); await menu.getByRole('menuitemradio', {name:'System theme', exact:true}).click();
-    assert.equal(await page.locator('html').getAttribute('data-theme'), null);
-    assert.equal(await page.evaluate(() => localStorage.getItem('studio-theme')), null);
+    await openSettings();
+    await page.getByRole('button', {name:'Back to project', exact:true}).click();
+    await page.getByRole('tab', {name:'Content', exact:true}).waitFor();
+    await page.screenshot({path:join(output, `editor-${theme}-${width}-${installed ? 'pwa' : 'web'}.png`)});
     await context.close();
   }
   assert.deepEqual(errors, []); assert.deepEqual(providerCalls, []);
-  console.log('PASS: library/editor theme rows, sizes/alignment, keyboard/focus, selection and persistence, web/PWA ×1440/390 ×light/dark.');
+  console.log('PASS: global theme settings, keyboard selection, persistence and project return, web/PWA ×1440/390 ×light/dark.');
 } finally {await browser.close(); server.closeAllConnections(); await new Promise(done => server.close(done));}

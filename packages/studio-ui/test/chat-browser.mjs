@@ -126,9 +126,14 @@ try {
   await page.keyboard.press('ArrowDown');
   assert.equal(await listbox.getByRole('option').nth(1).getAttribute('aria-selected'), 'true');
   await page.keyboard.press('Enter');
-  await composer.locator('.studio-chip-mention', { hasText: 'Scene 2' }).waitFor();
-  await assertTarget(composer.locator('.studio-chip-mention', { hasText: 'Scene 2' }).locator('.studio-chip-main'), 'mention chip');
-  await assertTarget(composer.getByRole('button', { name: 'Remove Scene 2' }), 'mention chip remove');
+  await composer.locator('.studio-chat-composer-highlights mark', { hasText: 'Scene 2' }).waitFor();
+  assert.equal(await input.inputValue(), 'Make a video for @Scene 2 ');
+  await page.keyboard.type('with music');
+  assert.equal(await composer.locator('.studio-mention-menu').count(), 0, 'continuing after a mention keeps the picker closed');
+  await page.keyboard.type(' @Scene 2');
+  await listbox.waitFor();
+  await page.keyboard.press('Enter');
+  assert.equal(await composer.locator('.studio-chat-composer-highlights mark').count(), 2, 'the same target can be selected again without sending the draft');
   assert.equal(await page.getByRole('listbox').count(), 0, 'Enter picks the option and closes the menu');
   assert.equal((await input.inputValue()).includes('@scene'), false, 'the @query is removed from the text');
   await page.keyboard.type(' @');
@@ -148,7 +153,9 @@ try {
   assert.equal(await page.getByRole('listbox').count(), 0, 'no empty listbox');
   assert.equal(await input.getAttribute('aria-expanded'), 'false');
   await page.keyboard.press('Escape');
-  await input.fill('Make a video for');
+  assert.equal(await composer.locator('.studio-chat-composer-highlights mark').count(), 0, 'replacing the text removes the reference');
+  await input.fill('Make a video for @scene');
+  await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter');
 
   // New thread on the first send: createThread, then send into the created thread.
   await page.keyboard.press('Enter');
@@ -161,10 +168,11 @@ try {
   assert.deepEqual(sent[2].mentions.map(target => target.id), ['scene:s2'], 'the mention travels with the message');
   await feed.locator('[data-run-status="running"]').waitFor();
   await assertTarget(feed.getByRole('button', { name: 'Stop' }), 'run stop');
-  await assertTarget(feed.locator('[data-role="user"] .studio-chip-main').first(), 'mention chip in a user message');
+  await feed.locator('[data-role="user"] .studio-chat-inline-mention').getByText('@Scene 2', { exact: true }).waitFor();
+  assert.equal(await feed.locator('[data-role="user"] .studio-chip-mention').count(), 0, 'inline references are not duplicated below the message');
   assert.equal(await feed.locator('.studio-chat-run-status[data-status="running"]').count(), 1, 'run status carries data-status');
   assert.equal(await input.inputValue(), '', 'the composer is cleared after send');
-  assert.equal(await composer.locator('.studio-chip-mention').count(), 0, 'mentions are cleared after send');
+  assert.equal(await composer.locator('.studio-chat-composer-highlights mark').count(), 0, 'mentions are cleared after send');
   // Without capabilities.clarifyWhileRunning the composer does not send during a run.
   await input.fill('Not yet');
   assert.equal(await composer.getByRole('button', { name: 'Send message' }).isDisabled(), true, 'send is disabled while running');
@@ -275,7 +283,7 @@ try {
   await page.waitForFunction(() => window.threadId === '');
   const scopesBeforeLaunch = await page.evaluate(() => window.scopes.length);
   await page.evaluate(() => window.launch({ id: crypto.randomUUID(), text: 'Rejected first message', mentions: [{ kind: 'scene', id: 'scene:s1', label: 'Scene 1' }], attachments: [new File(['x'], 'note.txt', { type: 'text/plain' })] }));
-  await page.waitForFunction(() => document.querySelector('[data-testid="studio-chat-composer"] textarea[role="combobox"]').value === 'Rejected first message');
+  await page.waitForFunction(() => document.querySelector('[data-testid="studio-chat-composer"] textarea[role="combobox"]').value === 'Rejected first message @Scene 1 ');
   assert.deepEqual(await page.evaluate(n => window.scopes.slice(n), scopesBeforeLaunch), [{ kind: 'project' }], 'a launch without scope reports the default scope');
   const threadsBefore = await page.evaluate(() => window.fake.threads.get().length);
   await input.click(); await page.keyboard.press('Enter');
@@ -285,8 +293,8 @@ try {
   await page.waitForFunction(() => window.threadId === '');
   assert.equal(await page.evaluate(() => window.fake.threads.get().length), threadsBefore, 'no empty thread is left');
   await page.getByRole('alert').filter({ hasText: 'AI key is not configured.' }).waitFor();
-  await page.waitForFunction(() => document.querySelector('[data-testid="studio-chat-composer"] textarea[role="combobox"]').value === 'Rejected first message', null, { timeout: 5000 });
-  await composer.locator('.studio-chip-mention', { hasText: 'Scene 1' }).waitFor();
+  await page.waitForFunction(() => document.querySelector('[data-testid="studio-chat-composer"] textarea[role="combobox"]').value === 'Rejected first message @Scene 1 ', null, { timeout: 5000 });
+  await composer.locator('.studio-chat-composer-highlights mark', { hasText: 'Scene 1' }).waitFor();
   await composer.getByText('note.txt').waitFor();
   await page.getByRole('alert').filter({ hasText: 'AI key is not configured.' }).getByRole('button', { name: 'Dismiss' }).click();
   await page.evaluate(() => { window.fake.rejectSend = false; });
@@ -306,8 +314,8 @@ try {
 
   // External launch: a new launch.id fills text, mentions and files.
   await page.evaluate(() => window.launch({ id: crypto.randomUUID(), text: 'From the home screen', mentions: [{ kind: 'track', id: 'track:music', label: 'Music track' }], attachments: [new File(['brief'], 'brief.txt', { type: 'text/plain' })] }));
-  await page.waitForFunction(() => document.querySelector('[data-testid="studio-chat-composer"] textarea[role="combobox"]').value === 'From the home screen');
-  await composer.locator('.studio-chip-mention', { hasText: 'Music track' }).waitFor();
+  await page.waitForFunction(() => document.querySelector('[data-testid="studio-chat-composer"] textarea[role="combobox"]').value === 'From the home screen @Music track ');
+  await composer.locator('.studio-chat-composer-highlights mark', { hasText: 'Music track' }).waitFor();
   await composer.getByText('brief.txt').waitFor();
 
   // Thread list: create, rename, archive, delete.

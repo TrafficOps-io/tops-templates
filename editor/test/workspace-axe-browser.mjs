@@ -1,3 +1,4 @@
+import { workspaceUrl } from './support/workspace-url.js';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
@@ -19,7 +20,7 @@ for (const installed of [false, true]) for (const width of [1440, 390]) {
   await page.addInitScript(() => { window.showDirectoryPicker = undefined; });
   if (installed) await page.addInitScript(() => Object.defineProperty(navigator, 'standalone', { configurable: true, value: true }));
   await page.route('https://openrouter.ai/**', r => r.abort());
-  await page.goto(`http://127.0.0.1:${server.address().port}`);
+  await page.goto(workspaceUrl(`http://127.0.0.1:${server.address().port}`));
   const scan = async label => {
     for (const theme of ['light', 'dark']) {
       await page.evaluate(n => document.documentElement.setAttribute('data-theme', `studio-${n}`), theme); await page.waitForTimeout(250);

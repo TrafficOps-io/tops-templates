@@ -77,7 +77,7 @@ export async function createFolderHost({ root, meta, language = 'en', messages =
     // An empty folder gets an editable starter in memory; opening never writes to disk.
     const empty = !Object.keys(tree.files).length;
     state = { projectId, name: current.name || t('Untitled project'), revision: ++revision, contentRevision: current.contentRevision || 0, appliedAiRuns: [...(current.appliedAiRuns || [])],
-      files: empty ? starterProject(true) : tree.files, folders: [...tree.folders], entrypoint: null, locale: language, translations: { [language]: clone(values) },
+      files: empty ? starterProject() : tree.files, folders: [...tree.folders], entrypoint: null, locale: language, translations: { [language]: clone(values) },
       status: [empty ? t('Unsaved project') : t('Saved to folder'), briefWarning].filter(Boolean).join(' · '), availability: { inlinePreview: true, externalPreview: false, ai: Boolean(ai) }, actions: [], history: [] };
     state.actions = actions();
     return state;

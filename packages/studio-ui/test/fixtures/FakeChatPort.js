@@ -229,7 +229,7 @@ export function createFakeChatPort({ now = () => new Date().toISOString() } = {}
     },
     openTarget(target) { port.opened.push(target); },
     attachmentLimits: { count: 10, bytesPerFile: 512 * MiB, bytesTotal: 5 * 1024 * MiB, accept: 'image/*,audio/*,video/*,.docx,.txt' },
-    capabilities: { scopes: ['project', 'scene', 'audio', 'script'], cost: true, previewDraft: false, generateImages: false, conflictReview: true, keepDraft: true },
+    capabilities: { scopes: ['project', 'scene', 'audio', 'script'], cost: true, previewDraft: false, generateImages: true, conflictReview: true, keepDraft: true },
     dispose() { for (const item of queues.values()) item.close(); queues.clear(); },
   };
   return port;

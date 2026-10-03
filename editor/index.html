@@ -3,12 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="description" content="Create, edit and generate TrafficOps templates entirely in your browser." />
+    <meta name="description" content="Build landing pages from templates, edit with a live preview, and export ready-to-host HTML. Local projects, optional AI, and an installable PWA." />
     <meta name="apple-mobile-web-app-title" content="Landing Studio" />
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fffdfb" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#262220" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/pwa-icon-192.png" />
+    <link rel="preload" as="image" href="/marketing/editor-light.webp" imagesrcset="/marketing/editor-light-720.webp 720w, /marketing/editor-light.webp 1440w" imagesizes="(max-width: 767px) calc(100vw - 40px), (max-width: 1100px) 52vw, 58vw" media="(prefers-color-scheme: light)" fetchpriority="high" />
+    <link rel="preload" as="image" href="/marketing/editor-dark.webp" imagesrcset="/marketing/editor-dark-720.webp 720w, /marketing/editor-dark.webp 1440w" imagesizes="(max-width: 767px) calc(100vw - 40px), (max-width: 1100px) 52vw, 58vw" media="(prefers-color-scheme: dark)" fetchpriority="high" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Landing Studio by TrafficOps" />
+    <meta property="og:description" content="Your landing. Your workspace. Build, edit and export landing pages with your projects stored locally." />
     <title>Landing Studio by TrafficOps</title>
   </head>
   <body><div id="root"></div><script type="module" src="/src/main.jsx"></script></body>
