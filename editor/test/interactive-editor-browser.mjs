@@ -86,7 +86,9 @@ try {
   // Offline editing exercises the installed build and its cached lazy runtime.
   await page.evaluate(()=>navigator.serviceWorker.ready.then(()=>true));
   if (!await page.evaluate(()=>Boolean(navigator.serviceWorker.controller))) {
-    await page.reload(); await visible().contentFrame().getByRole('heading',{name:'Resumed',exact:true}).waitFor();
+    await page.reload();
+    await page.getByRole('button',{name:'Open Interactive',exact:true}).click();
+    await visible().contentFrame().getByRole('heading',{name:'Resumed',exact:true}).waitFor();
     await page.getByRole('tab',{name:'Content',exact:true}).click();
   }
   await context.setOffline(true);

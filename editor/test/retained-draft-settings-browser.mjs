@@ -26,8 +26,8 @@ import { rememberRecent } from './editor/src/storage/recent.js';
 import { LAST_PROJECT_KEY } from './editor/src/storage/flows.js';
 import { saveOpenRouterSettings } from './editor/src/openrouter-settings.js';
 Object.defineProperty(navigator, 'standalone', { configurable:true, value:true });
-// The project is a real folder (an OPFS directory standing in for a picked one), registered in recent and reopened on
-// boot as the last project: the folder-first App opens it without a prompt.
+// The project is a real folder (an OPFS directory standing in for a picked one), registered in recent.
+// Installed launches open the library, where the test explicitly reopens this project.
 const folder = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('picker', { create:true })).getDirectoryHandle('retained-draft', { create:true });
 const meta = await createProjectInRoot(folder, { kind:'landing', name:'Retained draft settings QA', files:starterProject(true), values:{ title:'Original saved title' } });
 await rememberRecent({ projectId:meta.projectId, name:meta.name, kind:meta.kind, handle:folder });
@@ -79,11 +79,12 @@ try {
   await context.route('**/*',route=>{ if (route.request().url().startsWith(origin+'/')) return route.continue(); blocked.push(route.request().url().split('?')[0]); return route.abort(); });
   page=await context.newPage(); page.on('pageerror',error=>errors.push(error.message));
   await page.goto(origin);
+  await page.getByRole('button',{ name:'Open Retained draft settings QA',exact:true }).click();
   // Conversation runs are durable and do not lock the App (Library, OpenRouter, Update Studio): those locks applied only
   // to the former single-draft assistant of hosts without conversations. This regression keeps the retention contract.
   await page.getByRole('tab',{ name:'Conversations',exact:true }).click();
   const chat=studioChat(page); await chat.composer.waitFor();
-  await chat.chooseScope('Content only');
+  assert.equal(await chat.scope.count(),0,'the unified assistant needs no mode selector');
   await chat.prompt.fill('Update the title while preserving the rest.');
   await chat.send.click();
   await page.waitForFunction(()=>typeof window.retainedDraftTest.release==='function');

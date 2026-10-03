@@ -116,6 +116,7 @@ try {
     const first = page, second = await page.context().newPage();
     second.on('pageerror', error => errors.push(error.message));
     await second.goto(workspaceUrl(url));
+    await second.getByRole('button', { name: 'Open Conflict landing', exact: true }).click();
     await editorReady(second);
     await second.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click();
     await second.getByLabel('Page title', { exact: false }).fill('From the second tab');

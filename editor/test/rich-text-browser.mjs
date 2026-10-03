@@ -120,6 +120,7 @@ try {
   await saveNow(page);
   await until(async () => /Inserted caption\./.test(JSON.parse(await readOpfs(page, `${seeded.folder}/.trafficops/values.json`) || '{}').article_body || ''), 'the edited article is saved to the folder');
   await page.reload();
+  await page.getByRole('button', { name: `Open ${fixture.name}`, exact: true }).click();
   await page.getByRole('tab', { name: 'Content', exact: true }).click();
   await articleEditor.locator('figcaption').first().waitFor();
   assert.equal(await articleEditor.locator('figure').count(), 2);

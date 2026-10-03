@@ -171,6 +171,7 @@ try {
   const archive = unzipSync(new Uint8Array(await readFile(await (await download).path())));
   assert.ok(archive['images/article.png']); assert.equal(JSON.parse(strFromU8(archive['.trafficops/values.json'])).reviews.length, 7);
   await page.reload();
+  await page.getByRole('button', { name: `Open ${fixture.name}`, exact: true }).click();
   await page.locator('.browser-frame iframe.is-visible').contentFrame().getByRole('heading', { name: 'Polski artykuł', exact: true }).waitFor();
   const frame = page.locator('.browser-frame iframe.is-visible').contentFrame();
   assert.equal((await frame.locator('article > p').textContent()).length, 2600);
