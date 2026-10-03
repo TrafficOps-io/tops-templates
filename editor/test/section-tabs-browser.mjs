@@ -93,7 +93,9 @@ try {
     }
     await saveNow(page);
     await until(async () => (await readProjectFolder(page, project.folder))?.values?.field_0 === 'Retained section edit', 'section edit is written to the project folder');
-    await page.reload(); await showPane(page, 'Edit');
+    await page.reload();
+    if (installed) await page.getByRole('button', {name:'Open Section navigation QA', exact:true}).click();
+    await showPane(page, 'Edit');
     await page.locator('#setting-field_0').waitFor(); assert.equal(await page.locator('#setting-field_0').inputValue(), 'Retained section edit', 'saved edits survive reload');
     await inspect(); await context.close();
   }

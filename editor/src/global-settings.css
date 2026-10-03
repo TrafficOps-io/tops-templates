@@ -63,3 +63,4 @@
   .settings-theme-option { padding: .5rem; }
   .settings-theme-name { flex-wrap: wrap; }
 }
+.studio .text-link { color: var(--ui-text); text-underline-offset: .18em; }
