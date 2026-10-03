@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
-import { BookOpen, FolderOpen, HelpCircle, KeyRound, LayoutGrid, Plus, RefreshCw, WifiOff } from 'lucide-react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { getInstallPrompt, installStudio, subscribeInstall } from './install.js';
+import { BookOpen, FolderOpen, HelpCircle, Settings, LayoutGrid, Plus, RefreshCw, WifiOff } from 'lucide-react';
 import EditorShell from '@trafficops/template-editor-shell';
 import { getConversationSession, getConversationActivity, subscribeConversationActivity, releaseConversationSession } from '@trafficops/template-editor-shell/conversation-runtime';
 import { createFolderHost } from './hosts/FolderHost.js';
@@ -14,16 +15,19 @@ import { readProjectMeta, readValues } from './storage/project-meta.js';
 import { adoptFolder, copyProject, createProjectInRoot, interruptImportedRuns, listKnownProjects, makeIndependent, remapConversation } from './storage/project-root.js';
 import { LAST_PROJECT_KEY, accessLost, accessProblem, duplicateDecision, duplicatePermissionPlan, importIdentity, openFolderDecision, pendingEditsApply, reconnectDecision, reopenCandidate, rootReachable, storageLabels } from './storage/flows.js';
 import { useFolderChoice } from './useFolderChoice.js';
-import { AppHeader, ProjectNavigation, StatusNotices } from './AppChrome.jsx';
+import { AppHeader, StatusNotices } from './AppChrome.jsx';
 import { starterProject } from './starter.js';
 import { getPwaState, subscribePwa } from './pwa.js';
 import StudioLibrary, { CreateProjectDialog } from './StudioLibrary.jsx';
 import { briefAttachments } from './HomeProjectChat.jsx';
-import { AiSettingsDialog, TourDialog } from './StudioDialogs.jsx';
+import { TourDialog } from './StudioDialogs.jsx';
+import GlobalSettings, { AiSetupNotice } from './GlobalSettings.jsx';
+import { useSettingsPage } from './useSettingsPage.js';
+import { useTemplateRepositories } from './useTemplateRepositories.js';
+import { loadRepositoryTemplate } from './template-repositories.js';
 import FolderChoiceDialog from './FolderChoiceDialog.jsx';
 import UnsupportedBrowser from './UnsupportedBrowser.jsx';
 import BrandMark from './BrandMark.jsx';
-import { ThemeMenuItems } from './ThemeToggle.jsx';
 import { StudioUiProvider } from '@trafficops/studio-ui/i18n';
 import { Skeleton } from '@trafficops/studio-ui/primitives';
 
@@ -44,9 +48,14 @@ export default function App() {
   const [mode, setMode] = useState(null), [host, setHost] = useState(null), [epoch, setEpoch] = useState(0);
   const [known, setKnown] = useState([]), [current, setCurrent] = useState(null), [ready, setReady] = useState(false);
   const [problems, setProblems] = useState({}), [lost, setLost] = useState(null);
-  const [aiSettingsOpen, setAiSettingsOpen] = useState(false), [help, setHelp] = useState(false), [creating, setCreating] = useState(null);
+  const [settingsOpen, showSettings, closeSettings] = useSettingsPage();
+  const [settingsSection, setSettingsSection] = useState(null);
+  function openSettings(section) { setSettingsSection(section === 'repositories' ? section : null); showSettings(); }
+  const repositoryManager = useTemplateRepositories();
+  const [help, setHelp] = useState(false), [creating, setCreating] = useState(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState(''), [view, setView] = useState(null), [activity, setActivity] = useState([]);
-  const [installPrompt, setInstallPrompt] = useState(null), [pwa, setPwa] = useState(getPwaState), [online, setOnline] = useState(navigator.onLine);
+  const installPrompt = useSyncExternalStore(subscribeInstall, getInstallPrompt);
+  const [pwa, setPwa] = useState(getPwaState), [online, setOnline] = useState(navigator.onLine);
   const update = pwa.update;
   const archive = useRef(null), snapshot = useRef(null), currentRef = useRef(null), busyRef = useRef(false), lostRef = useRef(null), modeRef = useRef(null), boot = useRef(null);
   const ai = useRef(null), hosts = useRef(new Map()), queuedImports = useRef([]), importNext = useRef(null);
@@ -147,8 +156,9 @@ export default function App() {
     boot.current.then(async ({ storage, projects }) => {
       if (!alive) return;
       modeRef.current = storage; setMode(storage); setKnown(projects);
-      // Reopen the last project only without a prompt: a permission request needs a click.
-      const entry = reopenCandidate(projects, lastProject.get());
+      // Installed launches always begin at the library; browser workspace reloads can resume editing.
+      // Reopening must never trigger a folder permission prompt without a click.
+      const entry = installedDisplayMode() ? null : reopenCandidate(projects, lastProject.get());
       if (entry) {
         try {
           const check = reconnectDecision(entry.projectId, await classifyFolder(entry.handle));
@@ -161,11 +171,9 @@ export default function App() {
     return () => { alive = false; };
   }, []);
   useEffect(() => {
-    const install = event => { event.preventDefault(); setInstallPrompt(event); };
     const network = () => setOnline(navigator.onLine);
-    window.addEventListener('beforeinstallprompt', install);
     window.addEventListener('online', network); window.addEventListener('offline', network);
-    return () => { window.removeEventListener('beforeinstallprompt', install); window.removeEventListener('online', network); window.removeEventListener('offline', network); };
+    return () => { window.removeEventListener('online', network); window.removeEventListener('offline', network); };
   }, []);
   useEffect(() => {
     const warn = event => { if (getConversationActivity().length || snapshot.current?.dirty) { event.preventDefault(); event.returnValue = ''; } };
@@ -214,7 +222,7 @@ export default function App() {
         const attachments = creation === 'ai' ? await briefAttachments(attachmentFiles, useOnPage) : [];
         await preserveCurrent();
         const template = creation === 'template' ? source : null;
-        const meta = await createProjectInRoot(root, { kind, name, files: template ? template.files : starterProject(true), folders: template?.folders || [], values: template?.settings,
+        const meta = await createProjectInRoot(root, { kind, name, files: template ? template.files : starterProject(), folders: template?.folders || [], values: template?.settings,
           ...(template && !template.builtin ? { sourceTemplateId: template.id } : {}),
           ...(creation === 'ai' ? { brief: { id: crypto.randomUUID(), prompt, mode: 'create', generateImages, attachments } } : {}) });
         if (rootSource() === 'opfs') persistStorage();
@@ -229,7 +237,7 @@ export default function App() {
     if (decision.action === 'damaged') throw new Error(`This folder holds a damaged Studio project: ${decision.error}`);
     await preserveCurrent();
     if (decision.action === 'adopt') return enter(handle, await adoptFolder(handle, { name: projectName(handle.name) }), 'folder');
-    if (decision.action === 'blank') return enter(handle, await createProjectInRoot(handle, { name: projectName(handle.name), files: starterProject(true) }), 'folder');
+    if (decision.action === 'blank') return enter(handle, await createProjectInRoot(handle, { name: projectName(handle.name), files: starterProject() }), 'folder');
     const original = (await listKnownProjects()).find(entry => entry.projectId === decision.meta.projectId);
     if ((await duplicateDecision(original, handle)).action === 'make-independent') {
       const answer = await folders.ask({ title: `This folder is a copy of ${original.name}`, message: `“${handle.name}” has the same project identity as “${original.name}”, which Studio already knows. To open it, make it independent: it gets its own identity and its own copy of the dialogue history. The original stays unchanged.`, actions: [{ id: 'independent', label: 'Make independent', primary: true }] });
@@ -312,6 +320,7 @@ export default function App() {
   // Spec A2: choosing a user template is its own click. Access is asked in it; the files and values are read into memory
   // (no history), so the Create click can open the picker for the new project.
   function loadTemplate(entry) {
+    if (entry.repositoryId) return loadRepositoryTemplate(entry);
     const asking = requestAccess(entry.handle);
     return (async () => {
       if (await asking.catch(() => 'denied') !== 'granted') throw new Error(`Studio needs permission to read the template “${entry.name}”.`);
@@ -422,31 +431,32 @@ export default function App() {
 
   const labels = current ? storageLabels(current.source, current.handle?.name || current.name) : { summary: '', help: '' };
   const cards = known.map(entry => ({ ...entry, id: entry.projectId, updatedAt: entry.lastOpenedAt, problem: problems[entry.projectId] || (entry.access === 'denied' ? problemOf('permission') : null) }));
-  const statusNotice = <StatusNotices blocked={blocked} blockedReason={blockedReason} pwa={pwa} online={online} update={update} error={error} onAiSettings={() => setAiSettingsOpen(true)} onUpdate={updateStudio} onDismissError={() => setError('')} />;
+  const statusNotice = <StatusNotices blocked={blocked} blockedReason={blockedReason} pwa={pwa} online={online} update={update} error={error} onUpdate={updateStudio} onDismissError={() => setError('')} />;
   const toolbarStart = <div className="studio-navigation"><button type="button" className="btn btn-ghost btn-sm studio-home" disabled={blocked} aria-label="Projects" onClick={showLibrary}><BrandMark /><span className="studio-navigation-label">Projects</span></button><span className="studio-crumb" aria-hidden="true">/</span></div>;
   const projectMenu = ({ close }) => <>{known.length > 1 && <><hr /><span className="studio-menu-label">Switch project</span>{known.filter(entry => entry.projectId !== current?.projectId).slice(0, 8).map(entry => <button key={entry.projectId} type="button" role="menuitem" disabled={blocked} onClick={() => { close(false); openKnown(entry); }}><span>{entry.name}</span>{activity.some(run => run.projectId === entry.projectId) && <small>AI working</small>}</button>)}</>}<hr /><button type="button" role="menuitem" disabled={blocked} onClick={() => { close(); setCreating({}); }}><Plus size={14} />New project</button><button type="button" role="menuitem" disabled={blocked} onClick={() => { close(false); showLibrary(); }}><LayoutGrid size={14} />All projects</button><button type="button" role="menuitem" disabled={busy} onClick={() => { close(false); saveCopy(); }}><FolderOpen size={14} />Save a copy…</button></>;
-  const moreMenu = ({ close }) => <><hr /><button type="button" role="menuitem" disabled={blocked} onClick={() => { close(false); setAiSettingsOpen(true); }}><KeyRound size={14} />OpenRouter</button><button type="button" role="menuitem" onClick={() => { close(); setHelp(true); }}><HelpCircle size={14} />Quick start</button><a role="menuitem" href="https://trafficops-io.github.io/tops-templates/" target="_blank" rel="noreferrer" onClick={() => close()}><BookOpen size={14} />Documentation ↗</a><hr /><span className="studio-menu-label">Theme</span><ThemeMenuItems close={close} /></>;
-  const editorNotices = <>{!online && <span className="studio-network" role="status"><WifiOff size={14} />Offline · local editing available</span>}{update && <button className="btn btn-outline btn-sm" disabled={blocked} aria-label="Update Studio" onClick={updateStudio}><RefreshCw size={14} /><span className="studio-navigation-label">Update Studio</span></button>}</>;
+  const moreMenu = ({ close }) => <><hr /><button type="button" role="menuitem" disabled={blocked} onClick={() => { close(false); openSettings(); }}><Settings size={14} />Settings</button><button type="button" role="menuitem" onClick={() => { close(); setHelp(true); }}><HelpCircle size={14} />Quick start</button><a role="menuitem" href="https://trafficops-io.github.io/tops-templates/" target="_blank" rel="noreferrer" onClick={() => close()}><BookOpen size={14} />Documentation ↗</a></>;
+  const editorNotices = <><button type="button" className="btn btn-ghost btn-sm" aria-label="Settings" title="Global settings: AI, appearance and template repositories" onClick={openSettings}><Settings size={15} /><span className="studio-navigation-label">Settings</span></button>{!online && <span className="studio-network" role="status"><WifiOff size={14} />Offline · local editing available</span>}{update && <button className="btn btn-outline btn-sm" disabled={blocked} aria-label="Update Studio" onClick={updateStudio}><RefreshCw size={14} /><span className="studio-navigation-label">Update Studio</span></button>}</>;
   const editorAlerts = <>{pwa.error && <span className="studio-app-error" role="status">{pwa.error.message}</span>}{error && <span className="studio-app-error" role="alert">{error}<button className="text-link" onClick={() => setError('')}>Dismiss</button></span>}{lost && <span className="folder-unavailable" role="alert" title={LOST}>Folder unavailable<button type="button" className="btn btn-outline btn-sm" disabled={busy} onClick={reconnectCurrent}>Reconnect</button></span>}{(lost || view?.conflict) && <button type="button" className="btn btn-outline btn-sm" disabled={busy} onClick={saveCopy}>Save a copy…</button>}</>;
   const editor = host && <StudioUiProvider language={host.language} messages={host.messages}>
-    <EditorShell key={epoch} host={host} aiAllowed onSnapshot={rememberSnapshot} presentation="app" previewExpandButton={false} externalModalOpen={aiSettingsOpen || help || Boolean(creating) || Boolean(folderChoice)}
+    <EditorShell key={epoch} host={host} aiAllowed onSnapshot={rememberSnapshot} presentation="app" previewExpandButton={false} onOpenSettings={openSettings} externalModalOpen={settingsOpen || help || Boolean(creating) || Boolean(folderChoice)}
       onNewProject={() => setCreating({})} onImportProject={importArchive} newProjectCreatesCopy externalBusy={busy || Boolean(lost)} storageSummary={labels.summary} storageHelp={labels.help} toolbarStart={toolbarStart} projectMenu={projectMenu} toolbarNotices={editorNotices} toolbarAlerts={editorAlerts} moreMenu={moreMenu} />
   </StudioUiProvider>;
-  const library = <StudioLibrary aiEnabled aiSettings={studioAi().settings} onCreateWithAi={createProject} activity={activity} projects={cards} busy={busy} storageMode={mode} onCreate={options => setCreating(options || {})} onOpen={openKnown}
+  const library = <StudioLibrary repositories={repositoryManager.repositories} repositoryError={repositoryManager.error} onSettings={() => openSettings('repositories')} aiEnabled aiSettings={studioAi().settings} onCreateWithAi={createProject} activity={activity} projects={cards} busy={busy} storageMode={mode} onCreate={options => setCreating(options || {})} onOpen={openKnown}
     onUseTemplate={startFromTemplate} onDuplicate={duplicateProject} onDelete={deleteProject} onImport={() => archive.current.click()} onFolder={mode === 'folder' ? openFolder : undefined} onReconnect={reconnect} onRemove={removeFromList} />;
   const content = !ready ? <div className="library-grid" role="status" aria-label="Opening your workspace…">{[0, 1, 2, 3, 4, 5].map(index => <Skeleton key={index} shape="card" height={260} />)}</div>
     : mode === 'unsupported' ? <UnsupportedBrowser /> : host ? editor : library;
-  return <div className={`studio-root studio editor-root ${installedMode ? 'installed-app' : ''} ${host ? 'is-editor' : ''}`}>
-    {!host && <AppHeader installPrompt={installPrompt} onInstall={() => perform(async () => { await installPrompt.prompt(); setInstallPrompt(null); })} onHelp={() => setHelp(true)} themeToggle={!host} />}
-    <a className="studio-skip-link" href="#studio-workspace">Skip to workspace</a><main id="studio-workspace" tabIndex={-1} className="workspace">
+  return <div className={`studio-root studio editor-root ${installedMode ? 'installed-app' : ''} ${host && !settingsOpen ? 'is-editor' : ''}`}>
+    {(!host || settingsOpen) && <AppHeader installPrompt={!installedMode && installPrompt} onInstall={() => perform(installStudio)} onHelp={() => setHelp(true)} onSettings={openSettings} settingsOpen={settingsOpen} />}
+    <a className="studio-skip-link" href={settingsOpen ? '#settings-workspace' : '#studio-workspace'} onClick={event => { event.preventDefault(); document.getElementById(settingsOpen ? 'settings-workspace' : 'studio-workspace')?.focus(); }}>Skip to workspace</a><main id="studio-workspace" tabIndex={-1} className="workspace" hidden={settingsOpen}>
       {!host && mode !== 'unsupported' && <div className="studio-notices">{statusNotice}</div>}
+      {!host && ready && mode !== 'unsupported' && <AiSetupNotice ai={studioAi()} onSettings={openSettings} />}
       {content}
     </main>
-    {!host && <footer className="site-footer"><span>Landing Studio</span><span>Open source, by <a href="https://github.com/trafficops-io" target="_blank" rel="noreferrer">trafficops.io ↗</a></span></footer>}
-    {creating && <CreateProjectDialog aiEnabled aiSettings={studioAi().settings} initial={creating} templates={cards.filter(entry => entry.kind === 'template' && !entry.problem)} busy={busy} onCreate={createProject} onLoadTemplate={loadTemplate} onClose={() => setCreating(null)} />}
+    {settingsOpen && <main id="settings-workspace" tabIndex={-1} className="workspace settings-workspace"><GlobalSettings initialSection={settingsSection} repositoryManager={repositoryManager} ai={studioAi()} onBack={closeSettings} backLabel={creating ? 'Back to new project' : host ? 'Back to project' : 'Back to projects'} /></main>}
+    {(!host || settingsOpen) && <footer className="site-footer"><span>Landing Studio</span><span>Open source, by <a href="https://github.com/trafficops-io" target="_blank" rel="noreferrer">trafficops.io ↗</a></span></footer>}
+    {creating && <CreateProjectDialog repositories={repositoryManager.repositories} active={!settingsOpen} onSettings={openSettings} onManageRepositories={() => openSettings('repositories')} aiEnabled aiSettings={studioAi().settings} initial={creating} templates={cards.filter(entry => entry.kind === 'template' && !entry.problem)} busy={busy} onCreate={createProject} onLoadTemplate={loadTemplate} onClose={() => setCreating(null)} />}
     <input ref={archive} type="file" accept=".zip,application/zip" aria-label="Import project ZIP" hidden onChange={event => { importArchive(event.target.files[0]); event.target.value = ''; }} />
     {folderChoice && <FolderChoiceDialog choice={folderChoice} onChoose={folders.choose} />}
-    {aiSettingsOpen && <AiSettingsDialog ai={studioAi()} onClose={() => setAiSettingsOpen(false)} />}
-    {help && <TourDialog onClose={() => setHelp(false)} />}
+    {help && <TourDialog onClose={() => setHelp(false)} onSettings={() => { setHelp(false); openSettings(); }} />}
   </div>;
 }

@@ -542,7 +542,7 @@ export function createConversationSession(initialHost, { workflows = defaultWork
         if (!template) { fallback = { parentId: node.parentId, original }; return false; }
         assertRoom(next, thread);
         thread.messages.push({ id: editedId, role: 'user', parentId: node.parentId, prompt, parts: [{ type: 'text', text: prompt }, ...(original.parts || []).filter(part => part.type !== 'text')],
-          attachments: clone(original.attachments || []), mentions: clone(original.mentions || []), createdAt: now(), status: 'saved', runId: id, editedFromId: original.id });
+          attachments: clone(original.attachments || []), mentions: clone(original.mentions || []), ...(original.uiMentions ? { uiMentions: clone(original.uiMentions) } : {}), createdAt: now(), status: 'saved', runId: id, editedFromId: original.id });
         const originalRequest = !template.originalRequest || template.originalRequest === original.prompt ? prompt : template.originalRequest;
         next.runs.push(branchRun(next, tree, template, { id, messageId: editedId, originalRequest }));
         thread.activeLeafId = editedId; thread.updatedAt = now(); thread.archived = false;
@@ -568,7 +568,7 @@ export function createConversationSession(initialHost, { workflows = defaultWork
     },
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     updateHost(next) { if (next.conversations?.projectId !== doc.projectId) throw new Error('A conversation session cannot switch project identity.'); host = next; bindPort(); },
-    async submit({ threadId, prompt, attachments = [], mentions = [], sectionFrame, scope = { kind: 'project' }, snapshot, locale = snapshot?.locale, generateImages, mode, continuation, rebase = false, branchFrom }) {
+    async submit({ threadId, prompt, attachments = [], mentions = [], uiMentions, sectionFrame, scope = { kind: 'project' }, snapshot, locale = snapshot?.locale, generateImages, mode, continuation, rebase = false, branchFrom }) {
       await ready;
       prompt = String(prompt || '').trim(); if (!prompt || prompt.length > 6000) throw new Error('Describe the request in 1–6,000 characters.');
       if (!['project', 'content', 'file', 'block', 'discussion'].includes(scope.kind)) throw new Error('Unknown assistant scope.');
@@ -596,7 +596,7 @@ export function createConversationSession(initialHost, { workflows = defaultWork
         // a run outside the visible branch, or an edit (branchFrom), starts a branch there.
         const tree = conversationTree(thread, next.runs), path = visiblePath(tree);
         const parentId = busy ? busy.id : branchFrom !== undefined ? branchFrom : continuation && tree.nodes.has(continuation) && !path.includes(continuation) ? continuation : path.at(-1) ?? null;
-        thread.messages.push({ id: messageId, role: 'user', parentId, prompt, parts: [{ type: 'text', text: prompt }, ...references.map(({ path, hash, kind, id, page, label }) => kind === 'section' ? { type: 'section', path, hash, kind, id, page, label } : { type: 'file', path, hash, kind }), ...checked.map(item => ({ type: 'attachment', attachmentId: item.id }))], attachments: clone(checked), mentions: references, createdAt: now(), status: busy ? 'queued-clarification' : 'saved', ...(busy ? { runId: busy.id } : { runId: id }) });
+        thread.messages.push({ id: messageId, role: 'user', parentId, prompt, parts: [{ type: 'text', text: prompt }, ...references.map(({ path, hash, kind, id, page, label }) => kind === 'section' ? { type: 'section', path, hash, kind, id, page, label } : { type: 'file', path, hash, kind }), ...checked.map(item => ({ type: 'attachment', attachmentId: item.id }))], attachments: clone(checked), mentions: references, ...(uiMentions ? { uiMentions: clone(uiMentions) } : {}), createdAt: now(), status: busy ? 'queued-clarification' : 'saved', ...(busy ? { runId: busy.id } : { runId: id }) });
         thread.updatedAt = now(); thread.archived = false;
         if (busy) { if (checked.length || references.length) throw new Error('Wait for this run to finish before adding new references. You can send a text clarification now.'); if ((busy.clarifications || []).length >= 8) throw new Error('The clarification limit for this run has been reached. Wait for it to finish.'); busy.clarifications ||= []; busy.clarifications.push({ id: messageId, text: prompt }); return; }
         if (next.runs.filter(run => run.threadId === threadId).length >= 100) throw new Error('This dialog has reached its AI run limit. Start a new dialog.');

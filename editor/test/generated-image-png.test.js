@@ -5,7 +5,7 @@ import { normalizeGeneratedImagePng } from '../../packages/template-editor-shell
 import { AiProviderError } from '../../packages/template-editor-shell/src/ai-provider-errors.js';
 import { runStudioAiWorkflow } from '../../packages/template-editor-shell/src/studio-ai-workflow.js';
 import { parseProject, getDefaults } from '@trafficops/template-runtime';
-import { starterProject } from '../src/starter.js';
+import { starterProject } from './support/starter.js';
 import { validateDraft } from './support/ai-validator.js';
 
 const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4n+DwHwAGoAKfr+/eKAAAAABJRU5ErkJggg==';

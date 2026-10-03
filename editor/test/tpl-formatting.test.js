@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import formatter from '@trafficops/template-language/formatter';
 import { registerTplFormatting } from '@trafficops/template-editor-monaco/formatting';
 import { TPL_LANGUAGE_ID } from '@trafficops/template-editor-monaco/language';
-import { starterProject } from '../src/starter.js';
+import { starterProject } from './support/starter.js';
 import { getDefaults, parseTemplate, renderTemplate } from '@trafficops/template-runtime';
 
 function registration() {

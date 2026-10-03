@@ -1,3 +1,4 @@
+import { workspaceUrl, reloadProject } from './support/workspace-url.js';
 import { moreMenuItem } from './support/studio-chat.js';
 import { revealConversationTab } from './support/studio-chat.js';
 // Project folders, end to end with production storage (no filesystem mocks): a user-activation-gated folder picker
@@ -59,7 +60,7 @@ try {
   await page.route('https://openrouter.ai/**', route => route.abort());
   page.on('pageerror', error => errors.push(error.message));
   const url = `http://127.0.0.1:${server.address().port}`;
-  await page.goto(url);
+  await page.goto(workspaceUrl(url));
   // Projects with conversations open on the AI tab; the checks read the Content form.
   const editorWithContent = async () => { await editorReady(page); await page.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click(); };
   const newBlank = async name => {
@@ -225,7 +226,7 @@ try {
     const app = page = await context.newPage();
     app.on('pageerror', error => errors.push(error.message));
     app.on('dialog', dialog => { confirms.push(dialog.message()); dialog.accept(); });
-    await app.goto(url);
+    await app.goto(workspaceUrl(url));
     const contentTab = () => app.getByRole('tablist', { name: 'Authoring mode' }).getByRole('tab', { name: 'Content', exact: true }).click();
     const projects = async () => { await app.getByRole('button', { name: 'Projects', exact: true }).click(); await app.locator('.library button:not([disabled])', { hasText: 'Import ZIP' }).waitFor(); };
     await configureAi(app);
@@ -253,7 +254,7 @@ try {
     assert.equal((await listOpfs(app, 'picker/ai-1/.trafficops/conversations/blobs')).length >= 1, true, 'the attachment is stored as a blob');
     assert.equal((await listOpfs(app, 'picker/ai-1/.trafficops/conversations')).filter(name => name.endsWith('.json')).length, 1);
     await chat.apply.click(); await chat.status('applied').waitFor();
-    await app.reload(); await revealConversationTab(chat.root); await chat.root.waitFor({ timeout: 20000 }); await chat.status('applied').waitFor();
+    await reloadProject(app); await revealConversationTab(chat.root); await chat.root.waitFor({ timeout: 20000 }); await chat.status('applied').waitFor();
     await app.waitForTimeout(1000);
     assert.equal(provider.requests, 2, 'reopening never restarts a claimed brief');
 
@@ -382,7 +383,7 @@ try {
     await opfsContext.addInitScript(() => { delete window.showDirectoryPicker; });
     const opfsPage = page = await opfsContext.newPage();
     opfsPage.on('pageerror', error => errors.push(error.message));
-    await opfsPage.goto(url);
+    await opfsPage.goto(workspaceUrl(url));
     await opfsPage.getByText('Stored in this browser — export a backup ZIP regularly', { exact: false }).first().waitFor();
     assert.equal(await opfsPage.getByRole('button', { name: 'Open folder', exact: true }).count(), 0);
     await (await newProjectControl(opfsPage)).click();
@@ -435,7 +436,7 @@ try {
     const bareContext = await browser.newContext();
     await bareContext.addInitScript(() => { delete window.showDirectoryPicker; Object.defineProperty(StorageManager.prototype, 'getDirectory', { value: undefined }); });
     const barePage = page = await bareContext.newPage();
-    await barePage.goto(url);
+    await barePage.goto(workspaceUrl(url));
     await barePage.getByRole('heading', { name: "Studio can't save projects in this browser" }).waitFor();
     await bareContext.close();
   }

@@ -20,7 +20,7 @@ function briefFields(value) {
   invalid(typeof value.prompt !== 'string' || value.prompt.length > 6000, 'The AI prompt must contain at most 6000 characters.');
   invalid(value.generateImages !== undefined && typeof value.generateImages !== 'boolean', 'Invalid AI image choice.');
   invalid(!Array.isArray(value.attachments), 'Invalid pending AI attachments.');
-  return { id: label(value.id, 160, 'Invalid pending AI brief ID.'), prompt: value.prompt, mode: label(value.mode, 40, 'Invalid pending AI mode.'), generateImages: value.generateImages === true };
+  return { id: label(value.id, 160, 'Invalid pending AI brief ID.'), prompt: value.prompt, mode: label(value.mode, 40, 'Invalid pending AI mode.'), ...(typeof value.generateImages === 'boolean' ? { generateImages: value.generateImages } : {}) };
 }
 
 // The runtime's rules (validateFileAiAttachments: ids, types, contents, count and size limits, name defaults), plus

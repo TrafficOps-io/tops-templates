@@ -8,7 +8,7 @@ import { setAiRetrySleepForTesting } from '../../packages/template-editor-shell/
 setAiRetrySleepForTesting(async () => {});
 import { attachmentAssets, attachmentMessage, readImageAttachments, validateAttachments } from '@trafficops/template-editor-shell/ai-attachments';
 import { validateDraft } from './support/ai-validator.js';
-import { starterProject } from '../src/starter.js';
+import { starterProject } from './support/starter.js';
 import { copyProject, createProjectInRoot } from '../src/storage/project-root.js';
 import { readProjectMeta, resolvePendingAi } from '../src/storage/project-meta.js';
 import { MemoryDirectoryHandle } from './support/fs-access.js';

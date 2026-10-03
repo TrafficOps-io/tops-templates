@@ -97,10 +97,10 @@ const port = {
 
 `ChatCapabilities` tells `StudioChat` what the port supports:
 
-- `scopes: ScopeKind[]` — the scope menu in the composer toolbar (one trigger named by the active scope; items are `menuitemradio`) (`project` is the default when listed or when the list is empty).
+- `scopes: ScopeKind[]` — use `['project']` for a unified assistant with no mode picker; explicit file/block launches show only removable context. With multiple kinds, the scope menu in the composer toolbar (one trigger named by the active scope; items are `menuitemradio`) (`project` is the default when listed or when the list is empty).
 - `cost: boolean` — the conversation total `Thread.cost` in the header.
 - `previewDraft: boolean` — "Preview draft" for a `ready` run (with `port.previewDraft`).
-- `generateImages: boolean` — the "Generate images" toggle in the composer (`SendInput.generateImages`).
+- `generateImages: boolean` — shows the "Generate images" toggle in the composer (`SendInput.generateImages`), enabled by default. An explicit off choice stays off across messages; when the capability is unavailable, sends carry `false`.
 - `conflictReview?: boolean` — the port sends `QuestionCard` with `kind: 'conflict'` as the apply gate.
 - `keepDraft?: boolean` — "Keep draft in editor" for failed/interrupted runs (with `port.keepDraft`).
 - `clarifyWhileRunning?: boolean` — the port accepts `send()` during an active run as a clarification of that run in the same thread. With `true` the composer is not blocked while running (Enter and the send button work, the message goes to the current `threadId`); without it sending waits for the run to end.
@@ -129,7 +129,7 @@ Load it lazily so the chat is a separate chunk: `const StudioChat = React.lazy((
 ```
 
 - `port`: `ChatPort`. `threadId`, `onThreadChange(id)`: the selected thread, controlled by the product; an empty `threadId` is a new conversation.
-- `launch`: `{ id, text?, scope?, mentions?, attachments?: File[] }` — start a conversation from outside (see below).
+- `launch`: `{ id, text?, scope?, mentions?, attachments?: File[], generateImages?: boolean }` — start a conversation from outside (see below).
 - `onScopeChange(scope)` (optional): called with the new `Scope` whenever the composer scope changes — an item of the scope menu, the remove cross next to it (back to the default scope) and every `launch`, including a launch present at mount (its `scope`, or the default scope when the launch has none). Without a launch it is not called on mount. The scope stays owned by `StudioChat`; products use this to keep scope-dependent UI (Landing: the "Selected blocks" panel) in step with the composer before the first send.
 - `actions`: `{ id, label, danger?, onSelect({ text }) }[]` — product actions in the thread header menu; `onSelect` receives the current composer text.
 - The composer form gets `aria-busy` while a send is pending (standalone composer) or a run is running (chat).
@@ -144,6 +144,10 @@ Layout: the conversation list (left), the header (title with in-place rename, th
 The conversation list is built on `port.threads`, not on assistant-ui `ThreadListPrimitive` (which needs `adapters.threadList` and its own thread model). It offers "New conversation", search by title, an "Archived" toggle, and per item a menu with rename (`renameThread`), archive/restore (`archiveThread(id, archived)`) and delete (`ConfirmDialog` → `deleteThread`; deleting the selected thread calls `onThreadChange('')`). The selected thread shows a dot while its run is active.
 
 `port.createThread()` must return a real `Thread` with an id. "New conversation" calls it and then `onThreadChange(id)`. With an empty `threadId` the first send also calls `createThread()`, then `onThreadChange(id)`, then `send(id, …)`; `StudioChat` subscribes to `messages(id)` and `events(id)` of the new thread. The port may keep the thread pending until the first `send` and materialise it then.
+
+### Inline references
+
+Typing `@` opens the searchable picker at the caret. Picking an item inserts `@Label` into the editable message and highlights it in place. Multiple references and repeated references are supported; names shared by different targets get a distinguishing suffix. Deleting a reference removes it from `SendInput.mentions`; the actual text keeps its position when sent. Ports should preserve the supplied labels for the conversation history. Legacy messages with separate reference chips still render.
 
 ### External launch
 

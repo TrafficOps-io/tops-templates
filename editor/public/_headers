@@ -16,3 +16,7 @@
 
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
+
+/template-repositories/*
+  Access-Control-Allow-Origin: *
+  Cache-Control: no-cache

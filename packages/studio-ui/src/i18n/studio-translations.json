@@ -2822,5 +2822,21 @@
   "The saved AI request could not be started.": [
     "Сохранённый запрос к AI не удалось запустить.",
     "Збережений запит до AI не вдалося запустити."
+  ],
+  "Loading settings…": [
+    "Загрузка настроек…",
+    "Завантаження налаштувань…"
+  ],
+  "Enable the AI assistant": [
+    "Подключите ИИ-ассистента",
+    "Підключіть ШІ-асистента"
+  ],
+  "Set up AI in Settings": [
+    "Настроить ИИ в настройках",
+    "Налаштувати ШІ в налаштуваннях"
+  ],
+  "Create and edit pages in Conversations. Bring your own OpenRouter API key (BYOK) to enable AI. Your key stays in this browser and is sent only to OpenRouter, never to TrafficOps servers.": [
+    "Создавайте и редактируйте страницы в диалогах. Для работы ИИ добавьте свой API-ключ OpenRouter (BYOK). Ключ хранится в этом браузере и передаётся только OpenRouter, но не серверам TrafficOps.",
+    "Створюйте та редагуйте сторінки в діалогах. Для роботи ШІ додайте власний API-ключ OpenRouter (BYOK). Ключ зберігається в цьому браузері й передається лише OpenRouter, але не серверам TrafficOps."
   ]
 }

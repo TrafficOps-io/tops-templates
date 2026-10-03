@@ -10,6 +10,7 @@ import RunActions from './RunActions.jsx';
 import { renderCard } from './cards/index.js';
 import { AssistantActions, EditComposer, UserActions } from './MessageActions.jsx';
 import { canHandleCardAction, handleCardAction, hasDraftCards } from './chat-model.js';
+import { mentionSegments, mentionsInText, mentionKey } from './mentions.js';
 
 export { handleCardAction };
 
@@ -21,14 +22,17 @@ const useCustom = () => useAuiState(state => state.message.metadata?.custom) ?? 
 export function UserMessage({ port }) {
   const { mentions, attachments } = useCustom();
   const editing = useAuiState(state => state.composer.isEditing);
+  const text = useAuiState(state => state.message.content.filter(part => part.type === 'text').map(part => part.text).join('\n'));
+  const inlineKeys = new Set(mentionsInText(text, mentions).map(mentionKey));
+  const legacyMentions = (mentions || []).filter(target => !inlineKeys.has(mentionKey(target)));
   const open = typeof port.openTarget === 'function' ? target => port.openTarget(target) : undefined;
   if (editing) return <MessagePrimitive.Root data-role="user" data-editing="true" className="studio-chat-message studio-chat-message-user"><EditComposer /></MessagePrimitive.Root>;
   return <MessagePrimitive.Root data-role="user" className="studio-chat-message studio-chat-message-user">
     <div className="studio-chat-bubble">
-      <MessagePrimitive.Parts>{({ part }) => part.type === 'text' ? <p className="studio-chat-user-text">{part.text}</p> : <></>}</MessagePrimitive.Parts>
+      <MessagePrimitive.Parts>{({ part }) => part.type === 'text' ? <p className="studio-chat-user-text">{mentionSegments(part.text, mentions).map(segment => segment.target ? <button key={segment.start} type="button" className="studio-chat-inline-mention" onClick={() => open?.(segment.target)} disabled={!open}>{segment.text}</button> : segment.text)}</p> : <></>}</MessagePrimitive.Parts>
     </div>
-    {(mentions?.length > 0 || attachments?.length > 0) && <div className="studio-chat-message-chips">
-      {mentions?.map(target => <MentionChip key={`${target.kind}:${target.id}`} target={target} onOpen={open} />)}
+    {(legacyMentions.length > 0 || attachments?.length > 0) && <div className="studio-chat-message-chips">
+      {legacyMentions.map(target => <MentionChip key={`${target.kind}:${target.id}`} target={target} onOpen={open} />)}
       {attachments?.map(attachment => <AttachmentChip key={attachment.id} attachment={attachment} />)}
     </div>}
     <UserActions />

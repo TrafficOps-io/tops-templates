@@ -1,14 +1,13 @@
-import { createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUp, AtSign, Image as ImageIcon, Paperclip } from 'lucide-react';
 import { ComposerPrimitive, useAui, useAuiState } from '@assistant-ui/react';
 import { useStudioText } from '../i18n/StudioUiProvider.jsx';
 import Button from '../primitives/Button.jsx';
-import { MentionChip } from '../primitives/Chips.jsx';
 import MentionMenu, { MentionEmpty, MentionOptions, optionId } from './MentionMenu.jsx';
 import InlineNotice from '../primitives/InlineNotice.jsx';
 import Attachments, { AttachmentCounter, RejectedAttachments } from './Attachments.jsx';
 import ScopeChips from './ScopeChips.jsx';
-import { addMention, groupTargets, mentionAtCaret, mentionKey, removeMentionQuery } from './mentions.js';
+import { addMention, groupTargets, inlineMentionTarget, insertMention, mentionAtCaret, mentionKey, mentionSegments, mentionsInText } from './mentions.js';
 import { appendAttachments, filesFromClipboard, filesFromDrop } from './attachments.js';
 
 // StudioChat renders the composer under AssistantRuntimeProvider and sets this context to { onSubmit(text), clarifyWhileRunning }.
@@ -46,7 +45,7 @@ function useComposerParts({ port, mentionTargets, attachmentLimits, scopes, scop
   const [scopeValue, setScope, scopeControlled] = useControllable(scope, onScopeChange, { kind: defaultScopeKind(scopeKinds) });
   const [mentionList, setMentions, mentionsControlled] = useControllable(mentions, onMentionsChange, []);
   const [files, setFiles, filesControlled] = useControllable(attachments, onAttachmentsChange, []);
-  const [images, setImages] = useControllable(generateImages, onGenerateImagesChange, false);
+  const [images, setImages] = useControllable(generateImages, onGenerateImagesChange, true);
   const targets = mentionTargets ?? (typeof port?.mentionTargets === 'function' ? (query, kind) => port.mentionTargets(query, kind) : null);
   const limits = attachmentLimits ?? port?.attachmentLimits;
   return {
@@ -70,7 +69,7 @@ function StandaloneComposer(props) {
     inFlight.current = true; setPending(true); setError(null);
     let result;
     try {
-      result = await props.onSubmit?.({ text, attachments: parts.files, mentions: parts.mentions, scope: parts.scope, generateImages: parts.images });
+      result = await props.onSubmit?.({ text, attachments: parts.files, mentions: mentionsInText(text, parts.mentions), scope: parts.scope, generateImages: parts.images && parts.showImages });
     } catch (failure) {
       setError(failure ?? new Error());
       return;
@@ -120,35 +119,56 @@ const DEFAULT_PLACEHOLDER = 'What would you like to create or change?';
 
 function ComposerBody({ parts, text, setText, onInputText, submit, runtime, busy = false, error, onDismissError, disabled = false, placeholder, extra, autoFocus = false }) {
   const t = useStudioText(), id = useId(), listId = `${id}-mentions`;
-  const root = useRef(null), input = useRef(null), fileInput = useRef(null);
+  const root = useRef(null), input = useRef(null), fileInput = useRef(null), highlights = useRef(null);
   const [query, setQuery] = useState(null), [active, setActive] = useState(0), [rejected, setRejected] = useState([]);
+  const trackedQuery = useRef(null);
   const { mentions, files, targets, limits } = parts;
+  // Keep picked targets through native undo/redo, even after their text has been deleted.
+  // Only references still present in the message are sent; sending starts a fresh registry.
+  const picked = useRef(new Map());
+  for (const target of mentions) picked.current.set(mentionKey(target), target);
   const mentionsEnabled = Boolean(targets) && !disabled;
   const groups = useMemo(() => {
     if (!query || !mentionsEnabled) return [];
-    const chosen = new Set(mentions.map(mentionKey));
-    return groupTargets((targets(query.query) ?? []).filter(target => !chosen.has(mentionKey(target))));
+    return groupTargets(targets(query.query) ?? []);
   }, [query, mentionsEnabled, targets, mentions]);
   const options = groups.flatMap(group => group.items);
   const menuOpen = Boolean(query) && mentionsEnabled, listOpen = menuOpen && options.length > 0;
   const canSubmit = !disabled && !busy && (text.trim().length > 0 || files.length > 0);
 
-  const frame = useRef(0);
-  useEffect(() => () => cancelAnimationFrame(frame.current), []);
-  const focusAt = caret => { cancelAnimationFrame(frame.current); frame.current = requestAnimationFrame(() => { input.current?.focus(); input.current?.setSelectionRange(caret, caret); }); };
-  const trackQuery = (value, caret) => { setQuery(mentionsEnabled ? mentionAtCaret(value, caret ?? value.length) : null); setActive(0); };
+  const pendingCaret = useRef(null);
+  // Restore selection as soon as the new value reaches the DOM, before the user can type again.
+  // A deferred animation frame could move the caret backwards after the first characters were already entered.
+  useLayoutEffect(() => {
+    const next = pendingCaret.current;
+    if (!next || text !== next.text) return;
+    pendingCaret.current = null; input.current?.focus(); input.current?.setSelectionRange(next.caret, next.caret);
+  }, [text]);
+  const focusAt = (caret, value) => { pendingCaret.current = { caret, text: value }; };
+  const trackQuery = (value, caret) => {
+    const previous = trackedQuery.current;
+    const raw = mentionsEnabled ? mentionAtCaret(value, caret ?? value.length) : null;
+    // A new query may spell a target already used earlier in the draft. Keep its picker open until selection.
+    const next = raw && previous?.start === raw.start ? raw : mentionsEnabled ? mentionAtCaret(value, caret ?? value.length, [...picked.current.values()]) : null;
+    if (previous?.start !== next?.start || previous?.end !== next?.end || previous?.query !== next?.query) setActive(0);
+    trackedQuery.current = next; setQuery(next);
+  };
   function select(target) {
     if (!target) return;
+    target = inlineMentionTarget(target, targets(target.label));
+    picked.current.set(mentionKey(target), target);
     parts.setMentions(addMention(mentions, target));
-    const next = removeMentionQuery(text, query);
-    setText(next.text); setQuery(null); focusAt(next.caret);
+    const next = insertMention(text, query, target);
+    focusAt(next.caret, next.text); trackedQuery.current = null; setText(next.text); setQuery(null);
   }
   function openMenu() {
     const caret = input.current?.selectionStart ?? text.length;
     const insert = caret > 0 && !/\s/.test(text[caret - 1]) ? ' @' : '@';
     const position = caret + insert.length;
-    setText(text.slice(0, caret) + insert + text.slice(caret));
-    setQuery({ start: position - 1, end: position, query: '' }); setActive(0); focusAt(position);
+    const value = text.slice(0, caret) + insert + text.slice(caret);
+    focusAt(position, value); setText(value);
+    trackedQuery.current = { start: position - 1, end: position, query: '' };
+    setQuery(trackedQuery.current); setActive(0);
   }
   function addFiles(incoming) {
     if (!incoming.length || !parts.attachEnabled || disabled) return;
@@ -161,7 +181,7 @@ function ComposerBody({ parts, text, setText, onInputText, submit, runtime, busy
     if (event.nativeEvent?.isComposing || event.keyCode === 229) return;
     if (menuOpen && ['ArrowDown', 'ArrowUp', 'Enter', 'Escape'].includes(event.key) && !(event.key === 'Enter' && event.shiftKey)) {
       event.preventDefault(); event.stopPropagation();
-      if (event.key === 'Escape') setQuery(null);
+      if (event.key === 'Escape') { trackedQuery.current = null; setQuery(null); }
       else if (event.key === 'Enter') { if (options[active]) select(options[active]); else setQuery(null); }
       else if (event.key === 'ArrowDown') setActive(value => (options.length ? (value + 1) % options.length : 0));
       else if (event.key === 'ArrowUp') setActive(value => (options.length ? (value + options.length - 1) % options.length : 0));
@@ -174,7 +194,8 @@ function ComposerBody({ parts, text, setText, onInputText, submit, runtime, busy
     // In runtime mode preventDefault also skips ComposerPrimitive.Root's own send (it is disabled for empty text).
     event.preventDefault();
     if (!canSubmit) return;
-    setQuery(null); setRejected([]);
+    trackedQuery.current = null; setQuery(null); setRejected([]);
+    picked.current.clear();
     submit();
   }
 
@@ -189,21 +210,20 @@ function ComposerBody({ parts, text, setText, onInputText, submit, runtime, busy
     onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setQuery(null); }}>
     <RejectedAttachments rejected={rejected} limits={limits} onDismiss={() => setRejected([])} />
     {error && <InlineNotice tone="danger" title={t('The message was not sent')} actions={<Button variant="ghost" size="sm" onClick={onDismissError}>{t('Dismiss')}</Button>}>{error.message || t('Something went wrong.')}</InlineNotice>}
-    {mentions.length > 0 && <div className="studio-chat-composer-mentions" aria-label={t('Referenced files and sections')}>
-      {mentions.map(target => <MentionChip key={mentionKey(target)} target={target} onRemove={disabled ? undefined : () => parts.setMentions(mentions.filter(item => mentionKey(item) !== mentionKey(target)))} />)}
-    </div>}
     <Attachments files={files} disabled={disabled} onRemove={index => parts.setFiles(files.filter((_, position) => position !== index))} />
     <div className="studio-chat-composer-field">
       {menuOpen && <MentionMenu anchor={root} active={active}>{list => listOpen ? <div ref={list} id={listId} role="listbox" aria-label={t('Mention targets')} className="studio-mention-menu-list">
         <MentionOptions id={listId} groups={groups} active={active} onSelect={select} onHover={setActive} />
       </div> : <MentionEmpty />}</MentionMenu>}
       <label className="studio-sr-only" htmlFor={`${id}-input`}>{t('Message to assistant')}</label>
+      <div ref={highlights} className="studio-chat-composer-highlights" aria-hidden="true">{mentionSegments(text, mentions).map(part => part.target ? <mark key={part.start}>{part.text}</mark> : part.text)}{'\n'}</div>
       <Input {...runtimeInputProps} id={`${id}-input`} ref={input} className="studio-chat-composer-input" placeholder={placeholder ?? t(DEFAULT_PLACEHOLDER)} disabled={disabled} autoFocus={autoFocus}
         role={mentionsEnabled ? 'combobox' : undefined} aria-autocomplete={mentionsEnabled ? 'list' : undefined} aria-expanded={mentionsEnabled ? listOpen : undefined}
         aria-controls={listOpen ? listId : undefined} aria-activedescendant={listOpen && options[active] ? optionId(listId, active) : undefined}
         onKeyDown={keyDown}
-        onChange={event => { onInputText?.(event.target.value); trackQuery(event.target.value, event.target.selectionStart); }}
-        onClick={event => trackQuery(event.target.value, event.target.selectionStart)} />
+        onChange={event => { onInputText?.(event.target.value); parts.setMentions(mentionsInText(event.target.value, [...picked.current.values()])); trackQuery(event.target.value, event.target.selectionStart); }}
+        onScroll={event => { if (highlights.current) { highlights.current.scrollTop = event.currentTarget.scrollTop; highlights.current.scrollLeft = event.currentTarget.scrollLeft; } }}
+        onSelect={event => { if (event.target.selectionStart === event.target.selectionEnd) trackQuery(event.target.value, event.target.selectionStart); }} />
     </div>
     <div className="studio-chat-composer-toolbar">
       <ScopeChips scopes={parts.scopeKinds} scope={parts.scope} onScopeChange={parts.setScope} disabled={disabled} />

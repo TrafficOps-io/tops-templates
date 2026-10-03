@@ -1,3 +1,4 @@
+import { workspaceUrl } from './support/workspace-url.js';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
@@ -28,7 +29,7 @@ try {
   const context=await browser.newContext({viewport:{width:1600,height:1100}}); await installFolderPicker(context); page=await context.newPage();
   page.on('pageerror',error=>errors.push(error.message));
   await page.addInitScript(()=>Object.defineProperty(navigator,'standalone',{configurable:true,value:true}));
-  await page.goto(`http://127.0.0.1:${server.address().port}`);
+  await page.goto(workspaceUrl(`http://127.0.0.1:${server.address().port}`));
   await usePicker(page,'interactive');
   await page.getByLabel('Import project ZIP',{exact:true}).setInputFiles({name:'Interactive.zip',mimeType:'application/zip',buffer:Buffer.from(createZip(files))});
   await page.getByRole('dialog',{name:'Import Interactive'}).getByRole('button',{name:'Import as landing',exact:true}).click();

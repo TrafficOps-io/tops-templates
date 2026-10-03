@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 900" width="1080" height="900" role="img" aria-labelledby="title desc">
+  <title id="title">Things left in the light</title><desc id="desc">An original still-life sample illustration of an off-white ceramic vessel and a dark leafy branch on a stone plinth.</desc>
+  <rect width="1080" height="900" fill="#bcc3bc"/>
+  <path d="M750 0H1080V900H0V540Z" fill="#cdd3cb"/>
+  <path d="M0 730L302 655 878 666 1080 778V900H0Z" fill="#a8b1a5"/>
+  <path d="M207 575H738L862 637H330Z" fill="#e5e4da"/>
+  <path d="M207 575L330 637V900H207Z" fill="#b4b7ac"/>
+  <path d="M330 637H862V900H330Z" fill="#d3d5ca"/>
+  <ellipse cx="578" cy="598" rx="166" ry="31" fill="#909b8e" opacity=".6"/>
+  <path d="M462 309H586L585 359C585 410 662 450 662 522 662 585 615 619 527 619 439 619 394 585 394 522 394 450 462 410 462 359Z" fill="#f0eee5"/>
+  <path d="M552 309H586L585 359C585 410 662 450 662 522 662 585 615 619 527 619 510 619 494 618 480 615 587 604 611 559 611 516 611 448 552 406 552 359Z" fill="#d7d6c9"/>
+  <ellipse cx="524" cy="309" rx="62" ry="14" fill="#dcddcf"/>
+  <ellipse cx="524" cy="309" rx="43" ry="8" fill="#717e6d"/>
+  <path d="M525 308C522 244 557 175 585 115M544 215C512 180 472 158 422 145M564 166C603 147 636 122 662 93" fill="none" stroke="#51654f" stroke-width="6" stroke-linecap="round"/>
+  <path d="M548 207C510 208 488 189 482 168 516 160 541 172 548 207ZM566 165C557 129 566 102 590 90 603 117 594 148 566 165ZM594 149C614 171 643 171 663 155 644 135 620 132 594 149ZM489 170C458 184 430 174 421 145 452 134 478 143 489 170ZM625 125C625 93 641 69 666 64 674 91 657 115 625 125Z" fill="#65775e"/>
+  <path d="M732 747H773V900H732Z" fill="#c3c8ba" opacity=".5"/>
+</svg>

@@ -22,6 +22,7 @@ import { fileAiSupport } from './file-ai-workflow.js';
 import { StudioHostContext } from './host-context.js';
 import { useStudioText } from './studio-i18n.js';
 import { activeElement, trapFocus } from './focus.js';
+import { copyPreviewLink } from './clipboard.js';
 import { createAiDraftValidator } from './validate-ai-draft.js';
 import { useEditorProject } from './useEditorProject.js';
 import { blockScopeSourceTargets, createBlockEditScope } from './block-edit-scope.js';
@@ -35,7 +36,7 @@ const activeRunStates = new Set(['queued', 'running']);
 export default function EditorShell({ host, ...props }) {
   return <StudioHostContext.Provider value={host}><Shell host={host} {...props} /></StudioHostContext.Provider>;
 }
-function Shell({ host, onSnapshot, onNewProject, onImportProject, newProjectCreatesCopy = false, onManageProjects, projectSwitcher, initialExpanded = false, presentation = 'embedded', onSaveToFolder, storageSummary = '', previewExpandButton = true, showExportFooter = true, className = '', storageHelp = '', recovered, externalModalOpen = false, externalBusy = false, aiAllowed = true, toolbarStart, projectMenu, toolbarNotices, toolbarAlerts, moreMenu }) {
+function Shell({ host, onSnapshot, onNewProject, onImportProject, newProjectCreatesCopy = false, onManageProjects, projectSwitcher, initialExpanded = false, presentation = 'embedded', onSaveToFolder, storageSummary = '', previewExpandButton = true, showExportFooter = true, className = '', storageHelp = '', recovered, externalModalOpen = false, externalBusy = false, aiAllowed = true, toolbarStart, projectMenu, toolbarNotices, toolbarAlerts, moreMenu, onOpenSettings }) {
   const t = useStudioText(), editor = useEditorProject(host, onSnapshot, externalBusy);
   const { state, analysis, files, values, locale, locked, busy, dirty, change, report } = editor;
   const aiEnabled = aiAllowed && host.capabilities.ai && state?.availability.ai && Boolean(host.ai);
@@ -160,7 +161,7 @@ function Shell({ host, onSnapshot, onNewProject, onImportProject, newProjectCrea
   }
   // Jumps to the assistant also bring its panel forward on narrow layouts, even when its tab is already selected.
   const showAssistant = () => { setTab('ai'); setAiView('assistant'); setPane('author'); };
-  const openSettings = () => { setTab('ai'); setAiView('settings'); setPane('author'); };
+  const openSettings = () => { if (onOpenSettings) { onOpenSettings(); return; } setTab('ai'); setAiView('settings'); setPane('author'); };
   const openFile = (path, selection) => { editor.previewConversationDraft?.(null); setActive(path); setTab('files'); setPane('author'); setReveal(selection ? { path, selection } : null); };
   const mutate = patch => { if (!locked) change(patch); };
   function openDialog(kind, descriptor) { setDialog({ kind, descriptor: kind === 'delete' ? { type: 'file', path: active } : descriptor }); setDialogValue(kind === 'rename' ? active : kind === 'project-name' ? state.name : descriptor?.input?.value || ''); setDialogError(''); }
@@ -252,7 +253,7 @@ function Shell({ host, onSnapshot, onNewProject, onImportProject, newProjectCrea
       try {
         const result = target ? await host.preview.history(target, { signal, locale }) : await host.preview.create(editor.current.current, { signal, locale, shared: true });
         if (!target) setShared(result);
-        if (opened) opened.location.replace(result.url); else if (!open) { await navigator.clipboard.writeText(result.url); editor.setNotice(t('Preview link copied.')); }
+        if (opened) opened.location.replace(result.url); else if (!open) { const copied = await copyPreviewLink(result.url); editor.setNotice(t(copied ? 'Preview link copied.' : 'Preview link')); }
       } catch (cause) { opened?.close(); throw cause; }
     });
   }
@@ -354,7 +355,7 @@ function Shell({ host, onSnapshot, onNewProject, onImportProject, newProjectCrea
     </header>}
     {editor.notice && <p className="notice" role="status">{editor.notice}</p>}{!isApp && editor.error && <div className="inline-error" role="alert"><span>{editor.error}</span><button className="btn btn-ghost btn-sm" onClick={() => editor.setError('')}>{t('Dismiss')}</button></div>}
     {!isApp && editor.conflict && <div className="hosted-callout" role="alert"><span>{t('This project changed in another window or outside Studio. Saving stopped; your edits are kept here. Export them before reloading.')}</span><button className="btn btn-outline btn-sm" disabled={locked} onClick={() => openDialog('reload')}>{t('Reload saved project')}</button></div>}
-    {shared && <div className="hosted-callout"><a href={shared.url} target="_blank" rel="noopener noreferrer">{t('Preview link')}</a>{shared.expiresAt && <span>{t('Expires')} {new Date(shared.expiresAt).toLocaleString(host.language)}</span>}<button className="btn btn-ghost btn-sm" disabled={locked} onClick={() => run(async signal => { await host.preview.revoke(shared, { signal }); setShared(null); })}>{t('Revoke')}</button></div>}
+    {shared && <div className="hosted-callout"><a href={shared.url} target="_blank" rel="noopener noreferrer">{t('Preview link')}</a><input className="input" aria-label={t('Preview link')} value={shared.url} readOnly onFocus={event => event.target.select()} /><button className="btn btn-ghost btn-sm" onClick={async () => { if (await copyPreviewLink(shared.url)) editor.setNotice(t('Preview link copied.')); }}>{t('Copy preview link')}</button>{shared.expiresAt && <span>{t('Expires')} {new Date(shared.expiresAt).toLocaleString(host.language)}</span>}<button className="btn btn-ghost btn-sm" disabled={locked} onClick={() => run(async signal => { await host.preview.revoke(shared, { signal }); setShared(null); })}>{t('Revoke')}</button></div>}
     {(issues.length > 0 || sourceIssues.length > 0) && <details className="hosted-diagnostics" open><summary>{t('Needs attention')} ({issues.length + sourceIssues.length})</summary><ul>{[...issues, ...sourceIssues].map((issue, index) => <li key={index}><button onClick={() => focusIssue(issue)}>{issue.locale && `${issue.locale.toUpperCase()} · ${issue.sectionLabel || issue.section} · ${issue.label} · `}{issue.message}</button></li>)}</ul></details>}
     <ResizableWorkspace ref={workspace} popover={!isApp && expanded ? 'manual' : undefined} role={!isApp && expanded ? 'dialog' : undefined} aria-modal={!isApp && expanded ? 'true' : undefined} contentInert={externalModalOpen} aria-label={t('Template editor')} className={`editor-shell ${isApp ? `is-app pane-${pane}` : expanded ? 'is-expanded' : 'is-compact'} ${conversationsAvailable && tab === 'ai' ? 'conversations-active' : ''} ${collapsed ? 'files-collapsed' : ''} ${!editor.showPreview ? 'preview-collapsed' : ''}`} onKeyDown={event => { if (isApp || !expanded || modalOpen) return; if (event.key === 'Escape') { event.preventDefault(); setExpanded(false); } else trapFocus(event, workspace.current); }}>
       {isApp && appToolbar}
@@ -455,7 +456,7 @@ function ShellChat({ host, chatRef, mounted, threadId, onThreadChange, launch, o
     {blockScope && <BlockScopePanel scope={blockScope} stale={blockScopeStale} t={t} />}
     {(useOnPage || attachments.some(file => file.type?.startsWith('image/'))) && <label className="ai-use-on-page"><input type="checkbox" className="checkbox checkbox-xs" checked={useOnPage} onChange={event => onUseOnPageChange(event.target.checked)} />{t('Use attached images on the page')}</label>}
     <small className="conversation-disclosure">{t('Messages and referenced files are sent to your selected AI provider. Review changes before applying.')}</small></>;
-  const setup = aiSettings && !aiSettings.configured && <InlineNotice tone="info" className="ai-setup-card" title={host.ai.settings.owner === 'user' ? t('Set up OpenRouter') : undefined} actions={<Button variant="primary" size="sm" onClick={onSettings}>{t(host.ai.settings.owner === 'user' ? 'Connect OpenRouter' : 'AI settings')}</Button>}>{host.ai.settings.owner === 'user' ? t('Add your OpenRouter API key and choose a text model. Save the connection to start chatting without reloading Studio.') : t('Connect your key in Settings to start.')}</InlineNotice>;
+  const setup = aiSettings && !aiSettings.configured && <InlineNotice tone="info" className="ai-setup-card" title={host.ai.settings.owner === 'user' ? t('Enable the AI assistant') : undefined} actions={<Button variant="primary" size="sm" onClick={onSettings}>{t(host.ai.settings.owner === 'user' ? 'Set up AI in Settings' : 'AI settings')}</Button>}>{host.ai.settings.owner === 'user' ? t('Create and edit pages in Conversations. Bring your own OpenRouter API key (BYOK) to enable AI. Your key stays in this browser and is sent only to OpenRouter, never to TrafficOps servers.') : t('Connect your key in Settings to start.')}</InlineNotice>;
   if (!mounted) return null;
   // StudioUiProvider внешнего хоста (portalContainer embed) сохраняется; иначе язык и перекрытия берутся из хоста.
   return <StudioUiProvider language={ui?.language ?? host.language} messages={ui?.messages ?? host.messages} portalContainer={ui?.portalContainer}>

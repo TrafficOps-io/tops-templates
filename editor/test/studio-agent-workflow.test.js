@@ -6,7 +6,7 @@ import { runStudioAiWorkflow } from '@trafficops/template-editor-shell/studio-ai
 import { createAiDraftValidator } from '@trafficops/template-editor-shell/validate-ai-draft';
 import { memoryFolderHost } from './support/folder-host.js';
 import { validateDraft } from './support/ai-validator.js';
-import { starterProject } from '../src/starter.js';
+import { starterProject } from './support/starter.js';
 
 // The default Landing Studio path (spec 2.6): one agent loop per message.
 const usage = { inputTokens: { total: 10, noCache: 10, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 5, text: 5, reasoning: 0 } };

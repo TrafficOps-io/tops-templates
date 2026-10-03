@@ -1,3 +1,4 @@
+import { workspaceUrl } from './support/workspace-url.js';
 import { revealConversationTab } from './support/studio-chat.js';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -69,7 +70,7 @@ try {
       } }), { headers: { 'Content-Type': 'text/event-stream' } });
     };
   });
-  await page.goto(`http://127.0.0.1:${server.address().port}`);
+  await page.goto(workspaceUrl(`http://127.0.0.1:${server.address().port}`));
   // The Create click opens the folder picker: the project is written to picker/browser-test.
   await usePicker(page, 'browser-test');
   await (await newProjectControl(page)).click();
@@ -92,7 +93,7 @@ try {
   await chat.root.getByRole('menuitem', { name: 'AI settings', exact: true }).click();
   await page.locator('.ai-settings input[type=password]').fill('mock-key-no-paid-calls');
   await page.getByRole('button', { name: 'Save connection', exact: true }).click();
-  await page.getByRole('button', { name: 'Back to assistant', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to project', exact: true }).click();
   const preview = () => page.locator('.browser-frame iframe.is-visible').contentFrame();
   // Each attempt starts in a new conversation, so a retained draft of the previous attempt is not continued.
   const newConversation = async () => {

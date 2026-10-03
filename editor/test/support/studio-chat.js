@@ -12,12 +12,8 @@ export function studioChat(scope) {
     prompt: composer.locator('textarea'),
     send: composer.locator('button[type="submit"]'),
     scope: composer.locator('.studio-chat-scope'),
-    // The scope is one menu button in the composer toolbar, named by the active scope; the cross next to it is "Remove <scope>".
-    activeScope: name => composer.locator('.studio-chat-scope').getByRole('button', { name, exact: true }),
-    chooseScope: async name => {
-      await composer.locator('.studio-chat-scope-trigger').click();
-      await composer.locator('.studio-chat-scope').getByRole('menuitemradio', { name, exact: true }).click();
-    },
+    // Unified assistant: project has no scope control; an explicit editor selection is removable context.
+    activeScope: name => composer.locator(name === 'Project' ? '.studio-chat-composer-toolbar:not(:has(.studio-chat-scope))' : `.studio-chat-scope:has(button[aria-label=${JSON.stringify(`Remove ${name}`)}])`),
     attachmentInput: composer.locator('input[type="file"]'),
     user: feed.locator('[data-role="user"]'),
     assistant: feed.locator('[data-role="assistant"]'),

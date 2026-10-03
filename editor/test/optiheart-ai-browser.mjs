@@ -1,3 +1,4 @@
+import { workspaceUrl } from './support/workspace-url.js';
 import { revealConversationTab } from './support/studio-chat.js';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -72,7 +73,7 @@ try {
     };
   });
   const origin = `http://127.0.0.1:${server.address().port}`;
-  await page.goto(origin); await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
+  await page.goto(workspaceUrl(origin)); await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
   await configureAi(page, { apiKey: key, model: 'xiaomi/mimo-v2.6-flash' });
   const seeded = await seedAndOpen(page, fixture);
   const collapse = page.getByRole('button', { name: 'Collapse editor', exact: true }); if (await collapse.count()) await collapse.click();

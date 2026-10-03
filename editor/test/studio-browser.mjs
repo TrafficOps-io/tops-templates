@@ -1,3 +1,4 @@
+import { workspaceUrl } from './support/workspace-url.js';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
@@ -19,7 +20,7 @@ try {
  let blockedProviderCalls=0;
  await page.route('https://openrouter.ai/**',route=>{blockedProviderCalls++;return route.abort();});
  page.on('pageerror',error=>errors.push(error.message));
- await page.goto(`http://127.0.0.1:${server.address().port}`);
+ await page.goto(workspaceUrl(`http://127.0.0.1:${server.address().port}`));
  await usePicker(page,'browser-test');
  await page.getByRole('button', { name: 'New project', exact: true }).first().click();
  await page.getByRole('dialog',{name:'New project'}).getByRole('button',{name:'From template',exact:true}).click();
@@ -95,14 +96,15 @@ try {
  await page.locator('.editor-shell').screenshot({path:'/tmp/studio-shell-browser.png'});
  // The installed app is a permanent workspace, including while settings open.
  await page.addInitScript(() => Object.defineProperty(navigator, 'standalone', { configurable: true, value: true }));
- await page.reload(); await page.locator('.editor-shell.is-app').waitFor();
+ await page.reload(); await page.locator('.library').waitFor();
+ await page.getByRole('button',{name:'Open Browser test',exact:true}).click(); await page.locator('.editor-shell.is-app').waitFor();
  assert.equal(await page.getByRole('button',{name:'Collapse editor',exact:true}).count(),0);
  await page.keyboard.press('Escape'); assert.equal(await page.locator('.editor-shell.is-app').count(),1);
  await page.getByRole('tab',{name:'Conversations',exact:true}).click();
- await page.getByRole('button',{name:'Connect OpenRouter',exact:true}).click();
+ await page.getByRole('button',{name:'Set up AI in Settings',exact:true}).click();
  await page.locator('.ai-settings input[type=password]').waitFor();
  assert.equal(await page.getByRole('tab',{name:'Conversations',exact:true}).getAttribute('aria-selected'),'true');
- await page.getByRole('button',{name:'Back to assistant',exact:true}).click();
+ await page.getByRole('button',{name:'Back to project',exact:true}).click();
  async function exportProject(format='source') { await page.getByRole('button',{name:'Export',exact:true}).click(); await page.getByRole('menuitem',{name:format==='source'?/Editable project/:/Landing for hosting/}).click(); await page.getByRole('dialog',{name:'Export',exact:true}).waitFor(); }
  await exportProject();
  await page.getByText('Backup or reopen this editable project in Studio.',{exact:true}).waitFor();
@@ -140,7 +142,7 @@ try {
  {
   const touch=await browser.newContext({viewport:{width:900,height:1000},hasTouch:true,isMobile:true}); await installFolderPicker(touch); const tp=await touch.newPage();
   assert.equal(await tp.evaluate(()=>matchMedia('(pointer: coarse)').matches),true);
-  await tp.goto(`http://127.0.0.1:${server.address().port}`);
+  await tp.goto(workspaceUrl(`http://127.0.0.1:${server.address().port}`));
   await tp.evaluate(()=>localStorage.setItem('test-folder-picker','touch-test'));
   await tp.getByRole('button',{name:'New project',exact:true}).first().click();
   await tp.getByRole('dialog',{name:'New project'}).getByRole('button',{name:'From template',exact:true}).click();

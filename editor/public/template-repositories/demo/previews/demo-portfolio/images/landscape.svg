@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1080" width="1200" height="1080" role="img" aria-labelledby="title desc">
+  <title id="title">Where the land ends</title><desc id="desc">An original geometric sample illustration of pale cliffs meeting a sage green sea beneath an overcast sky.</desc>
+  <rect width="1200" height="1080" fill="#e2e7e3"/>
+  <path d="M0 405H1200V1080H0Z" fill="#9eafa7"/>
+  <path d="M0 481C202 460 380 475 552 467S923 442 1200 468V1080H0Z" fill="#8eaaa0"/>
+  <path d="M0 734C234 688 444 712 692 658S1056 619 1200 636V1080H0Z" fill="#78998c"/>
+  <path d="M0 892C306 843 368 901 656 832S1030 785 1200 827V1080H0Z" fill="#6c8d80"/>
+  <path d="M0 256L116 295 264 288 347 340 410 446 518 479 505 577 594 638 598 729 714 800 692 846 838 978 924 1080H0Z" fill="#eeeee7"/>
+  <path d="M0 424L146 443 222 492 307 488 398 565 388 663 466 722 471 816 556 853 644 967 657 1080H0Z" fill="#d1d1c7"/>
+  <path d="M0 586L157 613 237 684 242 745 331 791 356 918 425 960 448 1080H0Z" fill="#b2b8aa"/>
+  <path d="M264 288L347 340 410 446 518 479 505 577 594 638 598 729 714 800 692 846 838 978 924 1080H858L758 969 643 867 634 819 544 762 531 654 451 600 455 513 364 481 303 367Z" fill="#f7f6ef"/>
+  <path d="M0 867L98 880 171 947 207 1080H0Z" fill="#858f7e"/>
+  <path d="M843 479L893 476M1010 550L1137 545M697 588L746 585M1051 865L1132 860M821 694L912 690" stroke="#bfd0c5" stroke-width="3" opacity=".6"/>
+  <path d="M843 978L962 1002 1014 1039" fill="none" stroke="#cfdbd0" stroke-width="5" opacity=".6"/>
+</svg>

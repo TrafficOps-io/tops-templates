@@ -1,3 +1,4 @@
+import { workspaceUrl } from './support/workspace-url.js';
 // Regression for long section names wrapping/clipping in the fixed panel header.
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
@@ -35,7 +36,7 @@ try {
     if (installed) await context.addInitScript(() => Object.defineProperty(navigator, 'standalone', {value:true, configurable:true}));
     await context.route('https://openrouter.ai/**', route => {providerCalls.push(route.request().url()); return route.abort();});
     const page = await context.newPage(); page.on('pageerror', error => errors.push(error.message));
-    await page.goto(origin);
+    await page.goto(workspaceUrl(origin));
     await page.getByRole('heading', {name:'Projects', exact:true}).waitFor();
     const project = await seedAndOpen(page, {name:'Section navigation QA', kind:'landing', files:{'index.tpl':source}});
     await showPane(page, 'Edit');

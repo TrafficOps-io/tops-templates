@@ -2,7 +2,7 @@ import { encodeProject, decodeProject, createZip, readZipProject, runOperation, 
 import { conversationHandler } from './conversation-endpoints.js';
 import { createStudioAnalyzer } from '../../src/hosts/studio-analyzer.js';
 import { studioDialect } from '../../src/studio-dialect.js';
-import { starterProject } from '../../src/starter.js';
+import { starterProject } from './starter.js';
 
 // A protocol mock, not an HttpHost replacement: all requests traverse fetch,
 // JSON/base64 serialization, Response parsing and HTTP status normalization.

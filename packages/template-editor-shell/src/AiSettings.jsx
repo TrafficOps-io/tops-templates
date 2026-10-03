@@ -29,7 +29,7 @@ function ModelField({ kind, label, value, onChange, catalog, onLoadCatalog, rece
 }
 
 /** modelCatalog — false keeps text fields (hosts that forbid requests to openrouter.ai); the catalog is only used for user-owned connections. */
-export default function AiSettings({ onBack, backLabel = 'Back to assistant', modelCatalog = true }) {
+export default function AiSettings({ onBack, backLabel = 'Back to assistant', modelCatalog = true, title = 'AI connection settings' }) {
   const keyInputId = useId();
   const host = useStudioHost(), t = useStudioText(), port = host.ai.settings;
   const text = useMemo(() => ({ t, language: host.language }), [t, host.language]);
@@ -60,7 +60,8 @@ export default function AiSettings({ onBack, backLabel = 'Back to assistant', mo
   const change = key => event => setValue(key, event.target.value);
   const setValue = (key, value) => { setSettings(current => ({ ...current, [key]: value })); setNotice(''); setError(''); setDirty(true); };
   const notify = () => window.dispatchEvent(new Event('trafficops-ai-settings'));
-  return <section className="ai-settings"><button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={onBack}><ArrowLeft size={15} />{t(backLabel)}</button><h2><KeyRound size={19} />{t('AI connection settings')}</h2>
+  return <section className="ai-settings">{onBack && <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={onBack}><ArrowLeft size={15} />{t(backLabel)}</button>}<h2><KeyRound size={19} />{t(title)}</h2>
+    {!settings && !error && <p role="status">{t('Loading settings…')}</p>}
     {settings && (port.owner === 'user' ? <form onSubmit={event => { event.preventDefault(); run(async () => { const saved = await port.save(settings); setSettings(saved); setDirty(false); setRecent({ text: rememberModel('text', saved.model), image: saved.imageModel ? rememberModel('image', saved.imageModel) : recentModels('image') }); notify(); setNotice(t('Connection saved on this device.')); }); }}>
       <p className="field-help">{t('Your project folders and ZIP files never contain API keys.')}</p><fieldset disabled={busy}>
         <div className="ai-key-field">

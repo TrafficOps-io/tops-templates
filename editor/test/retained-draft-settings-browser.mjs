@@ -109,7 +109,7 @@ try {
   await page.setViewportSize({width:1280,height:1100});
   const savedBefore=await page.evaluate(()=>window.retainedDraftTest.readSaved());
   assert.equal(savedBefore.settings.title,'Original saved title','failed draft must not be silently committed');
-  { const item=await moreMenuItem(page,'OpenRouter'); assert.equal(await item.isEnabled(),true); await page.keyboard.press('Escape'); }
+  { const item=await moreMenuItem(page,'Settings'); assert.equal(await item.isEnabled(),true); await page.keyboard.press('Escape'); }
   const beforeSettings=await page.evaluate(()=>window.retainedDraftTest.calls.length);
   await chat.root.locator('.studio-chat-header').getByRole('button',{ name:'More actions',exact:true }).click();
   await chat.root.getByRole('menuitem',{ name:'AI settings',exact:true }).click();
@@ -117,7 +117,7 @@ try {
   await page.getByLabel('Text model',{ exact:true }).fill('test/replacement');
   await page.getByRole('button',{ name:'Save connection',exact:true }).click();
   await page.getByText('Connection saved on this device.',{ exact:true }).waitFor();
-  await page.getByRole('button',{ name:'Back to assistant',exact:true }).click();
+  await page.getByRole('button',{ name:'Back to project',exact:true }).click();
   await failed.locator('[data-testid="studio-chat-continue"]').waitFor();
   assert.equal(await page.evaluate(()=>window.retainedDraftTest.calls.length),beforeSettings,'saving a replacement model cannot automatically restart paid generation');
   await page.getByRole('tab',{ name:'Content',exact:true }).click();
@@ -131,15 +131,15 @@ try {
   assert.ok(continuation.length>=2);
   assert.ok(continuation.every(call=>call.model==='test/replacement'),'explicit continuation uses the saved replacement model');
   assert.equal(continuation[0].hasRetainedTitle,true,'continuation starts from retained content');
-  await (await moreMenuItem(page,'OpenRouter')).click();
-  const dialog=page.getByRole('dialog',{ name:'OpenRouter settings',exact:true });
+  await (await moreMenuItem(page,'Settings')).click();
+  const dialog=page.locator('.global-settings');
   await dialog.getByRole('button',{ name:'Enter model ID',exact:true }).first().click();
   await dialog.getByLabel('Text model',{ exact:true }).waitFor();
   const beforeApprovedSettings=await page.evaluate(()=>window.retainedDraftTest.calls.length);
   await dialog.getByLabel('Text model',{ exact:true }).fill('test/approved-replacement');
   await dialog.getByRole('button',{ name:'Save connection',exact:true }).click();
   await dialog.getByText('Connection saved on this device.',{ exact:true }).waitFor();
-  await dialog.getByRole('button',{ name:'Close',exact:true }).click();
+  await dialog.getByRole('button',{ name:'Back to project',exact:true }).click();
   await chat.apply.waitFor();
   assert.equal(await page.evaluate(()=>window.retainedDraftTest.calls.length),beforeApprovedSettings,'an approved draft stays ready without another provider call after saving settings');
   const savedAfter=await page.evaluate(()=>window.retainedDraftTest.readSaved());

@@ -10,7 +10,7 @@ function fakeSession() {
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); }, getSnapshot: () => doc, ready: Promise.resolve(),
     async submit(input) {
       calls.push(['submit', input]); const threadId = input.threadId || 'generated';
-      const message = { id: 'm1', role: 'user', prompt: input.prompt, parts: [{ type: 'text', text: input.prompt }], mentions: input.mentions, attachments: input.attachments, createdAt: 1, runId: 'r1' };
+      const message = { id: 'm1', role: 'user', prompt: input.prompt, parts: [{ type: 'text', text: input.prompt }], mentions: input.mentions, uiMentions: input.uiMentions, attachments: input.attachments, createdAt: 1, runId: 'r1' };
       doc = { ...doc, threads: [...doc.threads, { id: threadId, title: input.prompt, archived: false, createdAt: 1, updatedAt: 1, messages: [message] }], runs: [...doc.runs, { id: 'r1', threadId, messageId: 'm1', state: 'queued', phase: 'queued', scope: input.scope, locale: 'en', base: input.snapshot, createdAt: 1, updatedAt: 1 }] }; emit(); return threadId;
     },
     async stop(id) { calls.push(['stop', id]); }, async discard(id) { calls.push(['discard', id]); }, async markApplied(id, revision) { calls.push(['markApplied', id, revision]); },
@@ -86,7 +86,7 @@ test('send maps scopes: file path, registered block scope, plain kinds', async (
   await port.send(id, input({ scope: { kind: 'block', targetId: 'blocks:1' } }));
   await port.send(id, input({ scope: { kind: 'discussion' } }));
   assert.deepEqual(session.calls.map(call => call[1].scope), [{ kind: 'file', path: 'index.tpl' }, { kind: 'block', editScope }, { kind: 'discussion' }]);
-  assert.deepEqual(port.capabilities.scopes, ['project', 'file', 'block', 'content', 'discussion']);
+  assert.deepEqual(port.capabilities.scopes, ['project']);
   assert.equal(port.capabilities.generateImages, true); assert.equal(port.capabilities.conflictReview, true); assert.equal(port.capabilities.keepDraft, true); assert.equal(port.capabilities.cost, false);
 });
 
@@ -313,4 +313,13 @@ test('the tree is shown as its visible path with parentId and branch; regenerate
   await assert.rejects(port.editMessage('t', 'u2', { text: ' ' }), error => error.code === 'policy');
   const locked = createChatPort(session, () => ({ ...context(), settings: { configured: false } })).port;
   await assert.rejects(locked.regenerate('t', 'r2'), error => error.code === 'policy'); await assert.rejects(locked.editMessage('t', 'u2', { text: 'x' }), error => error.code === 'policy');
+});
+
+
+test('inline field mentions keep their position and label after reading the conversation', async () => {
+  const session = fakeSession(), { port } = createChatPort(session, context), { id } = await port.createThread();
+  const target = { kind: 'field', id: 'field:hero.title', label: 'Title' };
+  await port.send(id, input({ text: 'Shorten @Title please', mentions: [target] }));
+  assert.equal(session.calls[0][1].prompt, 'Shorten @Title please');
+  assert.deepEqual(port.messages(id).get()[0].mentions, [target]);
 });

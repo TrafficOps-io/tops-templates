@@ -1,3 +1,4 @@
+import { workspaceUrl } from './support/workspace-url.js';
 import { revealConversationTab } from './support/studio-chat.js';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -86,7 +87,7 @@ try {
       return response('validate_draft', {});
     };
   }, { png });
-  await page.goto(`http://127.0.0.1:${server.address().port}/`);
+  await page.goto(workspaceUrl(`http://127.0.0.1:${server.address().port}/`));
   await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor();
   const seeded = await seedAndOpen(page, { kind: 'landing', ...fixture });
   const collapse = page.getByRole('button', { name: 'Collapse editor', exact: true }); if (await collapse.count()) await collapse.click();
@@ -101,12 +102,11 @@ try {
   await page.getByText('Text model', { exact: true }).locator('..').locator('input').fill('test/vision');
   await page.getByText('Image model', { exact: true }).locator('..').locator('input').fill('test/image');
   await page.getByRole('button', { name: 'Save connection', exact: true }).click();
-  await page.getByRole('button', { name: 'Back to assistant', exact: true }).click();
-  // The former "Fill content" mode is the "Content only" scope of the composer.
+  await page.getByRole('button', { name: 'Back to project', exact: true }).click();
+  // Content edits use the same project assistant as source edits.
   const brief = 'Write a Polish article, 2600 characters, seven explicitly fictional sample reviews. Generate an illustration and use the attached person photo.';
   const compose = async () => {
-    await chat.chooseScope('Content only');
-    await chat.activeScope('Content only').waitFor();
+    assert.equal(await chat.scope.count(), 0, 'no mode selection is needed');
     await chat.prompt.fill(brief);
     await chat.attachmentInput.setInputFiles([{ name: 'site-reference.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') }, { name: 'person.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') }]);
     assert.equal(await chat.composer.locator('.studio-chip-attachment').count(), 2);
@@ -176,5 +176,5 @@ try {
   assert.equal((await frame.locator('article > p').textContent()).length, 2600);
   assert.equal(await frame.getByRole('img', { name: 'Ilustracja artykułu', exact: true }).evaluate(image => image.complete && image.naturalWidth > 0), true, 'inline article image survives Apply, autosave and reload');
   assert.deepEqual(errors, []);
-  console.log('PASS: Content-only scope, one agent loop with planner/reviewer subagents, streamed tool writes, 2600-character Polish article, seven sample reviews, vision references, generated images, Apply/Discard, atomic autosave, ZIP assets and reload.');
+  console.log('PASS: Unified assistant content edits, one agent loop with planner/reviewer subagents, streamed tool writes, 2600-character Polish article, seven sample reviews, vision references, generated images, Apply/Discard, atomic autosave, ZIP assets and reload.');
 } finally { await browser?.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
